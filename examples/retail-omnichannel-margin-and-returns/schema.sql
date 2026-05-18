@@ -11,18 +11,22 @@ CREATE TABLE stores (
   CHECK (closed_date IS NULL OR closed_date >= opened_date)
 );
 
-CREATE TABLE customer_identities (
-  customer_identity_id VARCHAR(30) PRIMARY KEY,
-  identity_mode VARCHAR(30) NOT NULL CHECK (identity_mode IN ('loyalty', 'known_guest', 'anonymous')),
-  loyalty_member_id VARCHAR(30),
+CREATE TABLE customers (
+  customer_id VARCHAR(30) PRIMARY KEY,
+  loyalty_member_id VARCHAR(30) UNIQUE,
   household_id VARCHAR(30),
+  payment_card_hash VARCHAR(128),
   email_hash VARCHAR(128),
   first_seen_at TIMESTAMP NOT NULL,
   pii_consent_status VARCHAR(30) NOT NULL CHECK (pii_consent_status IN ('granted', 'declined', 'unknown')),
-  CHECK (
-    (identity_mode = 'loyalty' AND loyalty_member_id IS NOT NULL)
-    OR identity_mode <> 'loyalty'
-  )
+  CHECK (loyalty_member_id IS NOT NULL OR payment_card_hash IS NOT NULL)
+);
+
+CREATE TABLE loyalty_point_balance (
+  loyalty_member_id VARCHAR(30) NOT NULL REFERENCES customers(loyalty_member_id),
+  balance_date DATE NOT NULL,
+  point_balance INTEGER NOT NULL CHECK (point_balance >= 0),
+  PRIMARY KEY (loyalty_member_id, balance_date)
 );
 
 CREATE TABLE product_skus (
@@ -67,7 +71,7 @@ CREATE TABLE retail_line_items (
   sold_at TIMESTAMP NOT NULL,
   store_id VARCHAR(20) NOT NULL REFERENCES stores(store_id),
   sku_id VARCHAR(30) NOT NULL REFERENCES product_skus(sku_id),
-  customer_identity_id VARCHAR(30) NOT NULL REFERENCES customer_identities(customer_identity_id),
+  customer_id VARCHAR(30) REFERENCES customers(customer_id),
   channel VARCHAR(30) NOT NULL CHECK (channel IN ('store', 'web', 'mobile')),
   fulfillment_method VARCHAR(30) NOT NULL CHECK (fulfillment_method IN ('cash_and_carry', 'ship_to_home', 'buy_online_pickup_store')),
   quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -118,4 +122,3 @@ CREATE TABLE inventory_snapshots (
   snapshot_source VARCHAR(30) NOT NULL CHECK (snapshot_source IN ('store_count', 'warehouse_management', 'ecommerce_available_to_sell')),
   UNIQUE (snapshot_date, store_id, sku_id)
 );
-

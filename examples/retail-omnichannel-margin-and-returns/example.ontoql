@@ -1,0 +1,1192 @@
+// OntoQL sketch for the retail omnichannel margin and returns example.
+//
+// This file is intentionally an in-situ language proposal, not executable code.
+// The idea is to hybridize:
+//
+//   - OntoUML-style named concepts, identity, temporal roles, phases, relators,
+//     events, and material relationships.
+//   - Malloy-style source definitions, joins, dimensions, measures, and queries.
+//
+// The guiding rule for this first version:
+//
+//   Concepts say what a thing means.
+//   Sources say where that meaning lives in data.
+//
+// A model can therefore distinguish "Product SKU", "Product Version at Sale",
+// "Sale Line", "Return Line", and "Inventory Position" before binding those
+// concepts to physical tables and SQL expressions.
+
+package retail.omnichannel_margin_returns
+
+// ---------------------------------------------------------------------------
+// 1. Semantic Concept Layer
+// ---------------------------------------------------------------------------
+//
+// These declarations are deliberately closer to OntoUML than to a database
+// schema. They name business concepts and describe identity, temporality, and
+// relationships before any table is mentioned.
+//
+// Stereotypes used in this sketch:
+//
+//   kind        A rigid sortal whose instances carry their own identity.
+//   role        A context-dependent concept played by a kind.
+//   phase       A temporal state of a kind.
+//   relator     A relationship object that mediates other concepts.
+//   event       A dated occurrence with participants.
+//   situation   A time-indexed state of affairs.
+//
+// The syntax is intentionally compact. It should feel like a modeler's view
+// over the domain, not a physical star schema.
+
+concept Store kind {
+  // A Store is identity-bearing even when it plays different operational roles:
+  // physical store, ecommerce node, or warehouse.
+  identity store_id
+
+  attributes:
+    store_code: Text unique
+    store_name: Text
+    channel_role: StoreChannelRole
+    region: Text
+    market: Text
+    opened_date: Date
+    closed_date: Date?
+    same_store_start_date: Date?
+
+  constraints:
+    closed_date is null or closed_date >= opened_date
+}
+
+concept SameStore role of Store {
+  // This is not a separate table. It is a semantic role played by Store when
+  // same_store_start_date exists. The mapped source below can expose it as a
+  // boolean dimension.
+  definition: same_store_start_date is not null
+}
+
+concept Customer kind {
+  // A customer record exists only when the retailer recognized the shopper,
+  // either because a loyalty number was used or because a payment card created
+  // a stable customer key. Unrecognized cash purchases have no Customer
+  // participant; the sale line's customer_id is null.
+  identity customer_id
+
+  attributes:
+    household_id: Text?
+    payment_card_hash: Text?
+    email_hash: Text?
+    first_seen_at: Timestamp
+    pii_consent_status: ConsentStatus
+}
+
+concept LoyaltyCustomer role of Customer {
+  definition: loyalty_member_id is not null
+
+  // Semantically this attribute belongs to the loyalty role, even though the
+  // physical source stores it on the broader customers table.
+  attributes:
+    loyalty_member_id: Text unique
+
+  relationships:
+    point_balances: LoyaltyPointBalance many
+}
+
+concept PaymentCardRecognizedCustomer role of Customer {
+  // This role covers customers recognized by repeat payment-card use without a
+  // loyalty membership. The model deliberately does not create a fake anonymous
+  // customer for unrecognized cash purchases.
+  definition: loyalty_member_id is null and payment_card_hash is not null
+}
+
+concept LoyaltyPointBalance situation {
+  // Daily state attached only to loyalty customers. Payment-card recognized
+  // customers and unrecognized cash purchases do not have this extra balance
+  // history.
+  identity loyalty_balance_key
+  observed_at balance_date
+
+  participants:
+    loyalty_customer: LoyaltyCustomer exactly 1
+
+  attributes:
+    point_balance: Number
+}
+
+concept ProductSKU kind {
+  // The SKU carries stable identity. Category, brand, list price, lifecycle
+  // status, and standard cost are time-versioned in ProductSKUVersion.
+  identity sku_id
+
+  attributes:
+    sku_number: Text unique
+    upc_code: Text?
+    created_at: Timestamp
+}
+
+concept ProductSKUVersion phase of ProductSKU {
+  // This models a valid-time product description. It is a phase because it
+  // depends on time and belongs to exactly one ProductSKU.
+  identity product_version_id
+  temporal valid_from .. valid_to
+
+  attributes:
+    product_name: Text
+    brand: Text
+    department: Text
+    category_name: Text
+    subcategory_name: Text
+    lifecycle_status: ProductLifecycleStatus
+    list_price: Money
+    standard_cost: Money
+
+  constraints:
+    valid_to > valid_from
+}
+
+concept ActiveProduct phase of ProductSKUVersion {
+  definition: lifecycle_status = #active
+}
+
+concept Promotion relator {
+  // A promotion is modeled as a relator because it mediates commercial
+  // discounting between retail sales, customers/products/channels, and funders.
+  identity promotion_id
+  temporal starts_at .. ends_at
+
+  attributes:
+    promo_code: Text unique
+    promotion_name: Text
+    promotion_type: PromotionType
+    funding_source: PromotionFundingSource
+
+  constraints:
+    ends_at > starts_at
+}
+
+concept RetailSaleLine event {
+  // The analytical center of the package. This is an event, not a product or a
+  // transaction header: it is one sold SKU line at a timestamp, participating in
+  // a transaction and connected to store, an optional recognized customer, and SKU.
+  identity line_item_id
+  occurs_at sold_at
+
+  participants:
+    store: Store exactly 1
+    customer: Customer at most 1
+    sku: ProductSKU exactly 1
+    product_at_sale: ProductSKUVersion exactly 1
+    loyalty_points_at_sale: LoyaltyPointBalance at most 1
+
+  attributes:
+    transaction_id: Text
+    line_number: Number
+    channel: SalesChannel
+    fulfillment_method: FulfillmentMethod
+    quantity: Number
+    unit_list_price: Money
+    gross_sales_amount: Money
+    discount_amount: Money
+    net_sales_amount: Money
+    merchandise_cost_amount: Money
+    tax_amount: Money
+
+  derives:
+    margin_amount: Money = net_sales_amount - merchandise_cost_amount
+    loyalty_point_balance_at_sale: Number? =
+      loyalty_points_at_sale.point_balance
+}
+
+concept PromotionAllocation relator {
+  // The physical table is a bridge. Semantically it is the object that says
+  // "this promotion funded this amount of discount on this sale line".
+  identity sale_promotion_key
+
+  relates:
+    sale_line: RetailSaleLine exactly 1
+    promotion: Promotion exactly 1
+
+  attributes:
+    allocation_amount: Money
+    allocation_basis: PromotionAllocationBasis
+}
+
+concept ReturnLine event {
+  // ReturnLine is linked to the original sale line. A return can be authorized,
+  // received, accepted, rejected, or settled; only settled lines have settled_at.
+  identity return_line_id
+  occurs_at returned_at
+
+  participants:
+    original_sale_line: RetailSaleLine exactly 1
+
+  attributes:
+    return_authorization_id: Text
+    return_channel: ReturnChannel
+    return_status: ReturnStatus
+    returned_quantity: Number
+    refund_amount: Money
+    restocking_fee_amount: Money
+    reason_code: Text
+    settled_at: Timestamp?
+
+  constraints:
+    return_status = #settled implies settled_at is not null
+}
+
+concept InventoryPosition situation {
+  // A daily SKU/store inventory state. It is intentionally separate from sales
+  // because it has a different grain: one row per date, store, and SKU.
+  identity inventory_snapshot_id
+  observed_at snapshot_date
+
+  participants:
+    store: Store exactly 1
+    sku: ProductSKU exactly 1
+    product_at_snapshot: ProductSKUVersion exactly 1
+
+  attributes:
+    on_hand_units: Number
+    on_order_units: Number
+    reserved_units: Number
+    damaged_units: Number
+    snapshot_source: InventorySnapshotSource
+
+  derives:
+    available_to_sell_units: Number =
+      on_hand_units - reserved_units - damaged_units
+
+    is_negative_on_hand: Boolean =
+      on_hand_units < 0
+}
+
+// Enumerations are semantic vocabularies. The source mappings below bind them
+// to string values in the database.
+
+enum StoreChannelRole {
+  #physical_store = 'physical_store'
+  #ecommerce = 'ecommerce'
+  #warehouse = 'warehouse'
+}
+
+enum ConsentStatus {
+  #granted = 'granted'
+  #declined = 'declined'
+  #unknown = 'unknown'
+}
+
+enum ProductLifecycleStatus {
+  #active = 'active'
+  #discontinued = 'discontinued'
+  #recalled = 'recalled'
+}
+
+enum PromotionType {
+  #coupon = 'coupon'
+  #markdown = 'markdown'
+  #loyalty_offer = 'loyalty_offer'
+  #free_shipping = 'free_shipping'
+}
+
+enum PromotionFundingSource {
+  #retailer = 'retailer'
+  #vendor = 'vendor'
+  #shared = 'shared'
+}
+
+enum SalesChannel {
+  #store = 'store'
+  #web = 'web'
+  #mobile = 'mobile'
+}
+
+enum FulfillmentMethod {
+  #cash_and_carry = 'cash_and_carry'
+  #ship_to_home = 'ship_to_home'
+  #buy_online_pickup_store = 'buy_online_pickup_store'
+}
+
+enum PromotionAllocationBasis {
+  #line_discount = 'line_discount'
+  #order_proration = 'order_proration'
+  #shipping_credit = 'shipping_credit'
+}
+
+enum ReturnChannel {
+  #store = 'store'
+  #mail = 'mail'
+  #carrier_pickup = 'carrier_pickup'
+}
+
+enum ReturnStatus {
+  #authorized = 'authorized'
+  #received = 'received'
+  #accepted = 'accepted'
+  #rejected = 'rejected'
+  #settled = 'settled'
+}
+
+enum InventorySnapshotSource {
+  #store_count = 'store_count'
+  #warehouse_management = 'warehouse_management'
+  #ecommerce_available_to_sell = 'ecommerce_available_to_sell'
+}
+
+// ---------------------------------------------------------------------------
+// 2. Source Binding Layer
+// ---------------------------------------------------------------------------
+//
+// This is the Malloy-esque half of the proposal. A source can be bound to a
+// semantic concept using `maps`. The fields, joins, dimensions, and measures
+// are still practical analytical definitions, but they are anchored to the
+// ontology above.
+//
+// Suggested reading:
+//
+//   source: retail_line_items is table('retail_line_items') maps RetailSaleLine
+//
+// means:
+//
+//   This table is not merely a table. Each row is a RetailSaleLine event.
+//   The primary key maps to the concept identity.
+//   The joins map participants declared on the concept.
+//   The dimensions/measures are queryable Malloy-like fields.
+
+source: stores is table('stores') maps Store extend {
+  primary_key: store_id maps Store.identity
+
+  field:
+    store_code maps Store.store_code
+    store_name maps Store.store_name
+    channel_role maps Store.channel_role as StoreChannelRole
+    region maps Store.region
+    market maps Store.market
+    opened_date maps Store.opened_date
+    closed_date maps Store.closed_date
+    same_store_start_date maps Store.same_store_start_date
+
+  dimension:
+    store_label is concat(store_code, ' - ', store_name)
+
+    // This dimension operationalizes the SameStore role declared above.
+    is_same_store_eligible maps SameStore is
+      same_store_start_date is not null
+}
+
+source: customers is table('customers') maps Customer extend {
+  primary_key: customer_id maps Customer.identity
+
+  join_many: point_balances maps LoyaltyCustomer.point_balances is loyalty_point_balance
+    on loyalty_member_id = point_balances.loyalty_member_id
+
+  field:
+    loyalty_member_id maps LoyaltyCustomer.loyalty_member_id
+    household_id maps Customer.household_id
+    payment_card_hash maps Customer.payment_card_hash
+    email_hash maps Customer.email_hash
+    first_seen_at maps Customer.first_seen_at
+    pii_consent_status maps Customer.pii_consent_status as ConsentStatus
+
+  dimension:
+    is_loyalty_customer maps LoyaltyCustomer is
+      loyalty_member_id is not null
+
+    is_payment_card_recognized maps PaymentCardRecognizedCustomer is
+      loyalty_member_id is null and payment_card_hash is not null
+
+    recognition_method is case
+      when loyalty_member_id is not null then 'loyalty'
+      when payment_card_hash is not null then 'payment_card'
+      else 'unknown'
+    end
+}
+
+source: loyalty_point_balance is table('loyalty_point_balance') maps LoyaltyPointBalance extend {
+  primary_key: concat(loyalty_member_id, '|', balance_date) maps LoyaltyPointBalance.identity
+
+  observed_at: balance_date maps LoyaltyPointBalance.observed_at
+
+  join_one: loyalty_customer maps LoyaltyPointBalance.loyalty_customer is customers
+    on loyalty_member_id = loyalty_customer.loyalty_member_id
+
+  field:
+    point_balance maps LoyaltyPointBalance.point_balance
+
+  measure:
+    balance_days is count()
+    loyalty_members_with_balance is count(distinct loyalty_member_id)
+    point_balance_at_filter is max(point_balance)
+    average_point_balance is avg(point_balance)
+
+  view: daily_loyalty_balances is {
+    group_by:
+      balance_date
+      loyalty_member_id
+      loyalty_customer.pii_consent_status
+    aggregate:
+      point_balance_at_filter
+  }
+}
+
+source: product_skus is table('product_skus') maps ProductSKU extend {
+  primary_key: sku_id maps ProductSKU.identity
+
+  field:
+    sku_number maps ProductSKU.sku_number
+    upc_code maps ProductSKU.upc_code
+    created_at maps ProductSKU.created_at
+}
+
+source: product_sku_history is table('product_sku_history') maps ProductSKUVersion extend {
+  primary_key: product_version_id maps ProductSKUVersion.identity
+
+  join_one: sku maps ProductSKU is product_skus
+    on sku_id = sku.sku_id
+
+  temporal:
+    valid_from maps ProductSKUVersion.valid_from
+    valid_to maps ProductSKUVersion.valid_to
+
+  field:
+    product_name maps ProductSKUVersion.product_name
+    brand maps ProductSKUVersion.brand
+    department maps ProductSKUVersion.department
+    category_name maps ProductSKUVersion.category_name
+    subcategory_name maps ProductSKUVersion.subcategory_name
+    lifecycle_status maps ProductSKUVersion.lifecycle_status as ProductLifecycleStatus
+    list_price maps ProductSKUVersion.list_price
+    standard_cost maps ProductSKUVersion.standard_cost
+
+  dimension:
+    category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
+
+    is_active_product maps ActiveProduct is
+      lifecycle_status = 'active'
+
+    category_at_event is category_name
+}
+
+source: promotions is table('promotions') maps Promotion extend {
+  primary_key: promotion_id maps Promotion.identity
+
+  temporal:
+    starts_at maps Promotion.starts_at
+    ends_at maps Promotion.ends_at
+
+  field:
+    promo_code maps Promotion.promo_code
+    promotion_name maps Promotion.promotion_name
+    promotion_type maps Promotion.promotion_type as PromotionType
+    funding_source maps Promotion.funding_source as PromotionFundingSource
+
+  dimension:
+    is_vendor_funded is funding_source = 'vendor'
+}
+
+source: line_item_promotions is table('line_item_promotions') maps PromotionAllocation extend {
+  primary_key: concat(line_item_id, '|', promotion_id) maps PromotionAllocation.identity
+
+  join_one: sale_line maps PromotionAllocation.sale_line is retail_line_items
+    on line_item_id = sale_line.line_item_id
+
+  join_one: promotion maps PromotionAllocation.promotion is promotions
+    on promotion_id = promotion.promotion_id
+
+  field:
+    allocation_amount maps PromotionAllocation.allocation_amount
+    allocation_basis maps PromotionAllocation.allocation_basis as PromotionAllocationBasis
+
+  measure:
+    allocated_discount is sum(allocation_amount)
+    vendor_funded_discount is sum(
+      case when promotion.funding_source = 'vendor' then allocation_amount else 0 end
+    )
+    promotion_count is count()
+}
+
+source: return_lines is table('return_lines') maps ReturnLine extend {
+  primary_key: return_line_id maps ReturnLine.identity
+
+  occurs_at: returned_at maps ReturnLine.occurs_at
+
+  join_one: original_sale_line maps ReturnLine.original_sale_line is retail_line_items
+    on original_line_item_id = original_sale_line.line_item_id
+
+  field:
+    return_authorization_id maps ReturnLine.return_authorization_id
+    return_channel maps ReturnLine.return_channel as ReturnChannel
+    return_status maps ReturnLine.return_status as ReturnStatus
+    returned_quantity maps ReturnLine.returned_quantity
+    refund_amount maps ReturnLine.refund_amount
+    restocking_fee_amount maps ReturnLine.restocking_fee_amount
+    reason_code maps ReturnLine.reason_code
+    settled_at maps ReturnLine.settled_at
+
+  measure:
+    return_authorizations is count(distinct return_authorization_id)
+    returned_units is sum(returned_quantity)
+    settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
+    refund_amount is sum(refund_amount)
+    settled_refund_amount is sum(case when return_status = 'settled' then refund_amount else 0 end)
+    restocking_fees is sum(restocking_fee_amount)
+
+  view: return_lifecycle is {
+    group_by:
+      returned_month is returned_at.month
+      return_channel
+      return_status
+      reason_code
+    aggregate:
+      return_authorizations
+      returned_units
+      refund_amount
+      restocking_fees
+  }
+}
+
+source: retail_line_items is table('retail_line_items') maps RetailSaleLine extend {
+  primary_key: line_item_id maps RetailSaleLine.identity
+
+  occurs_at: sold_at maps RetailSaleLine.occurs_at
+
+  // These joins are not just relational paths. Each one binds a participant
+  // declared in the RetailSaleLine event concept.
+  join_one: store maps RetailSaleLine.store is stores
+    on store_id = store.store_id
+
+  join_one: customer maps RetailSaleLine.customer is customers
+    on customer_id = customer.customer_id
+
+  // Optional role-specific context: only loyalty customers can match a daily
+  // point balance at the sale date.
+  join_one: loyalty_points_at_sale maps RetailSaleLine.loyalty_points_at_sale is loyalty_point_balance
+    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
+    and sold_at.date = loyalty_points_at_sale.balance_date
+
+  join_one: sku maps RetailSaleLine.sku is product_skus
+    on sku_id = sku.sku_id
+
+  // Valid-time semantic join: this binds the product phase that was true when
+  // the sale happened, avoiding the common analytics bug of joining to the
+  // current product category for old sales.
+  join_one: product_at_sale maps RetailSaleLine.product_at_sale is product_sku_history
+    on sku_id = product_at_sale.sku_id
+    and sold_at >= product_at_sale.valid_from
+    and sold_at < product_at_sale.valid_to
+
+  join_many: promotion_allocations is line_item_promotions
+    on line_item_id = promotion_allocations.line_item_id
+
+  join_many: returns is return_lines
+    on line_item_id = returns.original_line_item_id
+
+  field:
+    transaction_id maps RetailSaleLine.transaction_id
+    line_number maps RetailSaleLine.line_number
+    channel maps RetailSaleLine.channel as SalesChannel
+    fulfillment_method maps RetailSaleLine.fulfillment_method as FulfillmentMethod
+    quantity maps RetailSaleLine.quantity
+    unit_list_price maps RetailSaleLine.unit_list_price
+    gross_sales_amount maps RetailSaleLine.gross_sales_amount
+    discount_amount maps RetailSaleLine.discount_amount
+    net_sales_amount maps RetailSaleLine.net_sales_amount
+    merchandise_cost_amount maps RetailSaleLine.merchandise_cost_amount
+    tax_amount maps RetailSaleLine.tax_amount
+
+  dimension:
+    sold_date is sold_at.date
+    sold_month is sold_at.month
+
+    margin_amount maps RetailSaleLine.margin_amount is
+      net_sales_amount - merchandise_cost_amount
+
+    customer_recognition_method is case
+      when customer_id is null then 'unrecognized_cash'
+      when customer is LoyaltyCustomer then 'loyalty'
+      when customer is PaymentCardRecognizedCustomer then 'payment_card'
+      else 'known_other'
+    end
+
+    loyalty_point_balance_at_sale maps RetailSaleLine.loyalty_point_balance_at_sale is
+      loyalty_points_at_sale.point_balance
+
+    is_return_window_open is sold_at >= now() - interval('30 day')
+
+  measure:
+    line_items is count()
+    transactions is count(distinct transaction_id)
+    units_sold is sum(quantity)
+    gross_sales is sum(gross_sales_amount)
+    discount_amount is sum(discount_amount)
+    net_sales is sum(net_sales_amount)
+    merchandise_cost is sum(merchandise_cost_amount)
+    merchandising_margin is sum(net_sales_amount - merchandise_cost_amount)
+    tax_collected is sum(tax_amount)
+
+    // These measures use semantic roles from the concept layer.
+    loyalty_customers is count(distinct case when customer is LoyaltyCustomer then customer.loyalty_member_id end)
+    identified_customers is count(distinct customer.customer_id)
+    identified_customer_transactions is count(distinct case when customer is not null then transaction_id end)
+    unrecognized_cash_transactions is count(distinct case when customer is null then transaction_id end)
+    known_customer_transactions is count(distinct case when customer is not null then transaction_id end)
+    identified_transactions_per_customer is identified_customer_transactions / nullif(identified_customers, 0)
+    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
+
+    // Relator traversal: allocation rows are still queryable as a Malloy-style
+    // join_many, but the concept layer explains why they exist.
+    promotion_discount is promotion_allocations.sum(allocation_amount)
+    vendor_funded_discount is promotion_allocations.sum(
+      case when promotion_allocations.promotion.funding_source = 'vendor' then allocation_amount else 0 end
+    )
+
+    returned_units is returns.sum(returned_quantity)
+    settled_returned_units is returns.sum(case when return_status = 'settled' then returned_quantity else 0 end)
+    refund_amount is returns.sum(refund_amount)
+    settled_refund_amount is returns.sum(case when return_status = 'settled' then refund_amount else 0 end)
+    return_rate is returned_units / nullif(units_sold, 0)
+    settled_return_rate is settled_returned_units / nullif(units_sold, 0)
+    net_after_settled_refunds is net_sales - settled_refund_amount
+
+  view: sales_by_region_category is {
+    // This view is nearly normal Malloy. The difference is that each path is
+    // known to be a path through semantic participants:
+    // RetailSaleLine -> Store, RetailSaleLine -> ProductSKUVersion, etc.
+    group_by:
+      sold_month
+      channel
+      store.region
+      store.market
+      product_at_sale.department
+      product_at_sale.category_name
+    aggregate:
+      transactions
+      units_sold
+      gross_sales
+      discount_amount
+      net_sales
+      merchandising_margin
+      settled_refund_amount
+      settled_returned_units
+      net_after_settled_refunds
+  }
+
+  view: loyalty_margin_mix is {
+    group_by:
+      sold_month
+      customer_recognition_method
+      customer.pii_consent_status
+      product_at_sale.category_name
+    aggregate:
+      transactions
+      loyalty_customers
+      known_customer_transactions
+      average_loyalty_point_balance_at_sale
+      net_sales
+      merchandising_margin
+      refund_amount
+  }
+
+  view: promotion_performance is {
+    group_by:
+      sold_month
+      channel
+      promotion_allocations.promotion.promo_code
+      promotion_allocations.promotion.promotion_type
+      promotion_allocations.promotion.funding_source
+    aggregate:
+      units_sold
+      net_sales
+      promotion_discount
+      vendor_funded_discount
+      merchandising_margin
+      refund_amount
+  }
+
+  view: return_drilldown is {
+    group_by:
+      sold_month
+      store.region
+      product_at_sale.category_name
+      returns.return_channel
+      returns.return_status
+      returns.reason_code
+    aggregate:
+      units_sold
+      returned_units
+      settled_returned_units
+      refund_amount
+      settled_refund_amount
+      return_rate
+      settled_return_rate
+  }
+}
+
+source: inventory_snapshots is table('inventory_snapshots') maps InventoryPosition extend {
+  primary_key: inventory_snapshot_id maps InventoryPosition.identity
+
+  observed_at: snapshot_date maps InventoryPosition.observed_at
+
+  join_one: store maps InventoryPosition.store is stores
+    on store_id = store.store_id
+
+  join_one: sku maps InventoryPosition.sku is product_skus
+    on sku_id = sku.sku_id
+
+  join_one: product_at_snapshot maps InventoryPosition.product_at_snapshot is product_sku_history
+    on sku_id = product_at_snapshot.sku_id
+    and snapshot_date >= product_at_snapshot.valid_from
+    and snapshot_date < product_at_snapshot.valid_to
+
+  field:
+    on_hand_units maps InventoryPosition.on_hand_units
+    on_order_units maps InventoryPosition.on_order_units
+    reserved_units maps InventoryPosition.reserved_units
+    damaged_units maps InventoryPosition.damaged_units
+    snapshot_source maps InventoryPosition.snapshot_source as InventorySnapshotSource
+
+  dimension:
+    available_to_sell_units maps InventoryPosition.available_to_sell_units is
+      on_hand_units - reserved_units - damaged_units
+
+    is_negative_on_hand maps InventoryPosition.is_negative_on_hand is
+      on_hand_units < 0
+
+  measure:
+    snapshot_rows is count()
+    on_hand_units_at_filter is max(on_hand_units)
+    on_order_units_at_filter is max(on_order_units)
+    reserved_units_at_filter is max(reserved_units)
+    damaged_units_at_filter is max(damaged_units)
+    available_to_sell_at_filter is max(on_hand_units - reserved_units - damaged_units)
+    negative_on_hand_locations is count(case when on_hand_units < 0 then inventory_snapshot_id end)
+
+  view: daily_inventory_by_store_sku is {
+    group_by:
+      snapshot_date
+      store.region
+      store.store_code
+      sku.sku_number
+      product_at_snapshot.category_name
+      product_at_snapshot.lifecycle_status
+    aggregate:
+      on_hand_units_at_filter
+      reserved_units_at_filter
+      damaged_units_at_filter
+      available_to_sell_at_filter
+      negative_on_hand_locations
+  }
+
+  view: category_inventory_snapshot is {
+    group_by:
+      snapshot_date
+      store.region
+      product_at_snapshot.department
+      product_at_snapshot.category_name
+    aggregate:
+      snapshot_rows
+      on_hand_units_at_filter
+      on_order_units_at_filter
+      available_to_sell_at_filter
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3. Semantic Queries
+// ---------------------------------------------------------------------------
+//
+// Queries stay Malloy-shaped, but their starting source has a declared concept.
+// A future OntoQL compiler could validate, for example, that `product_at_sale`
+// is a valid-time ProductSKUVersion participant of RetailSaleLine, or that
+// ReturnLine only attaches to RetailSaleLine rather than to an inventory row.
+//
+// The comments before each query sketch how an agent might discover enough
+// context to write the query from only a business question. These are
+// hypothetical MCP calls, not a required OntoQL runtime API. The important idea
+// is the workflow:
+//
+//   1. Turn business terms into candidate semantic concepts.
+//   2. Ask the ontology how those concepts relate.
+//   3. Ask the catalog which sources map those concepts.
+//   4. Ask the metric layer which dimensions/measures already exist.
+//   5. Draft and validate the OntoQL query against the semantic/source model.
+
+query: monthly_margin_and_returns is RetailSaleLine from retail_line_items -> {
+  // Business question:
+  //   "Show monthly margin and returns by region and product category."
+  //
+  // Possible agent discovery trace:
+  //
+  //   mcp.semantic.search_terms({
+  //     question: "monthly margin and returns by region and product category"
+  //   })
+  //   -> concepts: RetailSaleLine, ReturnLine, Store, ProductSKUVersion
+  //   -> measures: net sales, merchandising margin, settled refunds, return rate
+  //   -> dimensions: month, region, category
+  //
+  //   mcp.ontology.describe_concept({ concept: "RetailSaleLine" })
+  //   -> event with participants store: Store, product_at_sale: ProductSKUVersion,
+  //      returns: ReturnLine via original_sale_line
+  //
+  //   mcp.catalog.sources_for_concept({ concept: "RetailSaleLine" })
+  //   -> retail_line_items, primary key line_item_id, occurs_at sold_at
+  //
+  //   mcp.catalog.describe_source({ source: "retail_line_items" })
+  //   -> dimensions sold_month, store.region, product_at_sale.category_name
+  //   -> measures net_sales, merchandising_margin, settled_refund_amount,
+  //      net_after_settled_refunds, settled_return_rate
+  //
+  //   mcp.query.validate({
+  //     from: "retail_line_items",
+  //     group_by: ["sold_month", "store.region", "product_at_sale.category_name"],
+  //     aggregate: ["net_sales", "merchandising_margin",
+  //                 "settled_refund_amount", "net_after_settled_refunds",
+  //                 "settled_return_rate"]
+  //   })
+  //   -> valid; all paths are reachable from RetailSaleLine
+  group_by:
+    sold_month
+    store.region
+    product_at_sale.category_name
+  aggregate:
+    net_sales
+    merchandising_margin
+    settled_refund_amount
+    net_after_settled_refunds
+    settled_return_rate
+}
+
+query: inventory_exceptions is InventoryPosition from inventory_snapshots -> {
+  // Business question:
+  //   "Which store/SKU inventory positions look wrong or risky?"
+  //
+  // Possible agent discovery trace:
+  //
+  //   mcp.semantic.search_terms({
+  //     question: "inventory exceptions negative on hand recalled discontinued"
+  //   })
+  //   -> concepts: InventoryPosition, Store, ProductSKU, ProductSKUVersion
+  //   -> exception candidates: negative on hand, recalled product,
+  //      discontinued product
+  //
+  //   mcp.ontology.describe_concept({ concept: "InventoryPosition" })
+  //   -> situation observed_at snapshot_date with participants store, sku,
+  //      product_at_snapshot
+  //
+  //   mcp.catalog.sources_for_concept({ concept: "InventoryPosition" })
+  //   -> inventory_snapshots, grain: snapshot_date + store + sku
+  //
+  //   mcp.catalog.describe_source({ source: "inventory_snapshots" })
+  //   -> dimensions is_negative_on_hand, product_at_snapshot.lifecycle_status,
+  //      store.store_code, sku.sku_number, product_at_snapshot.product_name
+  //   -> measures on_hand_units_at_filter, damaged_units_at_filter,
+  //      available_to_sell_at_filter
+  //
+  //   mcp.ontology.value_set({
+  //     enum: "ProductLifecycleStatus",
+  //     business_terms: ["recalled", "discontinued"]
+  //   })
+  //   -> values: 'recalled', 'discontinued'
+  //
+  //   mcp.query.validate({
+  //     from: "inventory_snapshots",
+  //     where: "is_negative_on_hand or product_at_snapshot.lifecycle_status in (...)"
+  //   })
+  //   -> valid; ProductSKUVersion is joined using snapshot_date valid time
+  where:
+    is_negative_on_hand
+    or product_at_snapshot.lifecycle_status in ('recalled', 'discontinued')
+  group_by:
+    snapshot_date
+    store.store_code
+    sku.sku_number
+    product_at_snapshot.product_name
+    product_at_snapshot.lifecycle_status
+  aggregate:
+    on_hand_units_at_filter
+    damaged_units_at_filter
+    available_to_sell_at_filter
+}
+
+query: vendor_funded_return_exposure is RetailSaleLine from retail_line_items -> {
+  // Example of why the hybrid is useful:
+  //
+  // Business question:
+  //   "Where are vendor-funded promotions creating returns exposure?"
+  //
+  // Semantic path:
+  //   RetailSaleLine event
+  //     -> PromotionAllocation relator
+  //     -> Promotion relator with funding_source = vendor
+  //     -> ReturnLine events against the original sale line
+  //
+  // Physical implementation:
+  //   retail_line_items
+  //     left join line_item_promotions
+  //     join promotions
+  //     left join return_lines
+  //
+  // Possible agent discovery trace:
+  //
+  //   mcp.semantic.search_terms({
+  //     question: "Where are vendor-funded promotions creating returns exposure?"
+  //   })
+  //   -> concepts: RetailSaleLine, PromotionAllocation, Promotion, ReturnLine
+  //   -> dimensions: month, channel, region, department, category, promo code
+  //   -> measures: units sold, net sales, vendor-funded discount, margin,
+  //      returned units, settled refunds, settled return rate
+  //
+  //   mcp.ontology.find_paths({
+  //     from: "RetailSaleLine",
+  //     to: ["Promotion", "ReturnLine"]
+  //   })
+  //   -> RetailSaleLine -> PromotionAllocation -> Promotion
+  //   -> RetailSaleLine -> ReturnLine
+  //
+  //   mcp.catalog.sources_for_concepts({
+  //     concepts: ["RetailSaleLine", "PromotionAllocation", "Promotion", "ReturnLine"]
+  //   })
+  //   -> retail_line_items, line_item_promotions, promotions, return_lines
+  //
+  //   mcp.catalog.join_plan({
+  //     root_source: "retail_line_items",
+  //     concepts: ["Promotion", "ReturnLine"]
+  //   })
+  //   -> join_many promotion_allocations on line_item_id
+  //   -> join_one promotion through promotion_allocations.promotion_id
+  //   -> join_many returns on line_item_id = returns.original_line_item_id
+  //
+  //   mcp.ontology.value_set({
+  //     enum: "PromotionFundingSource",
+  //     business_terms: ["vendor-funded"]
+  //   })
+  //   -> value: 'vendor'
+  //
+  //   mcp.metrics.search({
+  //     source: "retail_line_items",
+  //     terms: ["vendor funded discount", "settled return rate", "margin"]
+  //   })
+  //   -> vendor_funded_discount, settled_return_rate, merchandising_margin
+  //
+  //   mcp.query.validate({
+  //     from: "retail_line_items",
+  //     where: "promotion_allocations.promotion.funding_source = 'vendor'",
+  //     aggregate: ["units_sold", "net_sales", "vendor_funded_discount",
+  //                 "merchandising_margin", "returned_units",
+  //                 "settled_refund_amount", "settled_return_rate"]
+  //   })
+  //   -> valid; warning: promotion_allocations is one-to-many, so measures that
+  //      cross sale and promotion grain should use declared fanout-safe measures
+  where:
+    promotion_allocations.promotion is Promotion
+    and promotion_allocations.promotion.funding_source = 'vendor'
+  group_by:
+    sold_month
+    channel
+    store.region
+    product_at_sale.department
+    product_at_sale.category_name
+    promotion_allocations.promotion.promo_code
+  aggregate:
+    units_sold
+    net_sales
+    vendor_funded_discount
+    merchandising_margin
+    returned_units
+    settled_refund_amount
+    settled_return_rate
+}
+
+query: denver_store_customer_count_on_2025_09_15 is RetailSaleLine from retail_line_items -> {
+  // Example of a deliberately tricky business question:
+  //
+  // Business question:
+  //   "How many customers did the Denver store have on 9/15/2025?"
+  //
+  // The trap:
+  //   The source does not observe every natural person. It observes transactions,
+  //   and it sometimes links those transactions to a recognized Customer. Cash
+  //   purchases without a loyalty number or recognized payment card have
+  //   customer_id = null. OntoQL should therefore avoid returning a single exact
+  //   "customers" number unless the semantic model proves all buyers are known.
+  //
+  // Possible agent discovery trace:
+  //
+  //   mcp.semantic.search_terms({
+  //     question: "How many customers did the Denver store have on 9/15/2025?"
+  //   })
+  //   -> concepts: RetailSaleLine, Store, Customer
+  //   -> dimensions: store, sold date
+  //   -> candidate measures: transactions, identified customers,
+  //      identified customer transactions, unrecognized cash transactions
+  //
+  //   mcp.ontology.describe_concept({ concept: "RetailSaleLine" })
+  //   -> event with optional participant customer: Customer at most 1
+  //   -> warning: customer is optional; null customer_id means the buyer was not
+  //      recognized, not that there was no customer
+  //
+  //   mcp.ontology.describe_concept({ concept: "Customer" })
+  //   -> Customer records exist only for recognized shoppers
+  //   -> LoyaltyCustomer when loyalty_member_id is not null
+  //   -> PaymentCardRecognizedCustomer when payment_card_hash is present without
+  //      loyalty membership
+  //
+  //   mcp.catalog.resolve_entity({
+  //     concept: "Store",
+  //     business_name: "Denver store"
+  //   })
+  //   -> source: stores
+  //   -> filter: store.store_code = 'DEN-01'
+  //   -> store_name: "Denver Cherry Creek"
+  //
+  //   mcp.catalog.describe_source({ source: "retail_line_items" })
+  //   -> grain: one sold SKU line
+  //   -> transaction_id identifies a basket/checkout
+  //   -> customer_id is nullable
+  //   -> measures: transactions, identified_customers,
+  //      identified_customer_transactions, unrecognized_cash_transactions,
+  //      identified_transactions_per_customer
+  //
+  //   mcp.query.validate({
+  //     from: "retail_line_items",
+  //     where: "sold_date = date '2025-09-15' and store.store_code = 'DEN-01'",
+  //     aggregate: ["transactions", "identified_customers",
+  //                 "identified_customer_transactions",
+  //                 "unrecognized_cash_transactions"]
+  //   })
+  //   -> valid; warning: exact unique customers is underdetermined because
+  //      unrecognized_cash_transactions do not carry customer identity
+  //
+  //   mcp.query.run(...)
+  //   -> transactions: 7500
+  //   -> identified_customer_transactions: 4000
+  //   -> identified_customers: 3700
+  //   -> unrecognized_cash_transactions: 3500
+  //
+  //   mcp.reasoning.derive({
+  //     facts: {
+  //       transactions: 7500,
+  //       identified_customer_transactions: 4000,
+  //       identified_customers: 3700,
+  //       unrecognized_cash_transactions: 3500
+  //     },
+  //     formulas: [
+  //       "max_possible_unique_customers = identified_customers + unrecognized_cash_transactions",
+  //       "identified_transactions_per_customer = identified_customer_transactions / identified_customers",
+  //       "estimated_unrecognized_customers_same_repeat_rate = unrecognized_cash_transactions / identified_transactions_per_customer",
+  //       "estimated_total_customers_same_repeat_rate = identified_customers + estimated_unrecognized_customers_same_repeat_rate"
+  //     ]
+  //   })
+  //   -> max_possible_unique_customers: 7200
+  //   -> identified_transactions_per_customer: 1.0811
+  //   -> estimated_unrecognized_customers_same_repeat_rate: 3238
+  //   -> estimated_total_customers_same_repeat_rate: 6938
+  //
+  // Best response:
+  //   "Denver Cherry Creek had 7,500 transactions on September 15, 2025.
+  //    4,000 of those transactions were linked to 3,700 identified customers.
+  //    The remaining 3,500 transactions were unrecognized cash purchases, so
+  //    the exact customer count is not knowable from this data. The upper bound
+  //    is 7,200 unique customers if every unrecognized cash transaction was a
+  //    different person. If anonymous buyers repeated at the same rate as
+  //    identified buyers, the estimate is about 6,938 unique customers."
+  where:
+    sold_date = date '2025-09-15'
+    and store.store_code = 'DEN-01'
+  aggregate:
+    transactions
+    identified_customer_transactions
+    identified_customers
+    unrecognized_cash_transactions
+    identified_transactions_per_customer
+
+    max_possible_unique_customers is
+      identified_customers + unrecognized_cash_transactions
+
+    estimated_unrecognized_customers_same_repeat_rate is
+      unrecognized_cash_transactions / nullif(identified_transactions_per_customer, 0)
+
+    estimated_total_customers_same_repeat_rate is
+      identified_customers + estimated_unrecognized_customers_same_repeat_rate
+}
+
+query: same_store_category_health is RetailSaleLine from retail_line_items -> {
+  // This query uses a semantic role (`SameStore`) and a temporal product phase
+  // (`product_at_sale`) without requiring analysts to remember how either is
+  // physically encoded.
+  //
+  // Business question:
+  //   "How are active categories performing in comparable same-store locations?"
+  //
+  // Possible agent discovery trace:
+  //
+  //   mcp.semantic.search_terms({
+  //     question: "active category performance comparable same-store locations"
+  //   })
+  //   -> concepts: RetailSaleLine, Store, SameStore, ProductSKUVersion,
+  //      ActiveProduct
+  //   -> measures: transactions, units sold, net sales, margin, net after refunds
+  //
+  //   mcp.ontology.describe_role({
+  //     role: "SameStore",
+  //     base_concept: "Store"
+  //   })
+  //   -> definition: same_store_start_date is not null
+  //
+  //   mcp.ontology.describe_phase({
+  //     phase: "ActiveProduct",
+  //     base_concept: "ProductSKUVersion"
+  //   })
+  //   -> definition: lifecycle_status = #active
+  //
+  //   mcp.ontology.find_paths({
+  //     from: "RetailSaleLine",
+  //     to: ["SameStore", "ActiveProduct"]
+  //   })
+  //   -> RetailSaleLine.store plays SameStore
+  //   -> RetailSaleLine.product_at_sale plays ActiveProduct
+  //
+  //   mcp.catalog.describe_source({ source: "retail_line_items" })
+  //   -> source has joins store and product_at_sale, plus measures
+  //      transactions, units_sold, net_sales, merchandising_margin,
+  //      net_after_settled_refunds
+  //
+  //   mcp.query.compile_roles({
+  //     source: "retail_line_items",
+  //     predicates: ["store is SameStore", "product_at_sale is ActiveProduct"]
+  //   })
+  //   -> store.same_store_start_date is not null
+  //   -> product_at_sale.lifecycle_status = 'active'
+  where:
+    store is SameStore
+    and product_at_sale is ActiveProduct
+  group_by:
+    sold_month
+    store.region
+    store.market
+    product_at_sale.department
+    product_at_sale.category_name
+  aggregate:
+    transactions
+    units_sold
+    net_sales
+    merchandising_margin
+    net_after_settled_refunds
+}
+
+// ---------------------------------------------------------------------------
+// 4. Compiler Ideas Implied By This Example
+// ---------------------------------------------------------------------------
+//
+// A first OntoQL implementation could validate a useful subset:
+//
+//   - Every `maps Concept` source must provide the concept identity.
+//   - Every `participants` slot used in a concept must be bound by a join.
+//   - Every `phase` with a `temporal` interval should be joinable with a
+//     temporal predicate when used as a participant at an event timestamp.
+//   - Every enum field should map to a declared value set.
+//   - Measures and dimensions can remain Malloy-like, but semantic references
+//     such as `customer is LoyaltyCustomer` or `store is SameStore` compile
+//     to their mapped role definitions.
+//
+// That gives the language a practical first target: enrich existing Malloy
+// models with a semantic layer that can catch modeling mistakes and make the
+// business ontology visible in the same file as the analytical sources.

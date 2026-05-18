@@ -6,12 +6,42 @@ source: stores is table('stores') extend {
     is_same_store_eligible is same_store_start_date is not null
 }
 
-source: customer_identities is table('customer_identities') extend {
-  primary_key: customer_identity_id
+source: customers is table('customers') extend {
+  primary_key: customer_id
+
+  join_many: point_balances is loyalty_point_balance
+    on loyalty_member_id = point_balances.loyalty_member_id
 
   dimension:
-    is_loyalty_customer is identity_mode = 'loyalty'
-    is_known_customer is identity_mode in ('loyalty', 'known_guest')
+    is_loyalty_customer is loyalty_member_id is not null
+    is_payment_card_recognized is loyalty_member_id is null and payment_card_hash is not null
+    recognition_method is case
+      when loyalty_member_id is not null then 'loyalty'
+      when payment_card_hash is not null then 'payment_card'
+      else 'unknown'
+    end
+}
+
+source: loyalty_point_balance is table('loyalty_point_balance') extend {
+  primary_key: concat(loyalty_member_id, '|', balance_date)
+
+  join_one: loyalty_customer is customers
+    on loyalty_member_id = loyalty_customer.loyalty_member_id
+
+  measure:
+    balance_days is count()
+    loyalty_members_with_balance is count(distinct loyalty_member_id)
+    point_balance_at_filter is max(point_balance)
+    average_point_balance is avg(point_balance)
+
+  view: daily_loyalty_balances is {
+    group_by:
+      balance_date
+      loyalty_member_id
+      loyalty_customer.pii_consent_status
+    aggregate:
+      point_balance_at_filter
+  }
 }
 
 source: product_skus is table('product_skus') extend {
@@ -80,8 +110,12 @@ source: retail_line_items is table('retail_line_items') extend {
   join_one: store is stores
     on store_id = store.store_id
 
-  join_one: customer is customer_identities
-    on customer_identity_id = customer.customer_identity_id
+  join_one: customer is customers
+    on customer_id = customer.customer_id
+
+  join_one: loyalty_points_at_sale is loyalty_point_balance
+    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
+    and sold_at.date = loyalty_points_at_sale.balance_date
 
   join_one: sku is product_skus
     on sku_id = sku.sku_id
@@ -101,6 +135,13 @@ source: retail_line_items is table('retail_line_items') extend {
     sold_date is sold_at.date
     sold_month is sold_at.month
     margin_amount is net_sales_amount - merchandise_cost_amount
+    customer_recognition_method is case
+      when customer_id is null then 'unrecognized_cash'
+      when customer.loyalty_member_id is not null then 'loyalty'
+      when customer.payment_card_hash is not null then 'payment_card'
+      else 'known_other'
+    end
+    loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
     is_return_window_open is sold_at >= now() - interval('30 day')
 
   measure:
@@ -113,8 +154,9 @@ source: retail_line_items is table('retail_line_items') extend {
     merchandise_cost is sum(merchandise_cost_amount)
     merchandising_margin is sum(net_sales_amount - merchandise_cost_amount)
     tax_collected is sum(tax_amount)
-    loyalty_customers is count(distinct case when customer.identity_mode = 'loyalty' then customer.loyalty_member_id end)
-    known_customer_transactions is count(distinct case when customer.identity_mode in ('loyalty', 'known_guest') then transaction_id end)
+    loyalty_customers is count(distinct customer.loyalty_member_id)
+    known_customer_transactions is count(distinct case when customer_id is not null then transaction_id end)
+    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
     promotion_discount is promotion_allocations.sum(allocation_amount)
     vendor_funded_discount is promotion_allocations.sum(
       case when promotion_allocations.promotion.funding_source = 'vendor' then allocation_amount else 0 end
@@ -150,13 +192,14 @@ source: retail_line_items is table('retail_line_items') extend {
   view: loyalty_margin_mix is {
     group_by:
       sold_month
-      customer.identity_mode
+      customer_recognition_method
       customer.pii_consent_status
       product_at_sale.category_name
     aggregate:
       transactions
       loyalty_customers
       known_customer_transactions
+      average_loyalty_point_balance_at_sale
       net_sales
       merchandising_margin
       refund_amount

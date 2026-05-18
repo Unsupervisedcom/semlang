@@ -7,14 +7,23 @@ INSERT INTO stores (
   ('ECOM_US', 'WEB-US', 'US Ecommerce', 'ecommerce', 'Digital', 'United States', DATE '2016-01-01', NULL, DATE '2017-01-01'),
   ('FC_RENO', 'FC-RNO', 'Reno Fulfillment Center', 'warehouse', 'Mountain', 'Reno', DATE '2020-08-15', NULL, DATE '2021-08-15');
 
-INSERT INTO customer_identities (
-  customer_identity_id, identity_mode, loyalty_member_id, household_id,
+INSERT INTO customers (
+  customer_id, loyalty_member_id, household_id, payment_card_hash,
   email_hash, first_seen_at, pii_consent_status
 ) VALUES
-  ('CUST_L_1001', 'loyalty', 'LM-1001', 'HH-77', 'hash_email_1001', TIMESTAMP '2022-01-15 09:14:00', 'granted'),
-  ('CUST_L_1002', 'loyalty', 'LM-1002', 'HH-88', 'hash_email_1002', TIMESTAMP '2023-07-04 18:22:00', 'declined'),
-  ('CUST_G_2001', 'known_guest', NULL, 'HH-91', 'hash_guest_2001', TIMESTAMP '2024-02-20 11:03:00', 'granted'),
-  ('CUST_A_3001', 'anonymous', NULL, NULL, NULL, TIMESTAMP '2024-11-29 07:45:00', 'unknown');
+  ('CUST_L_1001', 'LM-1001', 'HH-77', 'card_hash_1001', 'hash_email_1001', TIMESTAMP '2022-01-15 09:14:00', 'granted'),
+  ('CUST_L_1002', 'LM-1002', 'HH-88', NULL, 'hash_email_1002', TIMESTAMP '2023-07-04 18:22:00', 'declined'),
+  ('CUST_CARD_2001', NULL, 'HH-91', 'card_hash_2001', NULL, TIMESTAMP '2024-02-20 11:03:00', 'unknown');
+
+INSERT INTO loyalty_point_balance (
+  loyalty_member_id, balance_date, point_balance
+) VALUES
+  ('LM-1001', DATE '2025-01-12', 1840),
+  ('LM-1001', DATE '2025-01-13', 1995),
+  ('LM-1001', DATE '2025-01-31', 1995),
+  ('LM-1002', DATE '2025-02-07', 620),
+  ('LM-1002', DATE '2025-02-20', 755),
+  ('LM-1002', DATE '2025-02-28', 755);
 
 INSERT INTO product_skus (sku_id, sku_number, upc_code, created_at) VALUES
   ('SKU_BOOT_001', 'BOOT-001-BRN-09', '000111222333', TIMESTAMP '2021-05-01 10:00:00'),
@@ -45,17 +54,17 @@ INSERT INTO promotions (
 
 INSERT INTO retail_line_items (
   line_item_id, transaction_id, line_number, sold_at, store_id, sku_id,
-  customer_identity_id, channel, fulfillment_method, quantity, unit_list_price,
+  customer_id, channel, fulfillment_method, quantity, unit_list_price,
   gross_sales_amount, discount_amount, net_sales_amount, merchandise_cost_amount,
   tax_amount
 ) VALUES
   ('LINE_10001_1', 'TXN_10001', 1, TIMESTAMP '2025-01-12 10:15:00', 'STORE_DEN', 'SKU_BOOT_001', 'CUST_L_1001', 'store', 'cash_and_carry', 1, 150.00, 150.00, 37.50, 112.50, 76.00, 8.44),
   ('LINE_10001_2', 'TXN_10001', 2, TIMESTAMP '2025-01-12 10:15:00', 'STORE_DEN', 'SKU_TOTE_777', 'CUST_L_1001', 'store', 'cash_and_carry', 1, 64.00, 64.00, 10.00, 54.00, 25.00, 4.05),
-  ('LINE_10002_1', 'TXN_10002', 1, TIMESTAMP '2025-01-13 14:42:00', 'ECOM_US', 'SKU_JACKET_010', 'CUST_G_2001', 'web', 'ship_to_home', 1, 220.00, 220.00, 22.00, 198.00, 118.00, 14.85),
-  ('LINE_10003_1', 'TXN_10003', 1, TIMESTAMP '2025-01-14 16:05:00', 'STORE_PDX', 'SKU_MUG_050', 'CUST_A_3001', 'store', 'cash_and_carry', 2, 18.00, 36.00, 0.00, 36.00, 12.00, 2.70),
+  ('LINE_10002_1', 'TXN_10002', 1, TIMESTAMP '2025-01-13 14:42:00', 'ECOM_US', 'SKU_JACKET_010', 'CUST_CARD_2001', 'web', 'ship_to_home', 1, 220.00, 220.00, 22.00, 198.00, 118.00, 14.85),
+  ('LINE_10003_1', 'TXN_10003', 1, TIMESTAMP '2025-01-14 16:05:00', 'STORE_PDX', 'SKU_MUG_050', NULL, 'store', 'cash_and_carry', 2, 18.00, 36.00, 0.00, 36.00, 12.00, 2.70),
   ('LINE_10004_1', 'TXN_10004', 1, TIMESTAMP '2025-02-07 09:35:00', 'ECOM_US', 'SKU_BOOT_001', 'CUST_L_1002', 'mobile', 'buy_online_pickup_store', 2, 150.00, 300.00, 30.00, 270.00, 152.00, 20.25),
-  ('LINE_10005_1', 'TXN_10005', 1, TIMESTAMP '2025-03-05 12:20:00', 'STORE_DEN', 'SKU_JACKET_010', 'CUST_A_3001', 'store', 'cash_and_carry', 1, 199.00, 199.00, 40.00, 159.00, 118.00, 11.93),
-  ('LINE_10006_1', 'TXN_10006', 1, TIMESTAMP '2024-12-20 17:55:00', 'STORE_DEN', 'SKU_BOOT_001', 'CUST_G_2001', 'store', 'cash_and_carry', 1, 140.00, 140.00, 0.00, 140.00, 72.00, 10.50);
+  ('LINE_10005_1', 'TXN_10005', 1, TIMESTAMP '2025-03-05 12:20:00', 'STORE_DEN', 'SKU_JACKET_010', NULL, 'store', 'cash_and_carry', 1, 199.00, 199.00, 40.00, 159.00, 118.00, 11.93),
+  ('LINE_10006_1', 'TXN_10006', 1, TIMESTAMP '2024-12-20 17:55:00', 'STORE_DEN', 'SKU_BOOT_001', 'CUST_CARD_2001', 'store', 'cash_and_carry', 1, 140.00, 140.00, 0.00, 140.00, 72.00, 10.50);
 
 INSERT INTO line_item_promotions (
   line_item_id, promotion_id, allocation_amount, allocation_basis
@@ -90,4 +99,3 @@ INSERT INTO inventory_snapshots (
   ('INV_20250228_RENO_BOOT', DATE '2025-02-28', 'FC_RENO', 'SKU_BOOT_001', 120, 60, 15, 0, 'warehouse_management'),
   ('INV_20250228_WEB_BOOT', DATE '2025-02-28', 'ECOM_US', 'SKU_BOOT_001', 32, 40, 4, 0, 'ecommerce_available_to_sell'),
   ('INV_20250305_DEN_JACKET', DATE '2025-03-05', 'STORE_DEN', 'SKU_JACKET_010', 3, 0, 0, 0, 'store_count');
-
