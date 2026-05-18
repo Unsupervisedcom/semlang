@@ -1,6 +1,6 @@
 # OntoQL Syntax Comparisons
 
-These examples use the compact OntoQL style: concepts declare their source table directly, fields use Malloy-like `::` type annotations, constrained value sets live on `type:` declarations, temporal meaning is expressed through explicit time axes, and optional lenses can refine semantic concepts at query time.
+These examples use the compact OntoQL style: concepts declare their source table directly, fields use Malloy-like `::` type annotations, constrained value sets live on `type:` declarations, temporal meaning is expressed through explicit time axes, named validations use executable predicates, and optional lenses can refine semantic concepts at query time.
 
 ## OntoQL vs. OntoUML
 
@@ -28,8 +28,8 @@ These examples use the compact OntoQL style: concepts declare their source table
   concept InventoryPosition is situation from table('inventory_snapshots') { ... }
   ```
 
-- **Roles are inline `role ... when ...` blocks**
-  OntoUML commonly models a role as a separate stereotyped class plus a constraint. OntoQL can declare the role inside the base concept.
+- **Roles are inline `role ... when ...` predicates**
+  OntoUML commonly models a role as a separate stereotyped class plus a constraint. OntoQL can declare the source-backed fields on the base concept, then define the role as a classification over those fields.
   ```uml
   <<role>> LoyaltyCustomer --|> Customer
   context LoyaltyCustomer
@@ -37,10 +37,10 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```
   ```ontoql
   concept Customer is kind from table('customers') {
-    role LoyaltyCustomer when loyalty_member_id is not null {
-      field:
-        loyalty_member_id :: LoyaltyMemberId unique
-    }
+    field:
+      loyalty_member_id :: LoyaltyMemberId? unique
+
+    role LoyaltyCustomer when loyalty_member_id is not null
   }
   ```
 
@@ -90,7 +90,36 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```
   ```ontoql
   concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history') {
+    field:
+      sku_id :: SKUId
+
     valid_time: period(valid_from, valid_to)
+  }
+  ```
+
+- **Temporal joins can target a valid-time axis**
+  Malloy spells out effective-dated join predicates. OntoQL can keep the key predicate and use `at` to join to the version whose `valid_time` contains that expression.
+  ```malloy
+  join_one: product_at_sale is product_sku_history
+    on sku_id = product_at_sale.sku_id
+    and sold_at >= product_at_sale.valid_from
+    and sold_at < product_at_sale.valid_to
+  ```
+  ```ontoql
+  join_one product_at_sale: ProductSKUVersion
+    on sku_id = product_at_sale.sku_id
+    at sale.sold_at
+  ```
+
+- **Phase declarations imply their parent relation**
+  OntoUML specialization already connects a phase to its base sortal. OntoQL follows that pattern: `phase of ProductSKU` defines the parent concept relation, while fields such as `sku_id` provide the source-backed key used to compile it.
+  ```uml
+  <<phase>> ProductSKUVersion --|> ProductSKU
+  ```
+  ```ontoql
+  concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history') {
+    field:
+      sku_id :: SKUId
   }
   ```
 
@@ -104,6 +133,21 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```ontoql
   dimension:
     margin_amount is net_sales_amount - merchandise_cost_amount
+  ```
+
+- **Invariants become named validation predicates**
+  OntoUML commonly writes constraints in OCL. OntoQL keeps the rule near the concept, but gives it a stable name, description, and executable predicate; a false predicate is a validation error.
+  ```ocl
+  context Store
+  inv ClosedAfterOpened:
+    self.closedDate = null or self.closedDate >= self.openedDate
+  ```
+  ```ontoql
+  validation:
+    closed_after_opened is {
+      description: "A store cannot close before it opens."
+      predicate: closed_date is null or closed_date >= opened_date
+    }
   ```
 
 ## OntoQL vs. Malloy
@@ -131,10 +175,10 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```
   ```ontoql
   concept Customer is kind from table('customers') {
-    role LoyaltyCustomer when loyalty_member_id is not null {
-      field:
-        loyalty_member_id :: LoyaltyMemberId unique
-    }
+    field:
+      loyalty_member_id :: LoyaltyMemberId? unique
+
+    role LoyaltyCustomer when loyalty_member_id is not null
   }
   ```
 
@@ -149,11 +193,25 @@ These examples use the compact OntoQL style: concepts declare their source table
   type: Dollars is currency {
     scale_type: ratio
     currency: "USD"
-    format: # currency=usd2
+    format: currency("USD", 2)
   }
 
   field:
     net_sales_amount :: Dollars
+  ```
+
+- **Format metadata is function-shaped, not embedded annotations**
+  Malloy formatting is emitted as annotations. OntoQL stores formatting as lexer-friendly metadata and leaves target-specific annotation syntax to the emitter.
+  ```malloy
+  measure:
+    # currency=usd2
+    net_sales is sum(net_sales_amount)
+  ```
+  ```ontoql
+  type: Dollars is currency {
+    currency: "USD"
+    format: currency("USD", 2)
+  }
   ```
 
 - **Joins carry semantic participant names**
@@ -236,6 +294,29 @@ These examples use the compact OntoQL style: concepts declare their source table
   }
   ```
 
+- **Inline aggregate aliases are query-local generated measures**
+  Malloy measures usually live on a source. OntoQL allows `alias is expression` inside `aggregate:` for ad hoc analytical answers; the compiler treats it as a generated measure on the temporary query source, and the expression can reference visible measures or earlier aggregate aliases.
+  ```malloy
+  source: denver_customer_count_query is transactions extend {
+    measure:
+      max_possible_unique_customers is identified_customers + unrecognized_cash_sales
+  }
+
+  query: denver_customer_count is denver_customer_count_query -> {
+    aggregate: max_possible_unique_customers
+  }
+  ```
+  ```ontoql
+  query: denver_customer_count is Sale -> {
+    aggregate:
+      identified_customers
+      unrecognized_cash_sales
+
+      max_possible_unique_customers is
+        identified_customers + unrecognized_cash_sales
+  }
+  ```
+
 - **Lenses are query-time semantic overlays**
   Malloy extends sources by creating a new source name. OntoQL lenses refine existing semantic concepts and are applied explicitly in the query.
   ```malloy
@@ -290,6 +371,23 @@ These examples use the compact OntoQL style: concepts declare their source table
   }
 
   where: return_status = 'settled'
+  ```
+
+- **Validations are executable predicates with error semantics**
+  Malloy predicates usually filter result sets. OntoQL validation predicates use the same expression style, but false rows are reported as data-quality errors instead of being excluded from an analytical result.
+  ```malloy
+  query: invalid_settled_returns is return_lines -> {
+    where:
+      return_status = 'settled'
+      and settled_at is null
+  }
+  ```
+  ```ontoql
+  validation:
+    settled_returns_have_settlement_time is {
+      description: "A settled return must have a settlement timestamp."
+      predicate: return_status != 'settled' or settled_at is not null
+    }
   ```
 
 - **Optional joins are syntactic**

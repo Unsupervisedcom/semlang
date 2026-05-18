@@ -6,11 +6,12 @@
 //     canonical source together.
 //   - `field:` declarations create source-backed semantic attributes by name
 //     and use Malloy-like `field_name :: Type` annotations.
-//   - `role ... when ...` declares role membership inline with the source fields
-//     that implement it.
+//   - `role ... when ...` declares role membership from fields on the concept.
 //   - `join_one customer?: Customer on customer_id` declares both the
 //     analytical join and the semantic participant, with `?` marking
 //     optionality.
+//   - `validation:` declarations are named Malloy-style predicates where false
+//     means an invalid row or model state, not a filtered result.
 //   - `query: name is Concept -> { ... }` keeps Malloy's query shape, but the
 //     query target is a semantic concept instead of a physical source name.
 //   - `maps` is reserved for non-obvious cases; the common case maps by name.
@@ -83,7 +84,7 @@ type: EventTimestamp is timestamp {
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
-  format: # currency=usd2
+  format: currency("USD", 2)
   semantics: "US dollar amount. Amounts can be aggregated only at their declared grain unless a join is fanout-safe."
 }
 
@@ -175,8 +176,11 @@ concept Store is kind from table('stores') {
     store_label is concat(store_code, ' - ', store_name)
     is_same_store_eligible is this is SameStore
 
-  constraints:
-    closed_date is null or closed_date >= opened_date
+  validation:
+    closed_after_opened is {
+      description: "A store cannot close before it opens."
+      predicate: closed_date is null or closed_date >= opened_date
+    }
 }
 
 concept Customer is kind from table('customers') {
@@ -185,18 +189,16 @@ concept Customer is kind from table('customers') {
   identity customer_id :: CustomerId
 
   field:
+    loyalty_member_id :: LoyaltyMemberId? unique
     household_id :: string?
     payment_card_hash :: string?
     email_hash :: string?
     first_seen_at :: EventTimestamp
     pii_consent_status :: ConsentStatus
 
-  role LoyaltyCustomer when loyalty_member_id is not null {
-    field:
-      loyalty_member_id :: LoyaltyMemberId unique
+  join_many point_balances: LoyaltyPointBalance on loyalty_member_id
 
-    join_many point_balances: LoyaltyPointBalance on loyalty_member_id
-  }
+  role LoyaltyCustomer when loyalty_member_id is not null
 
   role PaymentCardRecognizedCustomer
     when loyalty_member_id is null and payment_card_hash is not null
@@ -208,8 +210,11 @@ concept Customer is kind from table('customers') {
       else 'unknown'
     end
 
-  constraints:
-    loyalty_member_id is not null or payment_card_hash is not null
+  validation:
+    has_recognition_key is {
+      description: "A Customer row represents a recognized shopper, so at least one recognition key must be present."
+      predicate: loyalty_member_id is not null or payment_card_hash is not null
+    }
 }
 
 concept LoyaltyPointBalance is situation from table('loyalty_point_balance') {
@@ -249,12 +254,14 @@ concept ProductSKU is kind from table('product_skus') {
 }
 
 concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history') {
-  identity product_version_id :: string
   valid_time: period(valid_from, valid_to)
 
-  join_one sku: ProductSKU on sku_id
+  // `phase of ProductSKU` defines the parent ProductSKU relation. The compiler
+  // uses sku_id by convention here; use `parent_key:` later if that inference
+  // is not obvious.
 
   field:
+    sku_id :: SKUId
     valid_from :: BusinessDate
     valid_to :: BusinessDate
     product_name :: string
@@ -272,8 +279,11 @@ concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history
     category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
     category_at_event is category_name
 
-  constraints:
-    valid_to > valid_from
+  validation:
+    valid_period_is_ordered is {
+      description: "A product SKU version must end after it starts."
+      predicate: valid_to > valid_from
+    }
 }
 
 concept Promotion is relator from table('promotions') {
@@ -293,8 +303,11 @@ concept Promotion is relator from table('promotions') {
   dimension:
     is_vendor_funded is this is VendorFundedPromotion
 
-  constraints:
-    ends_at > starts_at
+  validation:
+    promotion_period_is_ordered is {
+      description: "A promotion must end after it starts."
+      predicate: ends_at > starts_at
+    }
 }
 
 concept PromotionAllocation is relator from table('line_item_promotions') {
@@ -354,8 +367,11 @@ concept ReturnLine is event from table('return_lines') {
       restocking_fees
   }
 
-  constraints:
-    return_status = 'settled' implies settled_at is not null
+  validation:
+    settled_returns_have_settlement_time is {
+      description: "A settled return must have a settlement timestamp."
+      predicate: return_status != 'settled' or settled_at is not null
+    }
 }
 
 concept Sale is event from table('transactions') {
@@ -426,8 +442,7 @@ concept SaleLine is situation from table('retail_line_items') {
 
   join_one product_at_sale: ProductSKUVersion
     on sku_id = product_at_sale.sku_id
-    and sale.sold_at >= product_at_sale.valid_from
-    and sale.sold_at < product_at_sale.valid_to
+    at sale.sold_at
 
   join_many promotion_allocations: PromotionAllocation on line_item_id
 
@@ -535,8 +550,7 @@ concept InventoryPosition is situation from table('inventory_snapshots') {
 
   join_one product_at_snapshot: ProductSKUVersion
     on sku_id = product_at_snapshot.sku_id
-    and snapshot_date >= product_at_snapshot.valid_from
-    and snapshot_date < product_at_snapshot.valid_to
+    at snapshot_date
 
   field:
     snapshot_date :: BusinessDate
@@ -685,12 +699,19 @@ query: denver_store_customer_count_on_2025_09_15 is Sale -> {
     unrecognized_cash_sales
     identified_sales_per_customer
 
+    // V1 rule: `name is expression` inside `aggregate:` creates a query-local
+    // generated measure on the temporary query source. The expression may
+    // reference visible measures, aggregate functions, or earlier aliases in
+    // this same aggregate block. It may not reference raw row-level fields
+    // unless they are inside an aggregate function.
     max_possible_unique_customers is
       identified_customers + unrecognized_cash_sales
 
+    // Legal because it references measures that are already visible above.
     estimated_unrecognized_customers_same_repeat_rate is
       unrecognized_cash_sales / nullif(identified_sales_per_customer, 0)
 
+    // Legal because it references an earlier query-local aggregate alias.
     estimated_total_customers_same_repeat_rate is
       identified_customers + estimated_unrecognized_customers_same_repeat_rate
 }
@@ -736,9 +757,19 @@ query: same_store_category_health is SaleLine -> {
 //     `recorded_time` are explicit temporal axes. Events usually use
 //     occurrence_time; situations usually use valid_time and may also declare
 //     observation_time for measured state.
+//   - `join_one x: VersionedConcept ... at t` expands to a join whose `t`
+//     falls within the joined concept's `valid_time`.
 //   - `role R when predicate` creates a type-like predicate usable as
 //     `thing is R`.
+//   - `validation: name is { predicate: ... }` compiles the predicate into an
+//     executable data-quality check; false rows are errors.
+//   - `format: currency("USD", 2)` is OntoQL metadata; a Malloy emitter can
+//     translate it to the target dialect's annotation syntax.
 //   - `join_one customer?: Customer on customer_id` creates an optional
 //     participant and a Malloy join.
 //   - `query: q is Concept -> { ... }` compiles by resolving the semantic
 //     concept name to its canonical source.
+//   - `aggregate: alias is expression` creates a query-local generated measure.
+//     The expression can reference visible measures, aggregate functions, and
+//     earlier aggregate aliases. Raw fields are only legal inside aggregate
+//     functions, keeping row-grain and aggregate-grain expressions separate.
