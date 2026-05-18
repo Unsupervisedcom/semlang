@@ -1,0 +1,499 @@
+source: suppliers is table('suppliers') extend {
+  primary_key: supplier_id
+
+  dimension:
+    supplier_label is concat(supplier_code, ' - ', supplier_name)
+    is_approved_supplier is approved_status = 'approved'
+}
+
+source: materials is table('materials') extend {
+  primary_key: material_id
+
+  dimension:
+    material_label is concat(material_number, ' - ', material_name)
+    is_critical_material is criticality_level in ('quality_critical', 'safety_critical')
+}
+
+source: supplier_lots is table('supplier_lots') extend {
+  primary_key: supplier_lot_id
+
+  join_one: supplier is suppliers
+    on supplier_id = supplier.supplier_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  dimension:
+    supplier_lot_label is concat(supplier.supplier_code, ' / ', material.material_number, ' / ', lot_number)
+    is_released_lot is lot_status = 'released'
+    accepted_yield is accepted_quantity / nullif(received_quantity, 0)
+
+  measure:
+    supplier_lots_count is count()
+    received_quantity is sum(received_quantity)
+    accepted_quantity is sum(accepted_quantity)
+    quarantined_lots is count(case when lot_status = 'quarantined' then supplier_lot_id end)
+
+  view: supplier_lot_status is {
+    group_by:
+      received_month is received_date.month
+      supplier.supplier_code
+      supplier.supplier_name
+      material.material_number
+      material.material_name
+      lot_status
+    aggregate:
+      supplier_lots_count
+      received_quantity
+      accepted_quantity
+      quarantined_lots
+  }
+}
+
+source: supplier_lot_genealogy is table('supplier_lot_genealogy') extend {
+  primary_key: lot_genealogy_id
+
+  join_one: parent_lot is supplier_lots
+    on parent_supplier_lot_id = parent_lot.supplier_lot_id
+
+  join_one: child_lot is supplier_lots
+    on child_supplier_lot_id = child_lot.supplier_lot_id
+
+  measure:
+    genealogy_edges is count()
+    transferred_quantity is sum(transferred_quantity)
+
+  view: lot_genealogy_paths is {
+    group_by:
+      relationship_type
+      parent_lot.supplier.supplier_code
+      parent_lot.lot_number
+      child_lot.lot_number
+      child_lot.material.material_number
+    aggregate:
+      genealogy_edges
+      transferred_quantity
+  }
+}
+
+source: product_models is table('product_models') extend {
+  primary_key: product_model_id
+
+  dimension:
+    model_label is concat(model_number, ' - ', model_name)
+    is_active_model is retired_date is null
+}
+
+source: bom_versions is table('bom_versions') extend {
+  primary_key: bom_version_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  dimension:
+    bom_label is concat(bom_number, ' rev ', revision_code)
+    is_released_bom is release_status = 'released'
+
+  measure:
+    bom_versions_count is count()
+    released_bom_versions is count(case when release_status in ('released', 'superseded') then bom_version_id end)
+}
+
+source: bom_components is table('bom_components') extend {
+  primary_key: bom_component_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  dimension:
+    component_effective_month is valid_from.month
+
+  measure:
+    bom_component_rows is count()
+    required_quantity_per_unit is sum(quantity_per_unit)
+
+  view: bom_version_components is {
+    group_by:
+      bom_version.product_model.model_number
+      bom_version.revision_code
+      bom_version.effective_from
+      bom_version.effective_to
+      material.material_number
+      material.material_name
+      component_role
+    aggregate:
+      bom_component_rows
+      required_quantity_per_unit
+  }
+}
+
+source: production_order_lot_consumption is table('production_order_lot_consumption') extend {
+  primary_key: consumption_id
+
+  join_one: supplier_lot is supplier_lots
+    on supplier_lot_id = supplier_lot.supplier_lot_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  measure:
+    consumed_lot_links is count()
+    consumed_quantity is sum(consumed_quantity)
+
+  view: consumed_lots_by_supplier is {
+    group_by:
+      consumed_month is consumed_at.month
+      supplier_lot.supplier.supplier_code
+      supplier_lot.lot_number
+      material.material_number
+      consumption_source
+    aggregate:
+      consumed_lot_links
+      consumed_quantity
+  }
+}
+
+source: production_orders is table('production_orders') extend {
+  primary_key: production_order_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_many: lot_consumption is production_order_lot_consumption
+    on production_order_id = lot_consumption.production_order_id
+
+  dimension:
+    started_date is started_at.date
+    started_month is started_at.month
+    completed_units_expected is completed_at is not null
+    used_effective_bom is started_at >= bom_version.effective_from and started_at < bom_version.effective_to
+
+  measure:
+    production_orders is count()
+    planned_units is sum(planned_quantity)
+    consumed_supplier_lots is lot_consumption.count(distinct supplier_lot_id)
+    consumed_materials is lot_consumption.count(distinct material_id)
+    consumed_quantity is lot_consumption.sum(consumed_quantity)
+
+  view: production_by_bom_version is {
+    group_by:
+      started_month
+      manufacturing_site
+      line_code
+      product_model.model_number
+      product_model.model_family
+      bom_version.revision_code
+      order_status
+    aggregate:
+      production_orders
+      planned_units
+      consumed_supplier_lots
+      consumed_materials
+  }
+}
+
+source: inspection_defects is table('inspection_defects') extend {
+  primary_key: defect_id
+
+  join_one: related_supplier_lot is supplier_lots
+    on related_supplier_lot_id = related_supplier_lot.supplier_lot_id
+
+  measure:
+    defect_rows is count()
+    defective_units is count(distinct serial_number)
+    critical_defect_rows is count(case when severity_level = 'critical' then defect_id end)
+    rework_hours is sum(rework_hours)
+
+  view: defects_by_supplier_lot is {
+    group_by:
+      detected_month is detected_at.month
+      related_supplier_lot.supplier.supplier_code
+      related_supplier_lot.lot_number
+      related_supplier_lot.material.material_number
+      defect_category
+      severity_level
+      defect_disposition
+    aggregate:
+      defect_rows
+      defective_units
+      critical_defect_rows
+      rework_hours
+  }
+}
+
+source: inspections is table('inspections') extend {
+  primary_key: inspection_id
+
+  join_many: defects is inspection_defects
+    on inspection_id = defects.inspection_id
+
+  dimension:
+    inspection_month is performed_at.month
+    passed_first_pass is first_pass_flag = 1
+
+  measure:
+    inspection_rows is count()
+    inspected_units is count(distinct serial_number)
+    passed_inspections is count(case when inspection_status = 'passed' then inspection_id end)
+    failed_inspections is count(case when inspection_status = 'failed' then inspection_id end)
+    defect_rows is defects.count()
+    defective_units is defects.count(distinct serial_number)
+    first_pass_yield is avg(first_pass_flag)
+    defect_rate is defective_units / nullif(inspected_units, 0)
+    rework_hours is defects.sum(rework_hours)
+
+  view: quality_by_station is {
+    group_by:
+      inspection_month
+      inspection_type
+      station_code
+      inspection_status
+    aggregate:
+      inspection_rows
+      inspected_units
+      passed_inspections
+      failed_inspections
+      defect_rows
+      defective_units
+      defect_rate
+      first_pass_yield
+      rework_hours
+  }
+}
+
+source: shipments is table('shipments') extend {
+  primary_key: shipment_id
+
+  dimension:
+    shipped_date is shipped_at.date
+    shipped_month is shipped_at.month
+
+  measure:
+    shipments is count()
+}
+
+source: shipment_units is table('shipment_units') extend {
+  primary_key: shipment_unit_id
+
+  join_one: shipment is shipments
+    on shipment_id = shipment.shipment_id
+
+  measure:
+    shipment_unit_rows is count()
+    shipped_units is count(distinct serial_number)
+}
+
+source: warranty_claims is table('warranty_claims') extend {
+  primary_key: warranty_claim_id
+
+  dimension:
+    claim_month is claim_opened_at.month
+    is_approved_claim is claim_status in ('approved', 'closed')
+
+  measure:
+    warranty_claim_count is count()
+    claimed_units is count(distinct serial_number)
+    approved_claims is count(case when claim_status in ('approved', 'closed') then warranty_claim_id end)
+    warranty_cost is sum(claim_cost_amount)
+
+  view: warranty_by_failure_category is {
+    group_by:
+      claim_month
+      service_region
+      failure_category
+      claim_status
+    aggregate:
+      warranty_claim_count
+      claimed_units
+      approved_claims
+      warranty_cost
+  }
+}
+
+source: serialized_units is table('serialized_units') extend {
+  primary_key: serial_number
+
+  join_one: production_order is production_orders
+    on production_order_id = production_order.production_order_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_many: inspections is inspections
+    on serial_number = inspections.serial_number
+
+  join_many: defects is inspection_defects
+    on serial_number = defects.serial_number
+
+  join_many: shipment_unit_rows is shipment_units
+    on serial_number = shipment_unit_rows.serial_number
+
+  join_many: warranty_claim_rows is warranty_claims
+    on serial_number = warranty_claim_rows.serial_number
+
+  dimension:
+    completed_date is completed_at.date
+    completed_month is completed_at.month
+    was_shipped is unit_status = 'shipped'
+    accepted_unit is final_quality_disposition = 'accepted'
+
+  measure:
+    units_built is count()
+    released_units is count(case when unit_status in ('released', 'shipped') then serial_number end)
+    shipped_units is count(case when unit_status = 'shipped' then serial_number end)
+    accepted_units is count(case when final_quality_disposition = 'accepted' then serial_number end)
+    defective_units is count(distinct case when defects.defect_id is not null then serial_number end)
+    defect_rows is defects.count()
+    critical_defective_units is count(distinct case when defects.severity_level = 'critical' then serial_number end)
+    final_acceptance_rate is accepted_units / nullif(units_built, 0)
+    defect_unit_rate is defective_units / nullif(units_built, 0)
+    warranty_claim_count is warranty_claim_rows.count()
+    warranty_claimed_units is warranty_claim_rows.count(distinct serial_number)
+    warranty_cost is warranty_claim_rows.sum(claim_cost_amount)
+
+  view: unit_quality_by_bom_and_lot is {
+    group_by:
+      completed_month
+      production_order.manufacturing_site
+      product_model.model_number
+      bom_version.revision_code
+      production_order.lot_consumption.supplier_lot.supplier.supplier_code
+      production_order.lot_consumption.supplier_lot.lot_number
+      production_order.lot_consumption.material.material_number
+    aggregate:
+      units_built
+      released_units
+      shipped_units
+      accepted_units
+      defective_units
+      defect_rows
+      defect_unit_rate
+      warranty_claim_count
+      warranty_cost
+  }
+
+  view: field_quality_by_model is {
+    group_by:
+      completed_month
+      product_model.model_family
+      product_model.model_number
+      bom_version.revision_code
+      final_quality_disposition
+    aggregate:
+      units_built
+      shipped_units
+      defective_units
+      critical_defective_units
+      warranty_claimed_units
+      warranty_cost
+      final_acceptance_rate
+      defect_unit_rate
+  }
+}
+
+source: recall_campaigns is table('recall_campaigns') extend {
+  primary_key: recall_campaign_id
+
+  dimension:
+    initiated_month is initiated_at.month
+    is_active_recall is campaign_status = 'active'
+    requires_regulatory_report is regulatory_report_required = 1
+}
+
+source: recall_affected_units is table('recall_affected_units') extend {
+  primary_key: recall_unit_id
+
+  join_one: recall_campaign is recall_campaigns
+    on recall_campaign_id = recall_campaign.recall_campaign_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  join_one: traced_supplier_lot is supplier_lots
+    on traced_supplier_lot_id = traced_supplier_lot.supplier_lot_id
+
+  join_many: warranty_claim_rows is warranty_claims
+    on serial_number = warranty_claim_rows.serial_number
+
+  join_many: shipment_unit_rows is shipment_units
+    on serial_number = shipment_unit_rows.serial_number
+
+  dimension:
+    identified_month is identified_at.month
+    is_open_scope_item is affected_status in ('identified', 'notified')
+
+  measure:
+    affected_unit_rows is count()
+    affected_units is count(distinct serial_number)
+    shipped_affected_units is shipment_unit_rows.count(distinct serial_number)
+    notified_units is count(distinct case when affected_status = 'notified' then serial_number end)
+    remediated_units is count(distinct case when affected_status = 'remediated' then serial_number end)
+    warranty_claim_count is warranty_claim_rows.count()
+    warranty_claimed_units is warranty_claim_rows.count(distinct serial_number)
+    warranty_cost is warranty_claim_rows.sum(claim_cost_amount)
+
+  view: recall_scope_by_lot_model_region is {
+    group_by:
+      recall_campaign.campaign_code
+      recall_campaign.campaign_status
+      identified_month
+      traced_supplier_lot.supplier.supplier_code
+      traced_supplier_lot.lot_number
+      serialized_unit.product_model.model_number
+      serialized_unit.bom_version.revision_code
+      shipment_unit_rows.shipment.destination_region
+      affected_status
+    aggregate:
+      affected_units
+      shipped_affected_units
+      notified_units
+      remediated_units
+      warranty_claim_count
+      warranty_claimed_units
+      warranty_cost
+  }
+}
+
+query: supplier_quality_scorecard is serialized_units -> {
+  group_by:
+    completed_month
+    production_order.lot_consumption.supplier_lot.supplier.supplier_code
+    production_order.lot_consumption.supplier_lot.supplier.supplier_name
+    production_order.lot_consumption.material.material_number
+    production_order.lot_consumption.supplier_lot.lot_number
+    product_model.model_family
+  aggregate:
+    units_built
+    defective_units
+    defect_rows
+    defect_unit_rate
+    warranty_claimed_units
+    warranty_cost
+}
+
+query: recall_investigation_scope is recall_affected_units -> {
+  group_by:
+    recall_campaign.campaign_code
+    recall_campaign.initiated_month
+    traced_supplier_lot.supplier.supplier_code
+    traced_supplier_lot.lot_number
+    serialized_unit.product_model.model_number
+    serialized_unit.bom_version.revision_code
+    shipment_unit_rows.shipment.destination_region
+  aggregate:
+    affected_units
+    shipped_affected_units
+    notified_units
+    remediated_units
+    warranty_claim_count
+    warranty_cost
+}

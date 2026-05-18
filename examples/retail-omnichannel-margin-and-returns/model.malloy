@@ -1,0 +1,282 @@
+source: stores is table('stores') extend {
+  primary_key: store_id
+
+  dimension:
+    store_label is concat(store_code, ' - ', store_name)
+    is_same_store_eligible is same_store_start_date is not null
+}
+
+source: customer_identities is table('customer_identities') extend {
+  primary_key: customer_identity_id
+
+  dimension:
+    is_loyalty_customer is identity_mode = 'loyalty'
+    is_known_customer is identity_mode in ('loyalty', 'known_guest')
+}
+
+source: product_skus is table('product_skus') extend {
+  primary_key: sku_id
+}
+
+source: product_sku_history is table('product_sku_history') extend {
+  primary_key: product_version_id
+
+  join_one: sku is product_skus
+    on sku_id = sku.sku_id
+
+  dimension:
+    category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
+    is_active_product is lifecycle_status = 'active'
+    category_at_event is category_name
+}
+
+source: promotions is table('promotions') extend {
+  primary_key: promotion_id
+
+  dimension:
+    is_vendor_funded is funding_source = 'vendor'
+}
+
+source: line_item_promotions is table('line_item_promotions') extend {
+  primary_key: concat(line_item_id, '|', promotion_id)
+
+  join_one: promotion is promotions
+    on promotion_id = promotion.promotion_id
+
+  measure:
+    allocated_discount is sum(allocation_amount)
+    vendor_funded_discount is sum(case when promotion.funding_source = 'vendor' then allocation_amount else 0 end)
+    promotion_count is count()
+}
+
+source: return_lines is table('return_lines') extend {
+  primary_key: return_line_id
+
+  measure:
+    return_authorizations is count(distinct return_authorization_id)
+    returned_units is sum(returned_quantity)
+    settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
+    refund_amount is sum(refund_amount)
+    settled_refund_amount is sum(case when return_status = 'settled' then refund_amount else 0 end)
+    restocking_fees is sum(restocking_fee_amount)
+
+  view: return_lifecycle is {
+    group_by:
+      returned_month is returned_at.month
+      return_channel
+      return_status
+      reason_code
+    aggregate:
+      return_authorizations
+      returned_units
+      refund_amount
+      restocking_fees
+  }
+}
+
+source: retail_line_items is table('retail_line_items') extend {
+  primary_key: line_item_id
+
+  join_one: store is stores
+    on store_id = store.store_id
+
+  join_one: customer is customer_identities
+    on customer_identity_id = customer.customer_identity_id
+
+  join_one: sku is product_skus
+    on sku_id = sku.sku_id
+
+  join_one: product_at_sale is product_sku_history
+    on sku_id = product_at_sale.sku_id
+    and sold_at >= product_at_sale.valid_from
+    and sold_at < product_at_sale.valid_to
+
+  join_many: promotion_allocations is line_item_promotions
+    on line_item_id = promotion_allocations.line_item_id
+
+  join_many: returns is return_lines
+    on line_item_id = returns.original_line_item_id
+
+  dimension:
+    sold_date is sold_at.date
+    sold_month is sold_at.month
+    margin_amount is net_sales_amount - merchandise_cost_amount
+    is_return_window_open is sold_at >= now() - interval('30 day')
+
+  measure:
+    line_items is count()
+    transactions is count(distinct transaction_id)
+    units_sold is sum(quantity)
+    gross_sales is sum(gross_sales_amount)
+    discount_amount is sum(discount_amount)
+    net_sales is sum(net_sales_amount)
+    merchandise_cost is sum(merchandise_cost_amount)
+    merchandising_margin is sum(net_sales_amount - merchandise_cost_amount)
+    tax_collected is sum(tax_amount)
+    loyalty_customers is count(distinct case when customer.identity_mode = 'loyalty' then customer.loyalty_member_id end)
+    known_customer_transactions is count(distinct case when customer.identity_mode in ('loyalty', 'known_guest') then transaction_id end)
+    promotion_discount is promotion_allocations.sum(allocation_amount)
+    vendor_funded_discount is promotion_allocations.sum(
+      case when promotion_allocations.promotion.funding_source = 'vendor' then allocation_amount else 0 end
+    )
+    returned_units is returns.sum(returned_quantity)
+    settled_returned_units is returns.sum(case when return_status = 'settled' then returned_quantity else 0 end)
+    refund_amount is returns.sum(refund_amount)
+    settled_refund_amount is returns.sum(case when return_status = 'settled' then refund_amount else 0 end)
+    return_rate is returned_units / nullif(units_sold, 0)
+    settled_return_rate is settled_returned_units / nullif(units_sold, 0)
+    net_after_settled_refunds is net_sales - settled_refund_amount
+
+  view: sales_by_region_category is {
+    group_by:
+      sold_month
+      channel
+      store.region
+      store.market
+      product_at_sale.department
+      product_at_sale.category_name
+    aggregate:
+      transactions
+      units_sold
+      gross_sales
+      discount_amount
+      net_sales
+      merchandising_margin
+      settled_refund_amount
+      settled_returned_units
+      net_after_settled_refunds
+  }
+
+  view: loyalty_margin_mix is {
+    group_by:
+      sold_month
+      customer.identity_mode
+      customer.pii_consent_status
+      product_at_sale.category_name
+    aggregate:
+      transactions
+      loyalty_customers
+      known_customer_transactions
+      net_sales
+      merchandising_margin
+      refund_amount
+  }
+
+  view: promotion_performance is {
+    group_by:
+      sold_month
+      channel
+      promotion_allocations.promotion.promo_code
+      promotion_allocations.promotion.promotion_type
+      promotion_allocations.promotion.funding_source
+    aggregate:
+      units_sold
+      net_sales
+      promotion_discount
+      vendor_funded_discount
+      merchandising_margin
+      refund_amount
+  }
+
+  view: return_drilldown is {
+    group_by:
+      sold_month
+      store.region
+      product_at_sale.category_name
+      returns.return_channel
+      returns.return_status
+      returns.reason_code
+    aggregate:
+      units_sold
+      returned_units
+      settled_returned_units
+      refund_amount
+      settled_refund_amount
+      return_rate
+      settled_return_rate
+  }
+}
+
+source: inventory_snapshots is table('inventory_snapshots') extend {
+  primary_key: inventory_snapshot_id
+
+  join_one: store is stores
+    on store_id = store.store_id
+
+  join_one: sku is product_skus
+    on sku_id = sku.sku_id
+
+  join_one: product_at_snapshot is product_sku_history
+    on sku_id = product_at_snapshot.sku_id
+    and snapshot_date >= product_at_snapshot.valid_from
+    and snapshot_date < product_at_snapshot.valid_to
+
+  dimension:
+    available_to_sell_units is on_hand_units - reserved_units - damaged_units
+    is_negative_on_hand is on_hand_units < 0
+
+  measure:
+    snapshot_rows is count()
+    on_hand_units_at_filter is max(on_hand_units)
+    on_order_units_at_filter is max(on_order_units)
+    reserved_units_at_filter is max(reserved_units)
+    damaged_units_at_filter is max(damaged_units)
+    available_to_sell_at_filter is max(on_hand_units - reserved_units - damaged_units)
+    negative_on_hand_locations is count(case when on_hand_units < 0 then inventory_snapshot_id end)
+
+  view: daily_inventory_by_store_sku is {
+    group_by:
+      snapshot_date
+      store.region
+      store.store_code
+      sku.sku_number
+      product_at_snapshot.category_name
+      product_at_snapshot.lifecycle_status
+    aggregate:
+      on_hand_units_at_filter
+      reserved_units_at_filter
+      damaged_units_at_filter
+      available_to_sell_at_filter
+      negative_on_hand_locations
+  }
+
+  view: category_inventory_snapshot is {
+    group_by:
+      snapshot_date
+      store.region
+      product_at_snapshot.department
+      product_at_snapshot.category_name
+    aggregate:
+      snapshot_rows
+      on_hand_units_at_filter
+      on_order_units_at_filter
+      available_to_sell_at_filter
+  }
+}
+
+query: monthly_margin_and_returns is retail_line_items -> {
+  group_by:
+    sold_month
+    store.region
+    product_at_sale.category_name
+  aggregate:
+    net_sales
+    merchandising_margin
+    settled_refund_amount
+    net_after_settled_refunds
+    settled_return_rate
+}
+
+query: inventory_exceptions is inventory_snapshots -> {
+  where: is_negative_on_hand or product_at_snapshot.lifecycle_status in ('recalled', 'discontinued')
+  group_by:
+    snapshot_date
+    store.store_code
+    sku.sku_number
+    product_at_snapshot.product_name
+    product_at_snapshot.lifecycle_status
+  aggregate:
+    on_hand_units_at_filter
+    damaged_units_at_filter
+    available_to_sell_at_filter
+}
