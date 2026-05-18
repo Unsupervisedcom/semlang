@@ -1,18 +1,19 @@
 # Retail Omnichannel Margin and Returns
 
-This package models a compact retail analytics scenario focused on line-item sales, returns, product history, stores, recognized customers, loyalty point balances, promotions, and inventory snapshots. It is designed to demonstrate common retail questions without flattening different grains into one table.
+This package models a compact retail analytics scenario focused on sales, line items, returns, product history, stores, recognized customers, loyalty point balances, promotions, and inventory snapshots. It is designed to demonstrate common retail questions without flattening different grains into one table.
 
-The analytical center is `retail_line_items`: one row per sold SKU line. Returns and promotion allocations attach at line grain, product attributes are joined using valid-time history, stores provide channel and geography, nullable `customer_id` distinguishes recognized shoppers from unrecognized cash purchases, loyalty point balances add daily loyalty-member state, and inventory is modeled separately as daily SKU/store snapshots.
+The model separates `transactions` from `retail_line_items`: sales/customer/store questions use one row per checkout or order, while merchandise, margin, promotions, and returns use one row per sold SKU line. Product attributes are joined using valid-time history, nullable `transactions.customer_id` distinguishes recognized shoppers from unrecognized cash purchases, loyalty point balances add daily loyalty-member state, and inventory is modeled separately as daily SKU/store snapshots. The `customers` table also carries direct PII columns, but the base OntoQL example intentionally exposes only hashes and consent metadata; the lens example shows how a privileged query-time lens can reveal those fields.
 
 ```mermaid
 erDiagram
-  STORES ||--o{ RETAIL_LINE_ITEMS : sells
+  STORES ||--o{ TRANSACTIONS : sells
   STORES ||--o{ INVENTORY_SNAPSHOTS : stocks
-  CUSTOMERS ||--o{ RETAIL_LINE_ITEMS : identifies
+  CUSTOMERS ||--o{ TRANSACTIONS : identifies
   CUSTOMERS ||--o{ LOYALTY_POINT_BALANCE : earns
   PRODUCT_SKUS ||--o{ PRODUCT_SKU_HISTORY : versions
   PRODUCT_SKUS ||--o{ RETAIL_LINE_ITEMS : sold_as
   PRODUCT_SKUS ||--o{ INVENTORY_SNAPSHOTS : counted_as
+  TRANSACTIONS ||--o{ RETAIL_LINE_ITEMS : contains
   RETAIL_LINE_ITEMS ||--o{ RETURN_LINES : returned_by
   RETAIL_LINE_ITEMS ||--o{ LINE_ITEM_PROMOTIONS : discounted_by
   PROMOTIONS ||--o{ LINE_ITEM_PROMOTIONS : funds
@@ -31,6 +32,13 @@ erDiagram
     varchar loyalty_member_id
     varchar household_id
     varchar payment_card_hash
+    varchar email_hash
+    varchar legal_name
+    varchar email_address
+    varchar phone_number
+    varchar postal_code
+    timestamp pii_verified_at
+    varchar service_region
     timestamp first_seen_at
   }
 
@@ -55,13 +63,19 @@ erDiagram
     varchar lifecycle_status
   }
 
-  RETAIL_LINE_ITEMS {
-    varchar line_item_id PK
-    varchar transaction_id
+  TRANSACTIONS {
+    varchar transaction_id PK
     timestamp sold_at
     varchar store_id FK
-    varchar sku_id FK
     varchar customer_id FK
+    varchar channel
+    varchar fulfillment_method
+  }
+
+  RETAIL_LINE_ITEMS {
+    varchar line_item_id PK
+    varchar transaction_id FK
+    varchar sku_id FK
     numeric net_sales_amount
   }
 

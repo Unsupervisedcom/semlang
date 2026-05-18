@@ -17,6 +17,12 @@ CREATE TABLE customers (
   household_id VARCHAR(30),
   payment_card_hash VARCHAR(128),
   email_hash VARCHAR(128),
+  legal_name VARCHAR(120) NOT NULL,
+  email_address VARCHAR(255) NOT NULL,
+  phone_number VARCHAR(30),
+  postal_code VARCHAR(20),
+  pii_verified_at TIMESTAMP,
+  service_region VARCHAR(50),
   first_seen_at TIMESTAMP NOT NULL,
   pii_consent_status VARCHAR(30) NOT NULL CHECK (pii_consent_status IN ('granted', 'declined', 'unknown')),
   CHECK (loyalty_member_id IS NOT NULL OR payment_card_hash IS NOT NULL)
@@ -64,16 +70,21 @@ CREATE TABLE promotions (
   CHECK (ends_at > starts_at)
 );
 
-CREATE TABLE retail_line_items (
-  line_item_id VARCHAR(40) PRIMARY KEY,
+CREATE TABLE transactions (
   transaction_id VARCHAR(40) NOT NULL,
-  line_number INTEGER NOT NULL CHECK (line_number > 0),
   sold_at TIMESTAMP NOT NULL,
   store_id VARCHAR(20) NOT NULL REFERENCES stores(store_id),
-  sku_id VARCHAR(30) NOT NULL REFERENCES product_skus(sku_id),
   customer_id VARCHAR(30) REFERENCES customers(customer_id),
   channel VARCHAR(30) NOT NULL CHECK (channel IN ('store', 'web', 'mobile')),
   fulfillment_method VARCHAR(30) NOT NULL CHECK (fulfillment_method IN ('cash_and_carry', 'ship_to_home', 'buy_online_pickup_store')),
+  PRIMARY KEY (transaction_id)
+);
+
+CREATE TABLE retail_line_items (
+  line_item_id VARCHAR(40) PRIMARY KEY,
+  transaction_id VARCHAR(40) NOT NULL REFERENCES transactions(transaction_id),
+  line_number INTEGER NOT NULL CHECK (line_number > 0),
+  sku_id VARCHAR(30) NOT NULL REFERENCES product_skus(sku_id),
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_list_price NUMERIC(12, 2) NOT NULL CHECK (unit_list_price >= 0),
   gross_sales_amount NUMERIC(12, 2) NOT NULL CHECK (gross_sales_amount >= 0),

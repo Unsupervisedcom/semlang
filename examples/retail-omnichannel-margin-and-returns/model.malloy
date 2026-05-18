@@ -67,6 +67,43 @@ source: promotions is table('promotions') extend {
     is_vendor_funded is funding_source = 'vendor'
 }
 
+source: transactions is table('transactions') extend {
+  primary_key: transaction_id
+
+  join_one: store is stores
+    on store_id = store.store_id
+
+  join_one: customer is customers
+    on customer_id = customer.customer_id
+
+  join_one: loyalty_points_at_sale is loyalty_point_balance
+    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
+    and sold_at.date = loyalty_points_at_sale.balance_date
+
+  join_many: lines is retail_line_items
+    on transaction_id = lines.transaction_id
+
+  dimension:
+    sold_date is sold_at.date
+    sold_month is sold_at.month
+    customer_recognition_method is case
+      when customer_id is null then 'unrecognized_cash'
+      when customer.loyalty_member_id is not null then 'loyalty'
+      when customer.payment_card_hash is not null then 'payment_card'
+      else 'known_other'
+    end
+    loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
+
+  measure:
+    sales is count()
+    loyalty_customers is count(distinct customer.loyalty_member_id)
+    identified_customers is count(distinct customer.customer_id)
+    identified_customer_sales is count(case when customer_id is not null then transaction_id end)
+    unrecognized_cash_sales is count(case when customer_id is null then transaction_id end)
+    identified_sales_per_customer is identified_customer_sales / nullif(identified_customers, 0)
+    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
+}
+
 source: line_item_promotions is table('line_item_promotions') extend {
   primary_key: concat(line_item_id, '|', promotion_id)
 
@@ -74,7 +111,9 @@ source: line_item_promotions is table('line_item_promotions') extend {
     on promotion_id = promotion.promotion_id
 
   measure:
+    # currency=usd2
     allocated_discount is sum(allocation_amount)
+    # currency=usd2
     vendor_funded_discount is sum(case when promotion.funding_source = 'vendor' then allocation_amount else 0 end)
     promotion_count is count()
 }
@@ -86,8 +125,11 @@ source: return_lines is table('return_lines') extend {
     return_authorizations is count(distinct return_authorization_id)
     returned_units is sum(returned_quantity)
     settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
+    # currency=usd2
     refund_amount is sum(refund_amount)
+    # currency=usd2
     settled_refund_amount is sum(case when return_status = 'settled' then refund_amount else 0 end)
+    # currency=usd2
     restocking_fees is sum(restocking_fee_amount)
 
   view: return_lifecycle is {
@@ -107,23 +149,16 @@ source: return_lines is table('return_lines') extend {
 source: retail_line_items is table('retail_line_items') extend {
   primary_key: line_item_id
 
-  join_one: store is stores
-    on store_id = store.store_id
-
-  join_one: customer is customers
-    on customer_id = customer.customer_id
-
-  join_one: loyalty_points_at_sale is loyalty_point_balance
-    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
-    and sold_at.date = loyalty_points_at_sale.balance_date
+  join_one: sale is transactions
+    on transaction_id = sale.transaction_id
 
   join_one: sku is product_skus
     on sku_id = sku.sku_id
 
   join_one: product_at_sale is product_sku_history
     on sku_id = product_at_sale.sku_id
-    and sold_at >= product_at_sale.valid_from
-    and sold_at < product_at_sale.valid_to
+    and sale.sold_at >= product_at_sale.valid_from
+    and sale.sold_at < product_at_sale.valid_to
 
   join_many: promotion_allocations is line_item_promotions
     on line_item_id = promotion_allocations.line_item_id
@@ -132,53 +167,66 @@ source: retail_line_items is table('retail_line_items') extend {
     on line_item_id = returns.original_line_item_id
 
   dimension:
-    sold_date is sold_at.date
-    sold_month is sold_at.month
+    sold_date is sale.sold_date
+    sold_month is sale.sold_month
+    channel is sale.channel
+    fulfillment_method is sale.fulfillment_method
     margin_amount is net_sales_amount - merchandise_cost_amount
-    customer_recognition_method is case
-      when customer_id is null then 'unrecognized_cash'
-      when customer.loyalty_member_id is not null then 'loyalty'
-      when customer.payment_card_hash is not null then 'payment_card'
-      else 'known_other'
-    end
-    loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
-    is_return_window_open is sold_at >= now() - interval('30 day')
+    customer_recognition_method is sale.customer_recognition_method
+    loyalty_point_balance_at_sale is sale.loyalty_point_balance_at_sale
+    is_return_window_open is sale.sold_at >= now() - interval('30 day')
 
   measure:
     line_items is count()
-    transactions is count(distinct transaction_id)
+    sales is count(distinct transaction_id)
     units_sold is sum(quantity)
+    # currency=usd2
     gross_sales is sum(gross_sales_amount)
+    # currency=usd2
     discount_amount is sum(discount_amount)
+    # currency=usd2
     net_sales is sum(net_sales_amount)
+    # currency=usd2
     merchandise_cost is sum(merchandise_cost_amount)
+    # currency=usd2
     merchandising_margin is sum(net_sales_amount - merchandise_cost_amount)
+    # currency=usd2
     tax_collected is sum(tax_amount)
-    loyalty_customers is count(distinct customer.loyalty_member_id)
-    known_customer_transactions is count(distinct case when customer_id is not null then transaction_id end)
-    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
-    promotion_discount is promotion_allocations.sum(allocation_amount)
-    vendor_funded_discount is promotion_allocations.sum(
-      case when promotion_allocations.promotion.funding_source = 'vendor' then allocation_amount else 0 end
+    # currency=usd2
+    promotion_discount is sum(promotion_allocations.allocation_amount)
+    # currency=usd2
+    vendor_funded_discount is sum(
+      case
+        when promotion_allocations.promotion.funding_source = 'vendor'
+        then promotion_allocations.allocation_amount
+        else 0
+      end
     )
-    returned_units is returns.sum(returned_quantity)
-    settled_returned_units is returns.sum(case when return_status = 'settled' then returned_quantity else 0 end)
-    refund_amount is returns.sum(refund_amount)
-    settled_refund_amount is returns.sum(case when return_status = 'settled' then refund_amount else 0 end)
+    returned_units is sum(returns.returned_quantity)
+    settled_returned_units is sum(
+      case when returns.return_status = 'settled' then returns.returned_quantity else 0 end
+    )
+    # currency=usd2
+    refund_amount is sum(returns.refund_amount)
+    # currency=usd2
+    settled_refund_amount is sum(
+      case when returns.return_status = 'settled' then returns.refund_amount else 0 end
+    )
     return_rate is returned_units / nullif(units_sold, 0)
     settled_return_rate is settled_returned_units / nullif(units_sold, 0)
+    # currency=usd2
     net_after_settled_refunds is net_sales - settled_refund_amount
 
   view: sales_by_region_category is {
     group_by:
       sold_month
       channel
-      store.region
-      store.market
+      sale.store.region
+      sale.store.market
       product_at_sale.department
       product_at_sale.category_name
     aggregate:
-      transactions
+      sales
       units_sold
       gross_sales
       discount_amount
@@ -193,13 +241,13 @@ source: retail_line_items is table('retail_line_items') extend {
     group_by:
       sold_month
       customer_recognition_method
-      customer.pii_consent_status
+      sale.customer.pii_consent_status
       product_at_sale.category_name
     aggregate:
-      transactions
-      loyalty_customers
-      known_customer_transactions
-      average_loyalty_point_balance_at_sale
+      sales
+      sale.loyalty_customers
+      sale.identified_customer_sales
+      sale.average_loyalty_point_balance_at_sale
       net_sales
       merchandising_margin
       refund_amount
@@ -224,7 +272,7 @@ source: retail_line_items is table('retail_line_items') extend {
   view: return_drilldown is {
     group_by:
       sold_month
-      store.region
+      sale.store.region
       product_at_sale.category_name
       returns.return_channel
       returns.return_status
@@ -300,7 +348,7 @@ source: inventory_snapshots is table('inventory_snapshots') extend {
 query: monthly_margin_and_returns is retail_line_items -> {
   group_by:
     sold_month
-    store.region
+    sale.store.region
     product_at_sale.category_name
   aggregate:
     net_sales

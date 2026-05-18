@@ -1,0 +1,327 @@
+// OntoQL sketch for the retail omnichannel margin and returns example,
+// extended with query-time lenses.
+//
+// This file intentionally imports the base package instead of repeating it.
+// A lens is a named overlay that can be applied at query time:
+//
+//   - `lens: name is { ... }` declares a reusable overlay.
+//   - `lens: child is parent, other_parent extend { ... }` composes overlays
+//     and then applies one more extension block.
+//   - A lens body can contain normal OntoQL declarations, such as new types,
+//     concepts, roles, joins, dimensions, measures, views, and queries.
+//   - `refine: X extend { ... }` modifies the visible definition of an
+//     existing concept named X while the lens is active. This intentionally
+//     rhymes with Malloy's `source: child is parent extend { ... }`, except the
+//     overlay is applied to the existing semantic name instead of creating a
+//     new named source.
+//   - `where:` inside a `refine:` block is Malloy-esque source/view filtering
+//     syntax. When a query runs with a lens, these refinement filters are
+//     applied to the existing semantic name. Multiple lens `where:` clauses
+//     compose by intersection: they are all ANDed together with each other and
+//     with any `where:` written directly in the query or view.
+//   - `query ... is Concept with lens_name -> { ... }` compiles as though the
+//     imported package were first overlaid with that lens.
+//
+// The design goal is similar to Malloy source extension, but the refinement is
+// attached to the existing semantic name instead of creating a new named source.
+
+package retail.omnichannel_margin_returns.with_lens
+
+include "./example.ontoql"
+
+// ---------------------------------------------------------------------------
+// Lens: Western Region
+// ---------------------------------------------------------------------------
+//
+// A regional leader should be able to ask ordinary retail questions without
+// remembering to add `store.region = 'West'` to every query. Applying this lens
+// narrows any query path that reaches Store through Sale, SaleLine, ReturnLine,
+// or InventoryPosition.
+
+lens: western_region is {
+  description: "Regional operating view for leaders accountable for western markets."
+
+  refine: Store extend {
+    where: region = 'West'
+
+    role WesternRegionStore when region = 'West'
+
+    dimension:
+      regional_market_label is concat(market, ' / ', store_name)
+  }
+
+  refine: Sale extend {
+    where: store is WesternRegionStore
+  }
+
+  refine: SaleLine extend {
+    where: sale.store is WesternRegionStore
+
+    view: western_sales_by_category is {
+      group_by:
+        sold_month
+        sale.store.market
+        product_at_sale.department
+        product_at_sale.category_name
+      aggregate:
+        sales
+        units_sold
+        net_sales
+        merchandising_margin
+        settled_refund_amount
+        settled_return_rate
+    }
+  }
+
+  refine: ReturnLine extend {
+    where: original_sale_line.sale.store is WesternRegionStore
+  }
+
+  refine: InventoryPosition extend {
+    where: store is WesternRegionStore
+
+    view: western_inventory_exceptions is {
+      where:
+        is_negative_on_hand
+        or product_at_snapshot.lifecycle_status in ('recalled', 'discontinued')
+      group_by:
+        snapshot_date
+        store.market
+        store.store_code
+        sku.sku_number
+        product_at_snapshot.product_name
+        product_at_snapshot.lifecycle_status
+      aggregate:
+        on_hand_units_at_filter
+        damaged_units_at_filter
+        available_to_sell_at_filter
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Margin Operations
+// ---------------------------------------------------------------------------
+//
+// This lens does not primarily restrict data. It adds operating definitions for
+// teams working returns and margin leakage. Those definitions appear on the
+// existing SaleLine concept only while the lens is active.
+
+lens: margin_operations is {
+  description: "Temporary operating vocabulary for margin and returns triage."
+
+  type: MarginRiskBand is string {
+    scale_type: ordinal
+    allowed_values: ['healthy', 'watch', 'intervene']
+  }
+
+  refine: SaleLine extend {
+    dimension:
+      line_margin_rate is margin_amount / nullif(net_sales_amount, 0)
+
+      margin_risk_band :: MarginRiskBand is case
+        when line_margin_rate < 0.10 then 'intervene'
+        when line_margin_rate < 0.18 or is_return_window_open then 'watch'
+        else 'healthy'
+      end
+
+    measure:
+      average_line_margin_rate is avg(line_margin_rate)
+      lines_to_intervene is count(case when margin_risk_band = 'intervene' then line_item_id end)
+      intervention_net_sales is sum(case when margin_risk_band = 'intervene' then net_sales_amount else 0 end)
+
+    view: margin_risk_by_category is {
+      group_by:
+        sold_month
+        sale.store.region
+        sale.store.market
+        product_at_sale.department
+        product_at_sale.category_name
+        margin_risk_band
+      aggregate:
+        sales
+        units_sold
+        net_sales
+        merchandising_margin
+        average_line_margin_rate
+        settled_refund_amount
+        settled_return_rate
+        lines_to_intervene
+        intervention_net_sales
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: With PII
+// ---------------------------------------------------------------------------
+//
+// The base model exposes hashed or consent-related customer attributes from the
+// customers table, but not direct contact fields. A privileged lens can reveal
+// additional source-backed fields on the existing Customer concept. Queries
+// must ask for this lens explicitly.
+
+lens: with_pii is {
+  description: "Privileged customer service view with direct customer contact fields."
+
+  refine: Customer extend {
+    field:
+      legal_name :: string
+      email_address :: string
+      phone_number :: string?
+      postal_code :: string?
+      pii_verified_at :: EventTimestamp?
+      service_region :: string?
+
+    dimension:
+      display_name is legal_name
+      contact_email is email_address
+      contact_phone is phone_number
+      contact_postal_code is postal_code
+      has_verified_pii is pii_verified_at is not null
+  }
+
+  refine: Sale extend {
+    dimension:
+      customer_display_name is customer.display_name
+      customer_contact_email is customer.contact_email
+      customer_has_verified_pii is customer.has_verified_pii
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens Composition
+// ---------------------------------------------------------------------------
+//
+// Lenses can be composed left-to-right. Later refinements see earlier
+// refinements and can add to them. Here, a western regional operations user gets
+// both the western filters and the margin triage vocabulary.
+
+lens: western_margin_operations is western_region, margin_operations extend {
+  description: "Western-region margin operations workspace."
+
+  refine: SaleLine extend {
+    view: western_margin_risk_by_category is {
+      group_by:
+        sold_month
+        sale.store.market
+        product_at_sale.department
+        product_at_sale.category_name
+        margin_risk_band
+      aggregate:
+        sales
+        units_sold
+        net_sales
+        merchandising_margin
+        average_line_margin_rate
+        settled_refund_amount
+        settled_return_rate
+        lines_to_intervene
+        intervention_net_sales
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: western_monthly_margin_and_returns is SaleLine with western_region -> {
+  // Same shape as the base monthly_margin_and_returns query, but the western
+  // region lens contributes the Store/Sale/SaleLine filters automatically.
+  group_by:
+    sold_month
+    sale.store.market
+    product_at_sale.category_name
+  aggregate:
+    net_sales
+    merchandising_margin
+    settled_refund_amount
+    net_after_settled_refunds
+    settled_return_rate
+}
+
+query: western_margin_intervention_queue is SaleLine with western_margin_operations -> {
+  // Uses both lenses: western_region contributes the regional filters, and
+  // margin_operations contributes margin_risk_band and intervention measures.
+  where:
+    margin_risk_band = 'intervene'
+  group_by:
+    sold_month
+    sale.store.market
+    product_at_sale.department
+    product_at_sale.category_name
+    margin_risk_band
+  aggregate:
+    sales
+    units_sold
+    net_sales
+    merchandising_margin
+    average_line_margin_rate
+    settled_refund_amount
+    settled_return_rate
+    lines_to_intervene
+    intervention_net_sales
+}
+
+query: pii_customer_service_returns is ReturnLine with with_pii -> {
+  // Without the with_pii lens, customer.display_name and contact_email do not
+  // exist on Customer, so this query should fail validation.
+  where:
+    return_status in ('authorized', 'received')
+    and original_sale_line.sale.customer_has_verified_pii
+  group_by:
+    returned_at.date
+    return_authorization_id
+    original_sale_line.sale.customer_display_name
+    original_sale_line.sale.customer_contact_email
+    original_sale_line.sale.store.store_code
+    original_sale_line.product_at_sale.product_name
+    reason_code
+  aggregate:
+    returned_units
+    refund_amount
+}
+
+query: western_pii_customer_service_returns is ReturnLine with western_region, with_pii -> {
+  // Multiple lenses can be applied directly to a query. This runs the customer
+  // service return queue only for western stores, while also exposing PII.
+  where:
+    return_status in ('authorized', 'received')
+    and original_sale_line.sale.customer_has_verified_pii
+  group_by:
+    returned_at.date
+    return_authorization_id
+    original_sale_line.sale.customer_display_name
+    original_sale_line.sale.customer_contact_email
+    original_sale_line.sale.store.market
+    original_sale_line.product_at_sale.product_name
+    reason_code
+  aggregate:
+    returned_units
+    refund_amount
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By Lens Syntax
+// ---------------------------------------------------------------------------
+//
+// A first OntoQL implementation could compile a lens application in this order:
+//
+//   1. Load the imported package graph.
+//   2. Copy the visible declarations into a query-local model environment.
+//   3. Apply lens declarations in order.
+//   4. Merge each `refine: X extend { ... }` body into the existing concept X.
+//   5. Treat `where:` inside a `refine:` block as a lens-local source filter on
+//      that concept. The filter applies when that concept is the query root or
+//      appears through a join path. If multiple active lenses refine the same
+//      concept with `where:`, or the query/view also has a `where:`, compile
+//      them as a single conjunction:
+//
+//        lens_where_1 and lens_where_2 and view_where and query_where
+//
+//      A lens cannot relax an earlier filter unless the language later adds an
+//      explicit override form.
+//   6. Validate the final query against the lens-expanded model.
+//   7. Compile the expanded model to Malloy source extensions and the query to
+//      a Malloy run.
