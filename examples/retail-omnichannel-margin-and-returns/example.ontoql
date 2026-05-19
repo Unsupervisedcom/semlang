@@ -343,12 +343,12 @@ concept ReturnLine is event from duckdb.table('return_lines') {
     returned_at :: EventTimestamp
     return_authorization_id :: string
     return_channel :: ReturnChannel
-    return_status :: ReturnStatus
+    return_status :: ReturnStatus writeable
     returned_quantity :: UnitCount
-    refund_amount :: Dollars
-    restocking_fee_amount :: Dollars
+    refund_amount :: Dollars writeable
+    restocking_fee_amount :: Dollars writeable
     reason_code :: string
-    settled_at :: EventTimestamp?
+    settled_at :: EventTimestamp? writeable
 
   measure:
     return_authorizations is count(distinct return_authorization_id)
@@ -369,6 +369,29 @@ concept ReturnLine is event from duckdb.table('return_lines') {
       returned_units
       refund_amount
       restocking_fees
+  }
+
+  action settle_return {
+    subject: single
+
+    param:
+      approved_refund_amount :: Dollars
+      approved_restocking_fee_amount :: Dollars default 0
+
+    guard:
+      this.return_status in ['authorized', 'received', 'accepted']
+        else "Only authorized, received, or accepted return lines can be settled."
+
+    edit:
+      set return_status = 'settled'
+      set refund_amount = approved_refund_amount
+      set restocking_fee_amount = approved_restocking_fee_amount
+      set settled_at = current_time
+
+    log as ReturnLineActionLog {
+      summary: "Settled return authorization ${this.return_authorization_id}"
+      include: approved_refund_amount, approved_restocking_fee_amount, current_user.id
+    }
   }
 
   validation:

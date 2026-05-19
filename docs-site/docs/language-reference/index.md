@@ -55,6 +55,7 @@ query: monthly_margin is SaleLine -> {
 - [Sources](./sources.md) covers Malloy-shaped table, SQL, named source, and query source references.
 - [Expressions](./expressions.md) describes where expressions appear and how aliases, role tests, joins, and aggregates are interpreted.
 - [Lenses](./lenses.md) explains query-time semantic overlays.
+- [Actions](./actions.md) describes concept-local write operations, subjects, guards, writeable fields, write mappings, logs, side effects, and action manifest lowering.
 - [Diagnostics and Lowering](./diagnostics-lowering.md) summarizes compiler errors and Malloy emission.
 - [Schema Vocabulary](./schema-vocabulary.md) describes JSON Schema export and OntoQL extension keywords.
 - [Supported Malloy Features](./supported_malloy_features.md) tracks Malloy compatibility row by row.

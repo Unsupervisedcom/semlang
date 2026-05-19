@@ -29,7 +29,7 @@ The JSON Schema exporter projects semantic types and concept row shapes into a p
 - 01.02.005: Primitive fields MUST export to their closest JSON Schema primitive shape: `string`, `number`, `boolean`, `date` as string `format: date`, and `timestamp` as string `format: date-time`.
 - 01.02.006: `currency` values MUST export as JSON Schema numbers with `x-ontoql-primitive: currency`.
 - 01.02.007: Nullable properties MUST include `null` in their JSON Schema value shape.
-- 01.02.008: Concept identities and fields SHOULD appear in the exported row schema `required` list because OntoQL models source-backed columns rather than sparse patch objects.
+- 01.02.008: Concept identities and fields SHOULD appear in the exported concept row schema `required` list because that schema describes source-backed concept rows, not query results, projected views, or sparse patch objects.
 - 01.02.009: Field `unique` metadata MUST export as `x-ontoql-unique: true`.
 - 01.02.010: Identity fields MUST export with `x-ontoql-identity: true`, and concept schemas MUST list identity field names in `x-ontoql-identity`.
 - 01.02.011: Ontological metadata that has no standard JSON Schema keyword MUST export under `x-ontoql-*` extension keywords.
@@ -38,7 +38,7 @@ The JSON Schema exporter projects semantic types and concept row shapes into a p
 
 ## 01.03 Requirement Traceability
 
-Requirements are intended to be stable anchors for implementation and test intent. Code and tests should reference the most relevant requirement number where doing so improves maintainability.
+Requirements are intended to be stable anchors for implementation and test intent. Tests must reference the relevant requirement IDs so coverage remains auditable as the language evolves.
 
-- 01.03.001: Tests for type parsing, validation, and JSON Schema export SHOULD reference the requirement IDs they protect.
-- 01.03.002: New compiler functions that implement type behavior SHOULD reference the requirement IDs they implement in a nearby comment when doing so is practical.
+- 01.03.001: Every durable requirement ID MUST be referenced by at least one test comment in the test suite.
+- 01.03.002: When requirements are added, removed, or changed, tests MUST be updated in the same change so requirement comments remain current.

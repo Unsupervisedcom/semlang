@@ -40,7 +40,9 @@ OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy'
 
 - Durable language and compiler requirements belong in `requirements/REQ-XX-NAME.md` files.
 - Requirement files use RFC 2119 language and stable requirement IDs such as `01.02.001`.
-- Compiler functions and tests should reference the requirement ID they implement or protect when a clear local reference is practical.
+- Every durable requirement ID must be covered by a test and referenced in a test comment using the exact ID, such as `// Covers: 06.01.001`.
+- When adding or changing requirements, update tests and run the requirements traceability test so missing or stale requirement comments are caught.
+- Compiler functions may reference requirement IDs where the implementation mapping is non-obvious, but tests are the required source of traceability.
 - Update the relevant requirement file before or alongside changing compiler behavior.
 
 ## Common Translations

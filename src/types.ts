@@ -131,6 +131,7 @@ export interface ConceptDecl {
   validations: ValidationDecl[];
   temporal: TemporalAxisDecl[];
   where: ExpressionDecl[];
+  actions: ActionDecl[];
   location: SourceLocation;
 }
 
@@ -146,6 +147,8 @@ export interface FieldDecl {
   typeName: string;
   nullable: boolean;
   unique: boolean;
+  writeable: boolean;
+  writeMappings: WriteMappingDecl[];
   location: SourceLocation;
 }
 
@@ -171,6 +174,89 @@ export interface DefinitionDecl {
   expression: string;
   typeName?: string;
   nullable?: boolean;
+  writeable: boolean;
+  writeMappings: WriteMappingDecl[];
+  location: SourceLocation;
+}
+
+export type WriteMappingDecl =
+  | {
+      kind: "default";
+      location: SourceLocation;
+    }
+  | {
+      kind: "column";
+      column: string;
+      expression: string;
+      location: SourceLocation;
+    }
+  | {
+      kind: "sql";
+      sql: string;
+      location: SourceLocation;
+    };
+
+export type ActionSubjectMode = "single" | "new" | "collection";
+
+export interface ActionSubjectDecl {
+  mode: string;
+  metadata: MetadataEntry[];
+  location: SourceLocation;
+}
+
+export interface ActionParamDecl {
+  name: string;
+  typeName: string;
+  nullable: boolean;
+  defaultExpression?: string;
+  hidden: boolean;
+  location: SourceLocation;
+}
+
+export interface ActionGuardDecl {
+  predicate: string;
+  elseMessage?: string;
+  location: SourceLocation;
+}
+
+export type ActionEditDecl =
+  | {
+      kind: "set";
+      target: string;
+      expression: string;
+      location: SourceLocation;
+    }
+  | {
+      kind: "insert";
+      assignments: ActionInsertAssignmentDecl[];
+      location: SourceLocation;
+    };
+
+export interface ActionInsertAssignmentDecl {
+  target: string;
+  expression: string;
+  location: SourceLocation;
+}
+
+export interface ActionMetadataBlockDecl {
+  kind: "log" | "effect" | "agent";
+  header: string;
+  entries: MetadataEntry[];
+  lines: string[];
+  location: SourceLocation;
+}
+
+export interface ActionDecl {
+  name: string;
+  description?: string;
+  subject?: ActionSubjectDecl;
+  params: ActionParamDecl[];
+  guards: ActionGuardDecl[];
+  edits: ActionEditDecl[];
+  logBlocks: ActionMetadataBlockDecl[];
+  effectBlocks: ActionMetadataBlockDecl[];
+  agentBlock?: ActionMetadataBlockDecl;
+  agentMetadata: MetadataEntry[];
   location: SourceLocation;
 }
 
@@ -256,6 +342,7 @@ export interface ConceptMembers {
   validations: ValidationDecl[];
   temporal: TemporalAxisDecl[];
   where: ExpressionDecl[];
+  actions: ActionDecl[];
 }
 
 export interface QueryDecl {
@@ -294,6 +381,7 @@ export function emptyMembers(): ConceptMembers {
     views: [],
     validations: [],
     temporal: [],
-    where: []
+    where: [],
+    actions: []
   };
 }

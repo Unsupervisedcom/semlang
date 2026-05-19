@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { compileOntoql, parseOntoql } from "../src/index.js";
 import type { Diagnostic } from "../src/types.js";
 
+// Requirement coverage: diagnostic structure, missing/duplicate/unresolved
+// declarations, invalid syntax, stage safety, include/lens cycles, temporal
+// misuse, and aggregate alias diagnostics.
+// 05.01.001, 05.01.002, 05.01.003, 05.01.004, 05.01.005, 05.01.006, 05.01.007, 05.01.008
+// 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.02.001, 05.02.002, 05.02.003
+// 05.02.004, 05.02.005, 05.02.006
+
 function source(lines: string[]): string {
   return `${lines.join("\n")}\n`;
 }

@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
         "language-reference/sources",
         "language-reference/expressions",
         "language-reference/lenses",
+        "language-reference/actions",
         "language-reference/diagnostics-lowering",
         "language-reference/schema-vocabulary",
         "language-reference/agent-instructions",

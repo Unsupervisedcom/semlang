@@ -11,6 +11,12 @@ import {
 } from "./text.js";
 import {
   emptyMembers,
+  type ActionDecl,
+  type ActionEditDecl,
+  type ActionGuardDecl,
+  type ActionInsertAssignmentDecl,
+  type ActionMetadataBlockDecl,
+  type ActionParamDecl,
   type CompileOptions,
   type ConceptDecl,
   type ConceptMembers,
@@ -34,7 +40,8 @@ import {
   type TemporalAxisDecl,
   type TypeDecl,
   type ValidationDecl,
-  type ViewDecl
+  type ViewDecl,
+  type WriteMappingDecl
 } from "./types.js";
 
 const primitiveTypes = new Set(["string", "number", "date", "timestamp", "currency", "boolean"]);
@@ -590,6 +597,15 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
       continue;
     }
 
+    if (/^action\b/.test(trimmed)) {
+      const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
+      const parsed = parseAction(block.header, block.body, file, diagnostics);
+      if (parsed) members.actions.push(parsed);
+      i = block.end;
+      continue;
+    }
+
     const description = /^description:\s*/.exec(trimmed);
     if (description) {
       members.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
@@ -618,17 +634,41 @@ function parseIdentityLine(line: SourceLine, file: string | undefined, diagnosti
 }
 
 function parseFields(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): FieldDecl[] {
-  return trimBlankEdges(lines).flatMap((line) => {
+  const fields: FieldDecl[] = [];
+  const trimmedLines = trimBlankEdges(lines);
+  let i = 0;
+  while (i < trimmedLines.length) {
+    const line = trimmedLines[i]!;
     const trimmed = line.stripped.trim();
-    if (!trimmed) return [];
-    const unique = /\s+unique$/.test(trimmed);
-    const withoutUnique = trimmed.replace(/\s+unique$/, "");
-    const parsed = parseTypedName(withoutUnique, line, file, diagnostics);
-    return parsed ? [{ ...parsed, unique, location: location(file, line.line, line.text, parsed.name) }] : [];
-  });
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+    const block = trimmed.includes("{") ? collectBraceBlock(trimmedLines, i) : undefined;
+    if (block) diagnoseUnclosedBlock(block, file, diagnostics);
+    const header = block?.header ?? line;
+    const parsed = parseFieldHeader(header, block?.body ?? [], file, diagnostics);
+    if (parsed) fields.push(parsed);
+    i = block?.end ?? i + 1;
+  }
+  return fields;
 }
 
-function parseTypedName(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): Omit<FieldDecl, "unique" | "location"> | undefined {
+function parseFieldHeader(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): FieldDecl | undefined {
+  const text = header.stripped.trim().replace(/\s*\{\s*$/, "").trim();
+  const unique = /\s+unique(?:\s|$)/.test(text);
+  const writeable = /\s+writeable(?:\s|$)/.test(text);
+  const withoutModifiers = text.replace(/\s+(?:unique|writeable)\b/g, "").trim();
+  const parsed = parseTypedName(withoutModifiers, header, file, diagnostics);
+  if (!parsed) return undefined;
+  const explicitMappings = parseWriteMappings(body, file, diagnostics);
+  const writeMappings = writeable && explicitMappings.length === 0
+    ? [{ kind: "default" as const, location: location(file, header.line, header.text, parsed.name) }]
+    : explicitMappings;
+  return { ...parsed, unique, writeable, writeMappings, location: location(file, header.line, header.text, parsed.name) };
+}
+
+function parseTypedName(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): Omit<FieldDecl, "unique" | "writeable" | "writeMappings" | "location"> | undefined {
   const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?$/.exec(text.trim());
   if (!match) {
     diagnostics.push(error("INVALID_TYPED_NAME", `Invalid typed declaration: ${text.trim()}`, file, line));
@@ -679,8 +719,12 @@ function parseRole(lines: SourceLine[], file: string | undefined, diagnostics: D
 function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): DefinitionDecl[] {
   const groups = groupDefinitionLines(lines);
   return groups.flatMap((group) => {
-    const text = normalizeExpression(group);
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?)?\s+is\s+(.+)$/.exec(text);
+    const { headerLines, bodyLines } = splitDefinitionGroup(group);
+    const header = headerLines[0]!;
+    const text = normalizeExpression(headerLines).replace(/\s*\{\s*$/, "").trim();
+    const writeable = /\s+writeable$/.test(text);
+    const withoutWriteable = text.replace(/\s+writeable$/, "").trim();
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?)?\s+is\s+(.+)$/.exec(withoutWriteable);
     if (!match) {
       diagnostics.push(error("INVALID_DEFINITION", `Invalid definition: ${text}`, file, group[0]!));
       return [];
@@ -690,7 +734,307 @@ function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnos
       typeName: match[2],
       nullable: Boolean(match[3]),
       expression: match[4]!.trim(),
-      location: location(file, group[0]!.line, group[0]!.text, match[1])
+      writeable,
+      writeMappings: parseWriteMappings(bodyLines, file, diagnostics),
+      location: location(file, header.line, header.text, match[1])
+    }];
+  });
+}
+
+function splitDefinitionGroup(group: SourceLine[]): { headerLines: SourceLine[]; bodyLines: SourceLine[] } {
+  const braceIndex = group.findIndex((line) => line.stripped.includes("{"));
+  if (braceIndex < 0) return { headerLines: group, bodyLines: [] };
+  return { headerLines: group.slice(0, braceIndex + 1), bodyLines: group.slice(braceIndex + 1, group.at(-1)?.stripped.trim() === "}" ? -1 : undefined) };
+}
+
+function parseWriteMappings(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): WriteMappingDecl[] {
+  const mappings: WriteMappingDecl[] = [];
+  const trimmedLines = trimBlankEdges(lines);
+  for (let i = 0; i < trimmedLines.length; i += 1) {
+    const line = trimmedLines[i]!;
+    const trimmed = line.stripped.trim();
+    if (!trimmed || trimmed === "}") continue;
+    const write = /^write:\s*(.*)$/.exec(trimmed);
+    if (write) {
+      const rest = write[1]!.trim();
+      if (rest) {
+        const parsed = parseWriteMappingLine(rest, line, file, diagnostics);
+        if (parsed) mappings.push(parsed);
+        continue;
+      }
+      while (i + 1 < trimmedLines.length) {
+        const next = trimmedLines[i + 1]!;
+        const nextTrimmed = next.stripped.trim();
+        if (!nextTrimmed || nextTrimmed === "}") {
+          i += 1;
+          continue;
+        }
+        if (/^write:/.test(nextTrimmed)) break;
+        const parsed = parseWriteMappingLine(nextTrimmed, next, file, diagnostics);
+        if (parsed) mappings.push(parsed);
+        i += 1;
+      }
+      continue;
+    }
+    const parsed = parseWriteMappingLine(trimmed, line, file, diagnostics);
+    if (parsed) mappings.push(parsed);
+  }
+  return mappings;
+}
+
+function parseWriteMappingLine(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): WriteMappingDecl | undefined {
+  const column = /^column\s+([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.+)$/.exec(text);
+  if (column) {
+    return {
+      kind: "column",
+      column: column[1]!,
+      expression: column[2]!.trim(),
+      location: location(file, line.line, line.text, "column")
+    };
+  }
+  const sql = /^sql\s+(['"])([\s\S]*)\1$/.exec(text);
+  if (sql) {
+    return {
+      kind: "sql",
+      sql: sql[2]!,
+      location: location(file, line.line, line.text, "sql")
+    };
+  }
+  diagnostics.push(error("INVALID_WRITE_MAPPING", `Invalid write mapping: ${text}`, file, line));
+  return undefined;
+}
+
+function parseAction(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionDecl | undefined {
+  const match = /^action\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/.exec(header.stripped.trim());
+  if (!match) {
+    diagnostics.push(error("INVALID_ACTION_DECL", "Invalid action declaration.", file, header));
+    return undefined;
+  }
+
+  const action: ActionDecl = {
+    name: match[1]!,
+    params: [],
+    guards: [],
+    edits: [],
+    logBlocks: [],
+    effectBlocks: [],
+    agentMetadata: [],
+    location: location(file, header.line, header.text, "action")
+  };
+
+  let i = 0;
+  while (i < body.length) {
+    const line = body[i]!;
+    const trimmed = line.stripped.trim();
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    if (/^description:\s*/.test(trimmed)) {
+      action.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
+      i += 1;
+      continue;
+    }
+
+    if (/^subject:/.test(trimmed)) {
+      if (trimmed.includes("{")) {
+        const block = collectBraceBlock(body, i);
+        diagnoseUnclosedBlock(block, file, diagnostics);
+        const subject = parseActionSubject(block.header, block.body, file);
+        if (subject) action.subject = subject;
+        i = block.end;
+      } else {
+        const subject = parseActionSubject(line, [], file);
+        if (subject) action.subject = subject;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (trimmed === "param:") {
+      const collected = collectActionSection(body, i + 1);
+      action.params.push(...parseActionParams(collected.lines, file, diagnostics));
+      i = collected.end;
+      continue;
+    }
+
+    if (trimmed === "guard:" || trimmed.startsWith("guard: ")) {
+      const first = trimmed === "guard:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)guard:\s*/, "$1") }];
+      const collected = collectActionSection(body, i + 1);
+      action.guards.push(...parseActionGuards([...first, ...collected.lines], file));
+      i = collected.end;
+      continue;
+    }
+
+    if (trimmed === "edit:" || trimmed.startsWith("edit: ")) {
+      const first = trimmed === "edit:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)edit:\s*/, "$1") }];
+      const collected = collectActionSection(body, i + 1);
+      action.edits.push(...parseActionEdits([...first, ...collected.lines], file, diagnostics));
+      i = collected.end;
+      continue;
+    }
+
+    if (/^log\b/.test(trimmed)) {
+      const block = collectBraceBlock(body, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
+      action.logBlocks.push(parseActionMetadataBlock("log", block.header, block.body, file));
+      i = block.end;
+      continue;
+    }
+
+    if (/^effect\b/.test(trimmed)) {
+      const collected = collectActionSection(body, i + 1);
+      action.effectBlocks.push(parseActionMetadataBlock("effect", line, collected.lines, file));
+      i = collected.end;
+      continue;
+    }
+
+    if (trimmed === "agent:" || trimmed.startsWith("agent: ")) {
+      const first = trimmed === "agent:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)agent:\s*/, "$1") }];
+      const collected = collectActionSection(body, i + 1);
+      const entries = parseMetadataEntries([...first, ...collected.lines], file);
+      action.agentMetadata.push(...entries);
+      action.agentBlock = {
+        kind: "agent",
+        header: "agent:",
+        entries,
+        lines: [...first, ...collected.lines].map((entry) => entry.stripped.trim()).filter(Boolean),
+        location: location(file, line.line, line.text, "agent")
+      };
+      i = collected.end;
+      continue;
+    }
+
+    diagnostics.push(error("UNEXPECTED_ACTION_MEMBER", `Unexpected action member: ${trimmed}`, file, line));
+    i += 1;
+  }
+
+  return action;
+}
+
+function parseActionSubject(header: SourceLine, body: SourceLine[], file: string | undefined) {
+  const match = /^subject:\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*\{)?$/.exec(header.stripped.trim());
+  if (!match) return undefined;
+  return {
+    mode: match[1]!,
+    metadata: parseMetadataEntries(body, file),
+    location: location(file, header.line, header.text, "subject")
+  };
+}
+
+function parseActionParams(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionParamDecl[] {
+  return trimBlankEdges(lines).flatMap((line) => {
+    const trimmed = line.stripped.trim();
+    if (!trimmed) return [];
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?(.*)$/.exec(trimmed);
+    if (!match) {
+      diagnostics.push(error("INVALID_ACTION_PARAM", `Invalid action parameter: ${trimmed}`, file, line));
+      return [];
+    }
+    const rest = match[4]!.trim();
+    const hidden = /\bhidden\b/.test(rest);
+    const defaultMatch = /\bdefault\s+(.+)$/.exec(rest.replace(/\bhidden\b/g, "").trim());
+    return [{
+      name: match[1]!,
+      typeName: match[2]!,
+      nullable: Boolean(match[3]),
+      defaultExpression: defaultMatch?.[1]?.trim(),
+      hidden,
+      location: location(file, line.line, line.text, match[1])
+    }];
+  });
+}
+
+function parseActionGuards(lines: SourceLine[], file: string | undefined): ActionGuardDecl[] {
+  const groups = groupActionExpressionLines(lines, (trimmed) => /^(else|and|or)\b/.test(trimmed));
+  return groups.map((group) => {
+    const expression = normalizeExpression(group);
+    const elseMatch = /^(.*?)(?:\s+else\s+(.+))$/.exec(expression);
+    return {
+      predicate: (elseMatch ? elseMatch[1] : expression)!.trim(),
+      elseMessage: elseMatch?.[2]?.trim(),
+      location: location(file, group[0]!.line, group[0]!.text, group[0]!.stripped.trim())
+    };
+  }).filter((guard) => guard.predicate);
+}
+
+function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionEditDecl[] {
+  const edits: ActionEditDecl[] = [];
+  const trimmedLines = trimBlankEdges(lines);
+  let i = 0;
+  while (i < trimmedLines.length) {
+    const line = trimmedLines[i]!;
+    const trimmed = line.stripped.trim();
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+    const set = /^set\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(trimmed);
+    if (set) {
+      edits.push({
+        kind: "set",
+        target: set[1]!,
+        expression: set[2]!.trim(),
+        location: location(file, line.line, line.text, "set")
+      });
+      i += 1;
+      continue;
+    }
+    if (/^insert\s*\{/.test(trimmed)) {
+      const block = collectBraceBlock(trimmedLines, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
+      edits.push({
+        kind: "insert",
+        assignments: parseInsertAssignments(block.body, file, diagnostics),
+        location: location(file, line.line, line.text, "insert")
+      });
+      i = block.end;
+      continue;
+    }
+    diagnostics.push(error("INVALID_ACTION_EDIT", `Invalid action edit: ${trimmed}`, file, line));
+    i += 1;
+  }
+  return edits;
+}
+
+function parseInsertAssignments(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionInsertAssignmentDecl[] {
+  return trimBlankEdges(lines).flatMap((line) => {
+    const trimmed = line.stripped.trim();
+    if (!trimmed) return [];
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?::|=)\s*(.+)$/.exec(trimmed);
+    if (!match) {
+      diagnostics.push(error("INVALID_ACTION_EDIT", `Invalid insert assignment: ${trimmed}`, file, line));
+      return [];
+    }
+    return [{
+      target: match[1]!,
+      expression: match[2]!.trim(),
+      location: location(file, line.line, line.text, match[1])
+    }];
+  });
+}
+
+function parseActionMetadataBlock(kind: ActionMetadataBlockDecl["kind"], header: SourceLine, body: SourceLine[], file: string | undefined): ActionMetadataBlockDecl {
+  return {
+    kind,
+    header: header.stripped.trim(),
+    entries: parseMetadataEntries(body, file),
+    lines: trimBlankEdges(body).map((line) => line.stripped.trim()).filter(Boolean),
+    location: location(file, header.line, header.text, kind)
+  };
+}
+
+function parseMetadataEntries(lines: SourceLine[], file: string | undefined): MetadataEntry[] {
+  return trimBlankEdges(lines).flatMap((line) => {
+    const trimmed = line.stripped.trim();
+    if (!trimmed || trimmed === "}") return [];
+    const match = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(trimmed);
+    if (!match) return [];
+    return [{
+      key: match[1]!,
+      value: match[2]!.trim(),
+      location: location(file, line.line, line.text, match[1])
     }];
   });
 }
@@ -865,7 +1209,26 @@ function collectSection(lines: SourceLine[], start: number): { lines: SourceLine
 }
 
 function startsConceptMemberDeclaration(trimmed: string): boolean {
-  return startsDeclaration(trimmed) || /^join_cross\b/.test(trimmed);
+  return startsDeclaration(trimmed) || /^join_cross\b/.test(trimmed) || /^action\b/.test(trimmed);
+}
+
+function collectActionSection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {
+  const collected: SourceLine[] = [];
+  let i = start;
+  let depth = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const trimmed = line.stripped.trim();
+    if (depth === 0 && trimmed !== "" && startsActionMemberDeclaration(trimmed)) break;
+    collected.push(line);
+    depth += countNetBraces(line.stripped);
+    i += 1;
+  }
+  return { lines: collected, end: i };
+}
+
+function startsActionMemberDeclaration(trimmed: string): boolean {
+  return /^(description:|subject:|param:|guard:|edit:|log\b|effect\b|agent:|execute\b|declares_write:)/.test(trimmed);
 }
 
 function collectQuerySection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {
@@ -909,6 +1272,17 @@ function groupDefinitionLines(lines: SourceLine[]): SourceLine[][] {
 
 function groupQueryItemLines(lines: SourceLine[]): SourceLine[][] {
   return groupByStarts(lines, (trimmed) => /^[A-Za-z_][A-Za-z0-9_.]*(?:\s+is\b|\s*$)/.test(trimmed) && !/^(and|or|when|else|end)\b/.test(trimmed));
+}
+
+function groupActionExpressionLines(lines: SourceLine[], isContinuation: (trimmed: string) => boolean): SourceLine[][] {
+  const groups: SourceLine[][] = [];
+  for (const line of trimBlankEdges(lines)) {
+    const trimmed = line.stripped.trim();
+    if (!trimmed) continue;
+    if (groups.length === 0 || !isContinuation(trimmed)) groups.push([line]);
+    else groups[groups.length - 1]!.push(line);
+  }
+  return groups;
 }
 
 function groupByStarts(lines: SourceLine[], isStart: (trimmed: string) => boolean): SourceLine[][] {

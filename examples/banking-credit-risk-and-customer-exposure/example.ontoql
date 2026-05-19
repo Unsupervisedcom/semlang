@@ -602,13 +602,13 @@ concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
     loan_id :: LoanId?
     review_quarter :: string
     review_due_date :: BusinessDate
-    submitted_at :: EventTimestamp?
+    submitted_at :: EventTimestamp? writeable
     approved_at :: EventTimestamp?
-    review_status :: ReviewStatus
+    review_status :: ReviewStatus writeable
     officer_name :: string
     committee_decision :: string?
-    covenant_status :: CovenantStatus
-    recommended_rating_grade :: CreditRatingGrade?
+    covenant_status :: CovenantStatus writeable
+    recommended_rating_grade :: CreditRatingGrade? writeable
 
   role OpenReview when review_status in ('not_started', 'in_progress', 'submitted', 'overdue')
   role OverdueReview when review_status = 'overdue'
@@ -643,6 +643,29 @@ concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
       open_reviews
       overdue_reviews
       covenant_pressure_reviews
+  }
+
+  action submit_for_approval {
+    subject: single
+
+    param:
+      submitted_covenant_status :: CovenantStatus
+      submitted_rating_grade :: CreditRatingGrade?
+
+    guard:
+      this.review_status in ['not_started', 'in_progress', 'overdue']
+        else "Only open quarterly reviews can be submitted for approval."
+
+    edit:
+      set review_status = 'submitted'
+      set submitted_at = current_time
+      set covenant_status = submitted_covenant_status
+      set recommended_rating_grade = submitted_rating_grade
+
+    log as QuarterlyReviewActionLog {
+      summary: "Submitted quarterly review ${this.review_id}"
+      include: submitted_covenant_status, submitted_rating_grade, current_user.id
+    }
   }
 
   validation:

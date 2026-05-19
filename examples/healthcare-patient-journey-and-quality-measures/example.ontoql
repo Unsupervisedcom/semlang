@@ -639,13 +639,13 @@ concept Claim is relator from duckdb.table('claims') {
     patient_id :: PatientId
     payer_name :: string
     claim_type :: ClaimType
-    claim_status :: ClaimStatus
+    claim_status :: ClaimStatus writeable
     billed_amount :: MoneyUSD
-    allowed_amount :: MoneyUSD
-    paid_amount :: MoneyUSD
-    denied_amount :: MoneyUSD
+    allowed_amount :: MoneyUSD writeable
+    paid_amount :: MoneyUSD writeable
+    denied_amount :: MoneyUSD writeable
     claim_submitted_at :: EventTimestamp
-    claim_paid_at :: EventTimestamp?
+    claim_paid_at :: EventTimestamp? writeable
     denial_reason :: string?
 
   role DeniedClaim when claim_status = 'denied' or denied_amount > 0
@@ -684,6 +684,30 @@ concept Claim is relator from duckdb.table('claims') {
       denied_amount
       denial_rate
       collection_rate
+  }
+
+  action post_payment {
+    subject: single
+
+    param:
+      adjudicated_allowed_amount :: MoneyUSD
+      payment_amount :: MoneyUSD
+
+    guard:
+      this.claim_status in ['submitted', 'partially_paid']
+        else "Only submitted or partially paid claims can receive a payment posting."
+
+    edit:
+      set claim_status = 'paid'
+      set allowed_amount = adjudicated_allowed_amount
+      set paid_amount = payment_amount
+      set denied_amount = 0
+      set claim_paid_at = current_time
+
+    log as ClaimActionLog {
+      summary: "Posted payment for claim ${this.claim_id}"
+      include: adjudicated_allowed_amount, payment_amount, current_user.id
+    }
   }
 
   validation:

@@ -3,6 +3,8 @@ import { parseOntoql } from "./parser.js";
 import { validateTypeMetadataEntry } from "./schema-metadata.js";
 import {
   emptyMembers,
+  type ActionDecl,
+  type ActionEditDecl,
   type CompileOptions,
   type ConceptDecl,
   type ConceptMembers,
@@ -41,6 +43,7 @@ const scalarFunctions = new Set([
   "substr", "tan", "trim", "trunc", "unicode", "upper", "week", "weeks", "year", "years"
 ]);
 const scalarProperties = new Set(["date", "month", "week", "quarter", "year", "day"]);
+const actionSubjectModes = new Set(["single", "new", "collection"]);
 
 export async function resolveOntoql(ast: OntoqlAst, options: CompileOptions = {}): Promise<ResolveResult> {
   const diagnostics: Diagnostic[] = [];
@@ -243,6 +246,15 @@ function validateConceptMembers(model: SemanticModel, roleIndex: Map<string, Res
     if (def.typeName && !primitiveTypes.has(def.typeName) && !model.types.has(def.typeName)) {
       diagnostics.push({ severity: "error", code: "UNKNOWN_TYPE", message: `Unknown type ${def.typeName}.`, location: def.location });
     }
+    if (def.writeable && def.writeMappings.length === 0) {
+      diagnostics.push({
+        severity: "error",
+        code: "WRITEABLE_DIMENSION_REQUIRES_MAPPING",
+        message: `Writeable dimension ${def.name} on ${owningConcept.name} requires an explicit write mapping.`,
+        location: def.location
+      });
+    }
+    validateWriteMappings(def.writeMappings, diagnostics);
     validateExpression(model, roleIndex, owningConcept, def.expression, def.location, diagnostics, { allowUnknownBare: true });
   }
   for (const def of concept.measures) {
@@ -250,8 +262,10 @@ function validateConceptMembers(model: SemanticModel, roleIndex: Map<string, Res
     if (def.typeName && !primitiveTypes.has(def.typeName) && !model.types.has(def.typeName)) {
       diagnostics.push({ severity: "error", code: "UNKNOWN_TYPE", message: `Unknown type ${def.typeName}.`, location: def.location });
     }
+    validateWriteMappings(def.writeMappings, diagnostics);
     validateExpression(model, roleIndex, owningConcept, def.expression, def.location, diagnostics, { allowUnknownBare: true });
   }
+  for (const field of concept.fields) validateWriteMappings(field.writeMappings, diagnostics);
   for (const validation of concept.validations) {
     if (validation.predicate) validateExpression(model, roleIndex, owningConcept, validation.predicate, validation.location, diagnostics, { allowUnknownBare: false });
   }
@@ -259,6 +273,130 @@ function validateConceptMembers(model: SemanticModel, roleIndex: Map<string, Res
   for (const view of concept.views) {
     checkDuplicate(seenViews, view.name, "DUPLICATE_VIEW", `Duplicate view ${view.name} on ${owningConcept.name}.`, view.location, diagnostics);
     validateQueryBody(model, roleIndex, owningConcept, { name: view.name, location: view.location, body: view.body }, diagnostics);
+  }
+  validateActions(model, owningConcept, concept, diagnostics);
+}
+
+function validateActions(model: SemanticModel, owningConcept: ResolvedConcept, concept: ConceptDecl, diagnostics: Diagnostic[]) {
+  const seenActions = new Set<string>();
+  for (const action of concept.actions) {
+    checkDuplicate(seenActions, action.name, "DUPLICATE_ACTION", `Duplicate action ${action.name} on ${owningConcept.name}.`, action.location, diagnostics);
+    if (!action.subject) {
+      diagnostics.push({
+        severity: "error",
+        code: "MISSING_ACTION_SUBJECT",
+        message: `Action ${action.name} on ${owningConcept.name} must declare a subject.`,
+        location: action.location
+      });
+    } else if (!actionSubjectModes.has(action.subject.mode)) {
+      diagnostics.push({
+        severity: "error",
+        code: "INVALID_ACTION_SUBJECT",
+        message: `Action ${action.name} has invalid subject ${action.subject.mode}.`,
+        location: action.subject.location
+      });
+    }
+
+    const seenParams = new Set<string>();
+    for (const param of action.params) {
+      checkDuplicate(seenParams, param.name, "DUPLICATE_ACTION_PARAM", `Duplicate parameter ${param.name} on action ${action.name}.`, param.location, diagnostics);
+      if (!primitiveTypes.has(param.typeName) && !model.types.has(param.typeName)) {
+        diagnostics.push({
+          severity: "error",
+          code: "UNRESOLVED_ACTION_PARAM_TYPE",
+          message: `Action parameter ${param.name} uses unknown type ${param.typeName}.`,
+          location: param.location
+        });
+      }
+    }
+
+    for (const edit of action.edits) validateActionEdit(owningConcept, action, edit, diagnostics);
+  }
+}
+
+function validateActionEdit(concept: ResolvedConcept, action: ActionDecl, edit: ActionEditDecl, diagnostics: Diagnostic[]) {
+  const subjectMode = action.subject?.mode;
+  if (edit.kind === "set") {
+    if (subjectMode === "new") {
+      diagnostics.push({
+        severity: "error",
+        code: "INVALID_ACTION_EDIT",
+        message: `Action ${action.name} uses set with subject:new; use insert for new subjects.`,
+        location: edit.location
+      });
+    }
+    validateActionAssignmentTarget(concept, action, edit.target, edit.location, diagnostics);
+    return;
+  }
+
+  if (subjectMode !== "new") {
+    diagnostics.push({
+      severity: "error",
+      code: "INVALID_ACTION_EDIT",
+      message: `Action ${action.name} uses insert outside subject:new.`,
+      location: edit.location
+    });
+  }
+  for (const assignment of edit.assignments) {
+    validateActionAssignmentTarget(concept, action, assignment.target, assignment.location, diagnostics);
+  }
+}
+
+function validateActionAssignmentTarget(concept: ResolvedConcept, action: ActionDecl, target: string, location: Diagnostic["location"], diagnostics: Diagnostic[]) {
+  const field = concept.fields.find((candidate) => candidate.name === target);
+  if (field) {
+    if (!field.writeable) {
+      diagnostics.push({
+        severity: "error",
+        code: "NON_WRITEABLE_ACTION_TARGET",
+        message: `Action ${action.name} assigns non-writeable field ${target}.`,
+        location
+      });
+    }
+    return;
+  }
+
+  const dimension = concept.dimensions.find((candidate) => candidate.name === target);
+  if (dimension) {
+    if (!dimension.writeable) {
+      diagnostics.push({
+        severity: "error",
+        code: "NON_WRITEABLE_ACTION_TARGET",
+        message: `Action ${action.name} assigns non-writeable dimension ${target}.`,
+        location
+      });
+    }
+    return;
+  }
+
+  const invalidMember = concept.identities.some((candidate) => candidate.name === target)
+    || concept.measures.some((candidate) => candidate.name === target)
+    || concept.joins.some((candidate) => candidate.name === target)
+    || concept.roles.some((candidate) => candidate.name === target)
+    || concept.validations.some((candidate) => candidate.name === target)
+    || concept.views.some((candidate) => candidate.name === target);
+  diagnostics.push({
+    severity: "error",
+    code: invalidMember ? "NON_WRITEABLE_ACTION_TARGET" : "UNKNOWN_ACTION_TARGET",
+    message: invalidMember
+      ? `Action ${action.name} assigns non-writeable member ${target}.`
+      : `Action ${action.name} assigns unknown member ${target}.`,
+    location
+  });
+}
+
+function validateWriteMappings(mappings: { kind: string; sql?: string; location: Diagnostic["location"] }[], diagnostics: Diagnostic[]) {
+  for (const mapping of mappings) {
+    if (mapping.kind !== "sql") continue;
+    const sql = mapping.sql?.trim() ?? "";
+    if (/^(with|select|insert|update|delete|merge|create|alter|drop|truncate)\b/i.test(sql) || /;\s*$/.test(sql)) {
+      diagnostics.push({
+        severity: "error",
+        code: "INVALID_WRITE_MAPPING",
+        message: "Raw SQL write mappings must be assignment fragments, not full statements.",
+        location: mapping.location
+      });
+    }
   }
 }
 
@@ -445,6 +583,7 @@ function mergeMembers(concept: ResolvedConcept, members: ConceptMembers) {
   concept.validations.push(...members.validations);
   concept.temporal.push(...members.temporal);
   concept.where.push(...members.where);
+  concept.actions.push(...members.actions);
 }
 
 function cloneModel(model: SemanticModel): SemanticModel {
@@ -472,6 +611,7 @@ function cloneConcept(concept: ResolvedConcept): ResolvedConcept {
     validations: [...concept.validations],
     temporal: [...concept.temporal],
     where: [...concept.where],
+    actions: [...concept.actions],
     roleBaseNames: new Set(concept.roleBaseNames)
   };
 }
@@ -679,6 +819,7 @@ export function conceptMembersFromConcept(concept: ConceptDecl): ConceptMembers 
   members.validations = concept.validations;
   members.temporal = concept.temporal;
   members.where = concept.where;
+  members.actions = concept.actions;
   return members;
 }
 

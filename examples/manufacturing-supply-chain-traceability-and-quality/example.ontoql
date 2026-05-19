@@ -294,7 +294,7 @@ concept SupplierLot is kind from duckdb.table('supplier_lots') {
     expiration_date :: BusinessDate?
     received_quantity :: Quantity
     accepted_quantity :: Quantity
-    lot_status :: SupplierLotStatus
+    lot_status :: SupplierLotStatus writeable
 
   role ReleasedSupplierLot when lot_status = 'released'
   role QuarantinedSupplierLot when lot_status = 'quarantined'
@@ -330,6 +330,32 @@ concept SupplierLot is kind from duckdb.table('supplier_lots') {
       accepted_quantity
       quarantined_lots
       average_accepted_yield
+  }
+
+  action quarantine {
+    subject: single
+
+    param:
+      reason :: string
+      notify_supplier :: boolean default true
+
+    guard:
+      this.lot_status in ['received', 'released']
+        else "Only received or released supplier lots can be quarantined."
+
+    edit:
+      set lot_status = 'quarantined'
+
+    effect after_commit:
+      notify this.supplier {
+        when: notify_supplier
+        subject: "Supplier lot quarantined"
+      }
+
+    log as SupplierLotActionLog {
+      summary: "Quarantined supplier lot ${this.supplier_lot_id}"
+      include: reason, current_user.id
+    }
   }
 
   validation:

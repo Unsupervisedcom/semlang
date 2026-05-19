@@ -889,17 +889,17 @@ concept SupportCase is event from duckdb.table('support_cases') {
   join_one subscription?: Subscription on subscription_id
 
   field:
-    account_id :: AccountId
-    workspace_id :: WorkspaceId?
-    subscription_id :: SubscriptionId?
-    opened_at :: BusinessTimestamp
+    account_id :: AccountId writeable
+    workspace_id :: WorkspaceId? writeable
+    subscription_id :: SubscriptionId? writeable
+    opened_at :: BusinessTimestamp writeable
     first_response_at :: BusinessTimestamp?
     resolved_at :: BusinessTimestamp?
-    priority :: SupportPriority
-    case_status :: SupportCaseStatus
-    channel :: SupportChannel
-    category :: string
-    sla_paused_minutes :: Minutes
+    priority :: SupportPriority writeable
+    case_status :: SupportCaseStatus writeable
+    channel :: SupportChannel writeable
+    category :: string writeable
+    sla_paused_minutes :: Minutes writeable
     csat_score :: Count?
 
   role OpenSupportCase when case_status in ('open', 'pending_customer')
@@ -934,6 +934,36 @@ concept SupportCase is event from duckdb.table('support_cases') {
       avg_first_response_minutes
       avg_net_resolution_minutes
       avg_csat_score
+  }
+
+  action open_case {
+    subject: new
+
+    param:
+      account_id :: AccountId
+      workspace_id :: WorkspaceId?
+      subscription_id :: SubscriptionId?
+      priority :: SupportPriority default 'normal'
+      channel :: SupportChannel
+      category :: string
+
+    edit:
+      insert {
+        account_id: account_id
+        workspace_id: workspace_id
+        subscription_id: subscription_id
+        opened_at: current_time
+        priority: priority
+        case_status: 'open'
+        channel: channel
+        category: category
+        sla_paused_minutes: 0
+      }
+
+    log as SupportCaseActionLog {
+      summary: "Opened support case for account ${account_id}"
+      include: workspace_id, subscription_id, priority, channel, current_user.id
+    }
   }
 
   validation:
