@@ -478,7 +478,7 @@ concept Contract is relator from table('contracts') {
     booking_arr is sum(booking_arr)
     prior_arr is sum(prior_arr)
     expansion_arr_booked is sum(case when arr_delta > 0 then arr_delta else 0 end)
-    contraction_arr_booked is sum(case when arr_delta < 0 then abs(arr_delta) else 0 end)
+    contraction_arr_booked is sum(case when arr_delta < 0 then -arr_delta else 0 end)
 
   validation:
     contract_period_is_ordered is {
@@ -530,7 +530,7 @@ concept SubscriptionPeriod is situation from table('subscription_periods') {
     mrr_run_rate is sum(mrr_run_rate_amount)
     paid_seats is sum(paid_seats)
     expansion_arr is sum(case when this is ExpansionPeriod then arr_delta else 0 end)
-    contraction_arr is sum(case when this is ContractionPeriod then abs(arr_delta) else 0 end)
+    contraction_arr is sum(case when this is ContractionPeriod then -arr_delta else 0 end)
     gross_churn_arr is sum(case when this is ChurnPeriod then prior_arr_amount else 0 end)
     net_arr_movement is sum(arr_delta)
     logo_churned_accounts is count(distinct case when this is ChurnPeriod then account_id end)

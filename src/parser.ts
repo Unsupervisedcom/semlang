@@ -91,6 +91,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
 
     if (/^type:/.test(trimmed)) {
       const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseType(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.types.push(parsed);
       i = block.end;
@@ -99,6 +100,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
 
     if (/^concept\b/.test(trimmed)) {
       const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseConcept(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.concepts.push(parsed);
       i = block.end;
@@ -107,6 +109,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
 
     if (/^lens:/.test(trimmed)) {
       const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseLens(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.lenses.push(parsed);
       i = block.end;
@@ -115,6 +118,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
 
     if (/^query:/.test(trimmed)) {
       const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseQuery(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.queries.push(parsed);
       i = block.end;
@@ -209,6 +213,7 @@ function parseLens(header: SourceLine, body: SourceLine[], file: string | undefi
     }
     if (/^type:/.test(trimmed)) {
       const block = collectBraceBlock(body, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
       const parsed = parseType(block.header, block.body, file, diagnostics);
       if (parsed) lens.types.push(parsed);
       i = block.end;
@@ -216,6 +221,7 @@ function parseLens(header: SourceLine, body: SourceLine[], file: string | undefi
     }
     if (/^refine:/.test(trimmed)) {
       const block = collectBraceBlock(body, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
       const parsed = parseRefinement(block.header, block.body, file, diagnostics);
       if (parsed) lens.refinements.push(parsed);
       i = block.end;
@@ -338,6 +344,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
         }
         if (startsDeclaration(validationLine.stripped.trim())) break;
         const block = collectBraceBlock(lines, i);
+        diagnoseUnclosedBlock(block, file, diagnostics);
         const parsed = parseValidation(block.header, block.body, file, diagnostics);
         if (parsed) members.validations.push(parsed);
         i = block.end;
@@ -347,6 +354,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
 
     if (/^view:/.test(trimmed)) {
       const block = collectBraceBlock(lines, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
       const parsed = parseView(block.header, block.body, file, diagnostics);
       if (parsed) members.views.push(parsed);
       i = block.end;
@@ -580,6 +588,11 @@ function groupByStarts(lines: SourceLine[], isStart: (trimmed: string) => boolea
 
 function error(code: string, message: string, file: string | undefined, line: SourceLine): Diagnostic {
   return { severity: "error", code, message, location: location(file, line.line, line.text) };
+}
+
+function diagnoseUnclosedBlock(block: { header: SourceLine; unclosed: boolean }, file: string | undefined, diagnostics: Diagnostic[]) {
+  if (!block.unclosed) return;
+  diagnostics.push(error("UNCLOSED_BLOCK", `Unclosed block starting on line ${block.header.line}.`, file, block.header));
 }
 
 export { primitiveTypes };

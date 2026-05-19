@@ -44,18 +44,16 @@ lens: western_region is {
   refine: Store extend {
     where: region = 'West'
 
-    role WesternRegionStore when region = 'West'
-
     dimension:
       regional_market_label is concat(market, ' / ', store_name)
   }
 
   refine: Sale extend {
-    where: store is WesternRegionStore
+    where: store.region = 'West'
   }
 
   refine: SaleLine extend {
-    where: sale.store is WesternRegionStore
+    where: sale.store.region = 'West'
 
     view: western_sales_by_category is {
       group_by:
@@ -74,11 +72,11 @@ lens: western_region is {
   }
 
   refine: ReturnLine extend {
-    where: original_sale_line.sale.store is WesternRegionStore
+    where: original_sale_line.sale.store.region = 'West'
   }
 
   refine: InventoryPosition extend {
-    where: store is WesternRegionStore
+    where: store.region = 'West'
 
     view: western_inventory_exceptions is {
       where:

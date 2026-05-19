@@ -155,9 +155,7 @@ lens: customer_success_risk is {
 
   refine: Renewal extend {
     role InterventionRenewal
-      when renewal_stage in ('closed_lost', 'negotiation')
-        or contraction_arr_risk > 0
-        or churn_risk_reason is not null
+      when renewal_stage in ('closed_lost', 'negotiation') or contraction_arr_risk > 0 or churn_risk_reason is not null
 
     dimension:
       net_expansion_forecast_amount is expansion_arr_forecast - contraction_arr_risk

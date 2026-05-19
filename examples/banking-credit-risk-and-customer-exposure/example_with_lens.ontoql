@@ -238,7 +238,7 @@ lens: model_validation is {
       // hold multiple model names for the same exposure grain. V1 keeps this
       // comparison aggregate-safe instead of creating row-level dimensions from
       // that path.
-      model_score_expected_credit_loss is model_scores.sum(ecl_amount)
+      model_score_expected_credit_loss is sum(model_scores.ecl_amount)
       aggregate_score_ecl_delta is expected_credit_loss - model_score_expected_credit_loss
       absolute_aggregate_score_ecl_delta is abs(aggregate_score_ecl_delta)
 
@@ -306,11 +306,7 @@ lens: commercial_real_estate_concentration is {
 // containing only regulatory base CRE exposure rows that also satisfy watchlist
 // or problem criteria.
 
-lens: regulatory_cre_watchlist is
-  regulatory_base_reporting,
-  commercial_real_estate_concentration,
-  watchlist_credit_review
-extend {
+lens: regulatory_cre_watchlist is regulatory_base_reporting, commercial_real_estate_concentration, watchlist_credit_review extend {
   description: "Regulatory base CRE watchlist workspace."
 
   refine: LoanExposureSnapshot extend {

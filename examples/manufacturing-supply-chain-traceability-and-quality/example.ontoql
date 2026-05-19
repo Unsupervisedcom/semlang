@@ -539,13 +539,13 @@ concept ProductionOrder is event from table('production_orders') {
   measure:
     production_orders is count()
     planned_units is sum(planned_quantity)
-    completed_units is units.count()
-    released_units is units.count(case when unit_status in ('released', 'shipped') then serial_number end)
-    consumed_supplier_lots is lot_consumption.count(distinct supplier_lot_id)
-    consumed_materials is lot_consumption.count(distinct material_id)
-    consumed_quantity is lot_consumption.sum(consumed_quantity)
-    defective_units is defects.count(distinct serial_number)
-    defect_rows is defects.count()
+    completed_units is count(distinct units.serial_number)
+    released_units is count(distinct case when units.unit_status in ('released', 'shipped') then units.serial_number end)
+    consumed_supplier_lots is count(distinct lot_consumption.supplier_lot_id)
+    consumed_materials is count(distinct lot_consumption.material_id)
+    consumed_quantity is sum(lot_consumption.consumed_quantity)
+    defective_units is count(distinct defects.serial_number)
+    defect_rows is count(distinct defects.defect_id)
     average_order_duration_hours is avg(order_duration_hours)
 
   view: production_by_bom_version is {
@@ -672,13 +672,13 @@ concept SerializedUnit is kind from table('serialized_units') {
     nonconforming_units is count(case when this is NonconformingUnit then serial_number end)
     defective_units is count(distinct case when defects.defect_id is not null then serial_number end)
     critical_defective_units is count(distinct case when defects.severity_level = 'critical' then serial_number end)
-    defect_rows is defects.count()
+    defect_rows is count(distinct defects.defect_id)
     final_acceptance_rate is accepted_units / nullif(units_built, 0)
     defect_unit_rate is defective_units / nullif(units_built, 0)
-    warranty_claim_count is warranty_claims.count()
-    warranty_claimed_units is warranty_claims.count(distinct serial_number)
-    warranty_cost is warranty_claims.sum(claim_cost_amount)
-    recall_scope_rows is recall_scope_rows.count()
+    warranty_claim_count is count(distinct warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(distinct warranty_claims.serial_number)
+    warranty_cost is sum(warranty_claims.claim_cost_amount)
+    recall_scope_rows is count(distinct recall_scope_rows.recall_unit_id)
 
   view: unit_quality_by_bom_and_lot is {
     group_by:
@@ -736,11 +736,11 @@ concept Inspection is event from table('inspections') {
     passed_inspections is count(case when this is PassedInspection then inspection_id end)
     failed_inspections is count(case when this is FailedInspection then inspection_id end)
     conditional_inspections is count(case when this is ConditionalInspection then inspection_id end)
-    defect_rows is defects.count()
-    defective_units is defects.count(distinct serial_number)
+    defect_rows is count(distinct defects.defect_id)
+    defective_units is count(distinct defects.serial_number)
     first_pass_yield is avg(first_pass_flag)
     defect_rate is defective_units / nullif(inspected_units, 0)
-    rework_hours is defects.sum(rework_hours)
+    rework_hours is sum(defects.rework_hours)
 
   view: quality_by_station is {
     group_by:
@@ -842,8 +842,8 @@ concept Shipment is event from table('shipments') {
 
   measure:
     shipments is count()
-    shipped_unit_rows is units.count()
-    shipped_units is units.count(distinct serial_number)
+    shipped_unit_rows is count(distinct units.shipment_unit_id)
+    shipped_units is count(distinct units.serial_number)
 }
 
 concept ShipmentUnit is relator from table('shipment_units') {
@@ -937,9 +937,9 @@ concept RecallCampaign is event from table('recall_campaigns') {
   measure:
     recall_campaigns is count()
     active_recall_campaigns is count(case when this is ActiveRecallCampaign then recall_campaign_id end)
-    affected_units is affected_units.count(distinct serial_number)
-    open_scope_units is affected_units.count(
-      distinct case when affected_status in ('identified', 'notified') then serial_number end
+    affected_units is count(distinct affected_units.serial_number)
+    open_scope_units is count(
+      distinct case when affected_units.affected_status in ('identified', 'notified') then affected_units.serial_number end
     )
 }
 
@@ -969,20 +969,19 @@ concept RecallAffectedUnit is relator from table('recall_affected_units') {
     identified_date is identified_at.date
     identified_month is identified_at.month
     is_open_scope_item is this is OpenRecallScopeItem
-    is_reportable_open_scope_item is
-      recall_campaign is RegulatoryReportableRecall and this is OpenRecallScopeItem
+    is_reportable_open_scope_item is (recall_campaign is RegulatoryReportableRecall) and (this is OpenRecallScopeItem)
 
   measure:
     affected_unit_rows is count()
     affected_units is count(distinct serial_number)
-    shipped_affected_units is shipment_unit_rows.count(distinct serial_number)
+    shipped_affected_units is count(distinct shipment_unit_rows.serial_number)
     notified_units is count(distinct case when affected_status = 'notified' then serial_number end)
     remediated_units is count(distinct case when this is RemediatedRecallScopeItem then serial_number end)
     open_scope_units is count(distinct case when this is OpenRecallScopeItem then serial_number end)
     reportable_open_scope_units is count(distinct case when is_reportable_open_scope_item then serial_number end)
-    warranty_claim_count is warranty_claims.count()
-    warranty_claimed_units is warranty_claims.count(distinct serial_number)
-    warranty_cost is warranty_claims.sum(claim_cost_amount)
+    warranty_claim_count is count(distinct warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(distinct warranty_claims.serial_number)
+    warranty_cost is sum(warranty_claims.claim_cost_amount)
 
   view: recall_scope_by_lot_model_region is {
     group_by:

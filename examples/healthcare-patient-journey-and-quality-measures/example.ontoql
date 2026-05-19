@@ -444,8 +444,10 @@ concept InpatientStay is event from table('inpatient_stays') {
     mortality_exclusions is count(case when this is MortalityExclusion then stay_id end)
     total_length_of_stay_days is sum(length_of_stay_days)
     average_length_of_stay_days is avg(length_of_stay_days)
-    readmissions_30d is readmissions.count()
-    unplanned_readmissions_30d is readmissions.count(case when not planned_readmission_flag then readmission_event_id end)
+    readmissions_30d is count(distinct readmissions.readmission_event_id)
+    unplanned_readmissions_30d is count(
+      distinct case when not readmissions.planned_readmission_flag then readmissions.readmission_event_id end
+    )
     readmission_rate_30d is unplanned_readmissions_30d / nullif(eligible_index_discharges, 0)
 
   view: discharge_denominator is {

@@ -60,7 +60,7 @@ export function countNetBraces(text: string): number {
   return count;
 }
 
-export function collectBraceBlock(lines: SourceLine[], start: number): { header: SourceLine; body: SourceLine[]; end: number } {
+export function collectBraceBlock(lines: SourceLine[], start: number): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
   const header = lines[start]!;
   let depth = countNetBraces(header.stripped);
   const body: SourceLine[] = [];
@@ -74,7 +74,7 @@ export function collectBraceBlock(lines: SourceLine[], start: number): { header:
   if (body.length > 0 && body[body.length - 1]!.stripped.trim() === "}") {
     body.pop();
   }
-  return { header, body, end: i };
+  return { header, body, end: i, unclosed: depth > 0 };
 }
 
 export function startsDeclaration(trimmed: string): boolean {

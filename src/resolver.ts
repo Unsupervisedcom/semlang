@@ -50,10 +50,16 @@ export async function resolveOntoql(ast: OntoqlAst, options: CompileOptions = {}
   return diagnostics.some((diagnostic) => diagnostic.severity === "error") ? { diagnostics } : { model, diagnostics };
 }
 
-async function loadAstGraph(ast: OntoqlAst, loader: PackageLoader | undefined, diagnostics: Diagnostic[], seen: Set<string>): Promise<OntoqlAst[]> {
+async function loadAstGraph(
+  ast: OntoqlAst,
+  loader: PackageLoader | undefined,
+  diagnostics: Diagnostic[],
+  seen: Set<string>,
+  entryLocation: Diagnostic["location"] = ast.location
+): Promise<OntoqlAst[]> {
   const key = ast.filePath ? path.resolve(ast.filePath) : ast.packageName;
   if (seen.has(key)) {
-    diagnostics.push({ severity: "error", code: "INCLUDE_CYCLE", message: `Include cycle detected at ${key}.`, location: ast.location });
+    diagnostics.push({ severity: "error", code: "INCLUDE_CYCLE", message: `Include cycle detected at ${key}.`, location: entryLocation });
     return [];
   }
   seen.add(key);
@@ -66,7 +72,7 @@ async function loadAstGraph(ast: OntoqlAst, loader: PackageLoader | undefined, d
     const result = await loader.load(include.path, ast.filePath);
     const parsed = parseOntoql(result.source, { filePath: result.filePath });
     diagnostics.push(...parsed.diagnostics);
-    if (parsed.ast) loaded.push(...await loadAstGraph(parsed.ast, loader, diagnostics, seen));
+    if (parsed.ast) loaded.push(...await loadAstGraph(parsed.ast, loader, diagnostics, seen, include.location));
   }
   loaded.push(ast);
   seen.delete(key);
@@ -99,7 +105,7 @@ function addUnique<T>(map: Map<string, T>, key: string, value: T, diagnostics: D
 }
 
 function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
-  const roleIndex = buildRoleIndex(model);
+  const roleIndex = buildRoleIndex(model, diagnostics);
 
   for (const type of model.types.values()) {
     if (!primitiveTypes.has(type.base)) {
@@ -129,12 +135,16 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
   for (const query of model.queries) {
     const queryModel = applyQueryLenses(model, query, diagnostics);
     if (!queryModel) continue;
+    const queryRoleIndex = buildRoleIndex(queryModel, diagnostics);
+    for (const concept of queryModel.concepts.values()) {
+      validateConceptMembers(queryModel, queryRoleIndex, concept, concept, diagnostics);
+    }
     const root = queryModel.concepts.get(query.root);
     if (!root) {
       diagnostics.push({ severity: "error", code: "UNKNOWN_QUERY_ROOT", message: `Query ${query.name} targets unknown concept ${query.root}.`, location: query.location });
       continue;
     }
-    validateQueryBody(queryModel, buildRoleIndex(queryModel), root, query, diagnostics);
+    validateQueryBody(queryModel, queryRoleIndex, root, query, diagnostics);
   }
 }
 
@@ -254,24 +264,31 @@ export function applyQueryLenses(model: SemanticModel, query: QueryDecl, diagnos
   const clone = cloneModel(model);
   const applied = new Set<string>();
   for (const lensName of query.lenses) {
-    if (!applyLens(clone, lensName, diagnostics, applied, [])) return undefined;
+    if (!applyLens(clone, lensName, diagnostics, applied, [], query.location)) return undefined;
   }
   return clone;
 }
 
-function applyLens(model: SemanticModel, lensName: string, diagnostics: Diagnostic[], applied: Set<string>, stack: string[]): boolean {
+function applyLens(
+  model: SemanticModel,
+  lensName: string,
+  diagnostics: Diagnostic[],
+  applied: Set<string>,
+  stack: string[],
+  location?: Diagnostic["location"]
+): boolean {
   if (applied.has(lensName)) return true;
   if (stack.includes(lensName)) {
-    diagnostics.push({ severity: "error", code: "LENS_CYCLE", message: `Lens cycle detected: ${[...stack, lensName].join(" -> ")}.` });
+    diagnostics.push({ severity: "error", code: "LENS_CYCLE", message: `Lens cycle detected: ${[...stack, lensName].join(" -> ")}.`, location });
     return false;
   }
   const lens = model.lenses.get(lensName);
   if (!lens) {
-    diagnostics.push({ severity: "error", code: "UNKNOWN_LENS", message: `Unknown lens ${lensName}.` });
+    diagnostics.push({ severity: "error", code: "UNKNOWN_LENS", message: `Unknown lens ${lensName}.`, location });
     return false;
   }
   for (const parent of lens.parents) {
-    if (!applyLens(model, parent, diagnostics, applied, [...stack, lensName])) return false;
+    if (!applyLens(model, parent, diagnostics, applied, [...stack, lensName], lens.location)) return false;
   }
   for (const type of lens.types) {
     if (!model.types.has(type.name)) model.types.set(type.name, type);
@@ -330,10 +347,22 @@ function cloneConcept(concept: ResolvedConcept): ResolvedConcept {
   };
 }
 
-function buildRoleIndex(model: SemanticModel): Map<string, ResolvedConcept> {
+function buildRoleIndex(model: SemanticModel, diagnostics?: Diagnostic[]): Map<string, ResolvedConcept> {
   const index = new Map<string, ResolvedConcept>();
   for (const concept of model.concepts.values()) {
-    for (const role of concept.roles) index.set(role.name, concept);
+    for (const role of concept.roles) {
+      const existing = index.get(role.name);
+      if (existing && existing.name !== concept.name) {
+        diagnostics?.push({
+          severity: "error",
+          code: "DUPLICATE_ROLE",
+          message: `Duplicate global role ${role.name} on ${concept.name}; already declared on ${existing.name}.`,
+          location: role.location
+        });
+        continue;
+      }
+      index.set(role.name, concept);
+    }
   }
   return index;
 }
@@ -395,13 +424,45 @@ function lastSegment(pathText: string): string {
 }
 
 function findRawFieldReference(model: SemanticModel, root: ResolvedConcept, expression: string, visibleAggregates: Set<string>): string | undefined {
-  if (/\b(sum|avg|count|max|min|median)\s*\(/.test(expression)) return undefined;
-  for (const token of expressionPaths(expression)) {
+  for (const token of expressionPaths(maskAggregateCalls(expression))) {
     if (visibleAggregates.has(token)) continue;
     if (root.fields.some((field) => field.name === token) || root.identities.some((field) => field.name === token)) return token;
     if (model.concepts.has(token)) continue;
   }
   return undefined;
+}
+
+function maskAggregateCalls(expression: string): string {
+  let result = expression;
+  for (const fn of aggregateFunctions) {
+    result = maskFunctionCalls(result, fn);
+  }
+  return result;
+}
+
+function maskFunctionCalls(expression: string, fn: string): string {
+  const pattern = new RegExp(`\\b${fn}\\s*\\(`, "gi");
+  let result = "";
+  let last = 0;
+  for (let match = pattern.exec(expression); match; match = pattern.exec(expression)) {
+    const start = match.index;
+    let i = pattern.lastIndex;
+    let depth = 1;
+    let quote: "'" | '"' | undefined;
+    while (i < expression.length && depth > 0) {
+      const char = expression[i]!;
+      const prev = expression[i - 1];
+      if ((char === "'" || char === '"') && prev !== "\\") quote = quote === char ? undefined : quote ?? char;
+      if (!quote && char === "(") depth += 1;
+      if (!quote && char === ")") depth -= 1;
+      i += 1;
+    }
+    result += expression.slice(last, start);
+    result += " ".repeat(Math.max(0, i - start));
+    last = i;
+    pattern.lastIndex = i;
+  }
+  return result + expression.slice(last);
 }
 
 export function conceptMembersFromConcept(concept: ConceptDecl): ConceptMembers {

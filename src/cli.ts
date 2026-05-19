@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { compileFile } from "./index.js";
 
 const program = new Command();
@@ -13,8 +13,8 @@ program
   .command("compile")
   .argument("<file>", "OntoQL file to compile")
   .option("--out <file>", "Output file")
-  .option("--source-mode <mode>", "Malloy source mode: bare or duckdb", "bare")
-  .option("--emit <kind>", "Artifact to emit: ast, model, or malloy", "malloy")
+  .addOption(new Option("--source-mode <mode>", "Malloy source mode").choices(["bare", "duckdb"]).default("bare"))
+  .addOption(new Option("--emit <kind>", "Artifact to emit").choices(["ast", "model", "malloy"]).default("malloy"))
   .action(async (file: string, options: { out?: string; sourceMode: "bare" | "duckdb"; emit: "ast" | "model" | "malloy" }) => {
     const result = await compileFile(file, { sourceMode: options.sourceMode });
     if (result.diagnostics.length > 0) {

@@ -11,7 +11,9 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --exclude test/integration.test.ts",
-    "test:integration": "vitest run test/integration.test.ts"
+    "test:integration": "vitest run test/integration.test.ts",
+    "docs:start": "npm --prefix docs-site start",
+    "docs:build": "npm --prefix docs-site run build"
   },
   "dependencies": {
     "chevrotain": "^11.0.3",

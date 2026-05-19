@@ -174,7 +174,6 @@ A lens is a query-time semantic overlay:
 lens: western_region is {
   refine: Store extend {
     where: region = 'West'
-    role WesternRegionStore when region = 'West'
   }
 }
 ```

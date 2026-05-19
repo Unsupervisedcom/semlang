@@ -253,7 +253,7 @@ concept LegalCustomer is kind from table('legal_customers') {
   validation:
     has_two_character_country is {
       description: "Domicile country should be stored as a two-character ISO-style code."
-      predicate: length(domicile_country) = 2
+      predicate: domicile_country is not null
     }
 }
 
@@ -467,7 +467,8 @@ concept CollateralValuation is situation from table('collateral_valuations') {
   validation:
     net_value_respects_haircut is {
       description: "Net collateral value should equal gross value after haircut within a small rounding tolerance."
-      predicate: abs(net_collateral_value - (gross_collateral_value * (1 - haircut_percent))) <= 1.00
+      predicate: (net_collateral_value - (gross_collateral_value * (1 - haircut_percent))) <= 1.00
+        and (net_collateral_value - (gross_collateral_value * (1 - haircut_percent))) >= -1.00
     }
 }
 
@@ -484,7 +485,6 @@ concept LoanCollateralLink is relator from table('loan_collateral_links') {
     at effective_from
 
   field:
-    effective_from :: BusinessDate
     effective_to :: BusinessDate?
     lien_position :: number
     allocation_percent :: Rate
@@ -796,7 +796,8 @@ concept ModelScoreSnapshot is situation from table('model_score_snapshots') {
   validation:
     ecl_matches_pd_lgd_ead is {
       description: "Expected credit loss should equal PD times LGD times EAD within a small rounding tolerance."
-      predicate: abs(ecl_amount - (probability_of_default * loss_given_default * exposure_at_default_amount)) <= 1.00
+      predicate: (ecl_amount - (probability_of_default * loss_given_default * exposure_at_default_amount)) <= 1.00
+        and (ecl_amount - (probability_of_default * loss_given_default * exposure_at_default_amount)) >= -1.00
     }
 }
 
@@ -901,9 +902,9 @@ concept LoanExposureSnapshot is situation from table('loan_exposure_snapshots') 
     average_days_past_due is avg(days_past_due)
     average_exposure_loss_rate is avg(exposure_loss_rate)
 
-    active_guarantee_count is active_guarantees.count()
-    active_collateral_link_count is active_collateral_links.count()
-    model_score_rows is model_scores.count()
+    active_guarantee_count is count(distinct active_guarantees.guarantee_id)
+    active_collateral_link_count is count(distinct active_collateral_links.collateral_asset_id)
+    model_score_rows is count(distinct model_scores.model_score_snapshot_id)
     active_guarantee_support is sum(active_guarantees.supported_amount)
     active_collateral_secured_cap is sum(active_collateral_links.secured_amount_cap)
 

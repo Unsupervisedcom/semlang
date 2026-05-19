@@ -29,4 +29,22 @@ describe("CLI", () => {
     const model = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "model"], { cwd: root });
     expect(JSON.parse(model.stdout).concepts.Sale.table).toBe("transactions");
   });
+
+  it("rejects invalid enum-like options", async () => {
+    await expect(execFileAsync("node", [
+      "dist/src/cli.js",
+      "compile",
+      "examples/retail-omnichannel-margin-and-returns/example.ontoql",
+      "--emit",
+      "wat"
+    ], { cwd: root })).rejects.toThrow(/Allowed choices are ast, model, malloy/);
+
+    await expect(execFileAsync("node", [
+      "dist/src/cli.js",
+      "compile",
+      "examples/retail-omnichannel-margin-and-returns/example.ontoql",
+      "--source-mode",
+      "postgres"
+    ], { cwd: root })).rejects.toThrow(/Allowed choices are bare, duckdb/);
+  });
 });
