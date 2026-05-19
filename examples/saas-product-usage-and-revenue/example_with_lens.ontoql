@@ -1,0 +1,497 @@
+// OntoQL sketch for the SaaS product usage and revenue example, extended with
+// query-time lenses.
+//
+// The base file names the shared business concepts. This file shows how teams
+// can apply query-time overlays for operating scopes such as enterprise revenue,
+// production product adoption, and customer-success risk without duplicating the
+// semantic model.
+
+package saas.product_usage_revenue.with_lens
+
+include "./example.ontoql"
+
+// ---------------------------------------------------------------------------
+// Lens: Enterprise Revenue
+// ---------------------------------------------------------------------------
+//
+// Revenue leaders often want the same ARR and recognized-revenue questions, but
+// scoped to enterprise customers. The lens contributes that scope anywhere the
+// query path reaches Account through subscription periods, subscriptions, or
+// revenue recognition.
+
+lens: enterprise_revenue is {
+  description: "Enterprise-segment revenue operating view."
+
+  refine: Account extend {
+    where: segment = 'enterprise'
+
+    role EnterpriseRevenueAccount when segment = 'enterprise'
+
+    dimension:
+      enterprise_account_label is concat(account_name, ' / ', region)
+  }
+
+  refine: Subscription extend {
+    where: account is EnterpriseRevenueAccount
+  }
+
+  refine: SubscriptionPeriod extend {
+    where: account is EnterpriseRevenueAccount
+
+    view: enterprise_arr_by_region is {
+      group_by:
+        period_month
+        account.region
+        plan.plan_family
+        period_state
+      aggregate:
+        starting_arr
+        ending_arr
+        mrr_run_rate
+        expansion_arr
+        contraction_arr
+        gross_churn_arr
+        logo_churned_accounts
+    }
+  }
+
+  refine: RevenueRecognitionEntry extend {
+    where: account is EnterpriseRevenueAccount
+
+    view: enterprise_recognized_revenue is {
+      group_by:
+        recognized_month
+        account.region
+        revenue_category
+        accounting_basis
+      aggregate:
+        recognized_revenue
+        recognized_subscription_revenue
+        recognized_credit_amount
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Production Adoption Operations
+// ---------------------------------------------------------------------------
+//
+// Product operators usually want production workspace adoption, not sandbox or
+// internal test usage. This lens narrows usage facts to production workspaces
+// and enabled entitlements, then adds a lightweight feature-day intensity band.
+
+lens: production_adoption_operations is {
+  description: "Product adoption workspace for production, entitled usage only."
+
+  type: FeatureUsageIntensity is string {
+    scale_type: ordinal
+    allowed_values: ['low', 'moderate', 'high']
+  }
+
+  refine: Workspace extend {
+    where: workspace_type = 'production'
+
+    role ProductionAdoptionWorkspace when workspace_type = 'production'
+  }
+
+  refine: UserActivityDay extend {
+    where:
+      workspace is ProductionAdoptionWorkspace
+  }
+
+  refine: FeatureUsageDay extend {
+    where:
+      workspace is ProductionAdoptionWorkspace
+      and entitlement_at_activity is EnabledEntitlement
+
+    dimension:
+      feature_usage_intensity :: FeatureUsageIntensity is case
+        when usage_count >= 100 then 'high'
+        when usage_count >= 10 then 'moderate'
+        else 'low'
+      end
+
+    measure:
+      high_intensity_feature_days is count(case when feature_usage_intensity = 'high' then feature_usage_day_id end)
+      moderate_intensity_feature_days is count(case when feature_usage_intensity = 'moderate' then feature_usage_day_id end)
+
+    view: production_adoption_by_feature is {
+      group_by:
+        activity_month
+        account.segment
+        plan.plan_family
+        feature.feature_family
+        feature.feature_name
+        entitlement_at_activity.entitlement_status
+        feature_usage_intensity
+      aggregate:
+        feature_active_users
+        feature_active_workspaces
+        feature_adoption_accounts
+        feature_events
+        units_consumed
+        high_intensity_feature_days
+        moderate_intensity_feature_days
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Customer Success Risk
+// ---------------------------------------------------------------------------
+//
+// This lens adds customer-success vocabulary over the existing renewal, support,
+// and incident concepts. It intentionally does not invent a single health score
+// table; it lets agents discover the component signals and query the grain that
+// matches the business question.
+
+lens: customer_success_risk is {
+  description: "Customer success overlay for renewal risk, support load, and customer-visible incident impact."
+
+  type: RenewalRiskBand is string {
+    scale_type: ordinal
+    allowed_values: ['healthy', 'watch', 'intervene']
+  }
+
+  refine: Renewal extend {
+    role InterventionRenewal
+      when renewal_stage in ('closed_lost', 'negotiation')
+        or contraction_arr_risk > 0
+        or churn_risk_reason is not null
+
+    dimension:
+      net_expansion_forecast_amount is expansion_arr_forecast - contraction_arr_risk
+
+      renewal_risk_band :: RenewalRiskBand is case
+        when this is InterventionRenewal then 'intervene'
+        when forecast_category in ('pipeline', 'best_case') then 'watch'
+        else 'healthy'
+      end
+
+    measure:
+      intervention_renewals is count(case when renewal_risk_band = 'intervene' then renewal_id end)
+      watch_renewals is count(case when renewal_risk_band = 'watch' then renewal_id end)
+      net_expansion_forecast is sum(net_expansion_forecast_amount)
+
+    view: customer_success_renewal_queue is {
+      group_by:
+        renewal_due_month
+        account.account_owner
+        account.segment
+        forecast_category
+        renewal_stage
+        renewal_risk_band
+        churn_risk_reason
+      aggregate:
+        renewals
+        renewal_arr
+        expansion_arr_forecast
+        contraction_arr_risk
+        net_expansion_forecast
+        intervention_renewals
+        watch_renewals
+    }
+  }
+
+  refine: SupportCase extend {
+    role EscalatedSupportCase when priority in ('high', 'urgent')
+
+    dimension:
+      is_escalated_case is this is EscalatedSupportCase
+
+    measure:
+      escalated_cases is count(case when this is EscalatedSupportCase then support_case_id end)
+
+    view: support_escalations_by_account is {
+      group_by:
+        opened_month
+        account.account_owner
+        account.segment
+        account.account_name
+        priority
+        case_status
+        category
+      aggregate:
+        support_cases
+        open_cases
+        urgent_cases
+        escalated_cases
+        avg_first_response_minutes
+        avg_net_resolution_minutes
+        avg_csat_score
+    }
+  }
+
+  refine: IncidentWorkspaceImpact extend {
+    where:
+      incident is CustomerVisibleIncident
+
+    view: visible_incident_impact_by_account is {
+      group_by:
+        impact_month
+        account.account_owner
+        account.segment
+        account.account_name
+        incident.severity
+        incident.product_area
+        impact_type
+      aggregate:
+        impacted_workspaces
+        incident_impact_minutes
+        severe_customer_impact_minutes
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens Composition
+// ---------------------------------------------------------------------------
+//
+// Lenses compose left-to-right. Here the revenue team gets the enterprise scope
+// and the customer-success risk vocabulary in the same query environment.
+
+lens: enterprise_customer_success is enterprise_revenue, customer_success_risk extend {
+  description: "Enterprise customer-success workspace with revenue scope and renewal-risk vocabulary."
+
+  refine: Renewal extend {
+    where: account is EnterpriseRevenueAccount
+
+    view: enterprise_renewal_risk_queue is {
+      group_by:
+        renewal_due_month
+        account.account_owner
+        account.region
+        account.account_name
+        renewal_stage
+        renewal_risk_band
+        churn_risk_reason
+      aggregate:
+        renewals
+        renewal_arr
+        expansion_arr_forecast
+        contraction_arr_risk
+        net_expansion_forecast
+        intervention_renewals
+    }
+  }
+}
+
+lens: enterprise_product_adoption is enterprise_revenue, production_adoption_operations extend {
+  description: "Enterprise production-adoption workspace for product and revenue partners."
+
+  refine: FeatureUsageDay extend {
+    where: account is EnterpriseRevenueAccount
+
+    view: enterprise_production_adoption is {
+      group_by:
+        activity_month
+        account.region
+        plan.plan_family
+        feature.feature_family
+        feature.feature_name
+        feature_usage_intensity
+      aggregate:
+        feature_active_users
+        feature_active_workspaces
+        feature_adoption_accounts
+        feature_events
+        units_consumed
+        high_intensity_feature_days
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: enterprise_finance_arr_movement is SubscriptionPeriod with enterprise_revenue -> {
+  // Same question as the base finance_arr_movement query, but the lens supplies
+  // the enterprise account scope and the region-focused operating view.
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question: "enterprise ARR movement" })
+  //   -> concepts: SubscriptionPeriod, Account, ProductPlan
+  //   mcp.lens.suggest({ user_context: "enterprise revenue leader" })
+  //   -> enterprise_revenue
+  group_by:
+    period_month
+    account.region
+    plan.plan_family
+    period_state
+  aggregate:
+    starting_arr
+    ending_arr
+    mrr_run_rate
+    expansion_arr
+    contraction_arr
+    gross_churn_arr
+    logo_churned_accounts
+}
+
+query: enterprise_recognized_revenue_trend is RevenueRecognitionEntry with enterprise_revenue -> {
+  // Recognized revenue remains rooted at RevenueRecognitionEntry. The lens only
+  // contributes the account scope; it does not reinterpret ARR as revenue.
+  group_by:
+    recognized_month
+    account.region
+    revenue_category
+    accounting_basis
+  aggregate:
+    recognized_revenue
+    recognized_subscription_revenue
+    recognized_credit_amount
+}
+
+query: production_entitled_feature_adoption is FeatureUsageDay with production_adoption_operations -> {
+  // Product question:
+  //   "Show production adoption for entitled feature usage."
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concepts: FeatureUsageDay, Workspace, EntitlementInterval
+  //   mcp.lens.suggest({ phrase: "production adoption" })
+  //   -> production_adoption_operations
+  //   mcp.query.validate(...)
+  //   -> valid; lens filters workspace and entitlement status.
+  group_by:
+    activity_month
+    account.segment
+    plan.plan_family
+    feature.feature_family
+    feature.feature_name
+    feature_usage_intensity
+  aggregate:
+    feature_active_users
+    feature_active_workspaces
+    feature_adoption_accounts
+    feature_events
+    units_consumed
+    high_intensity_feature_days
+}
+
+query: enterprise_product_adoption_watchlist is FeatureUsageDay with enterprise_product_adoption -> {
+  // Uses composed lenses: enterprise_revenue scopes the accounts, and
+  // production_adoption_operations removes sandbox/internal and disabled usage.
+  where:
+    feature_usage_intensity in ('moderate', 'high')
+  group_by:
+    activity_month
+    account.region
+    account.account_name
+    plan.plan_family
+    feature.feature_family
+    feature.feature_name
+    feature_usage_intensity
+  aggregate:
+    feature_active_users
+    feature_active_workspaces
+    feature_events
+    units_consumed
+    high_intensity_feature_days
+}
+
+query: customer_success_renewal_risk_queue is Renewal with customer_success_risk -> {
+  // Customer-success question:
+  //   "Which renewals need intervention, and how much ARR is attached?"
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concepts: Renewal, Account
+  //   mcp.lens.suggest({ phrase: "needs intervention" })
+  //   -> customer_success_risk contributes renewal_risk_band.
+  where:
+    renewal_risk_band = 'intervene'
+  group_by:
+    renewal_due_month
+    account.account_owner
+    account.segment
+    account.account_name
+    renewal_stage
+    forecast_category
+    churn_risk_reason
+  aggregate:
+    renewals
+    renewal_arr
+    expansion_arr_forecast
+    contraction_arr_risk
+    net_expansion_forecast
+    intervention_renewals
+}
+
+query: enterprise_customer_success_queue is Renewal with enterprise_customer_success -> {
+  // Enterprise-only renewal queue with the customer-success vocabulary layered
+  // on top. This query should compile as though the base model were expanded by
+  // enterprise_revenue and then customer_success_risk.
+  where:
+    renewal_risk_band in ('watch', 'intervene')
+  group_by:
+    renewal_due_month
+    account.account_owner
+    account.region
+    account.account_name
+    renewal_stage
+    renewal_risk_band
+    churn_risk_reason
+  aggregate:
+    renewals
+    renewal_arr
+    expansion_arr_forecast
+    contraction_arr_risk
+    net_expansion_forecast
+    intervention_renewals
+    watch_renewals
+}
+
+query: escalated_support_by_owner is SupportCase with customer_success_risk -> {
+  // Support operations can use the same customer-success lens without touching
+  // renewal facts. The root is SupportCase because the question is about cases.
+  where:
+    is_escalated_case
+  group_by:
+    opened_month
+    account.account_owner
+    account.segment
+    account.account_name
+    priority
+    case_status
+    category
+  aggregate:
+    support_cases
+    open_cases
+    urgent_cases
+    escalated_cases
+    avg_first_response_minutes
+    avg_net_resolution_minutes
+    avg_csat_score
+}
+
+query: visible_incident_customer_impact is IncidentWorkspaceImpact with customer_success_risk -> {
+  // Reliability question:
+  //   "Which customer accounts were affected by customer-visible incidents?"
+  //
+  // The lens supplies the customer-visible incident filter. The query keeps the
+  // workspace-impact root because impact minutes are measured there.
+  group_by:
+    impact_month
+    account.account_owner
+    account.segment
+    account.account_name
+    incident.severity
+    incident.product_area
+    impact_type
+  aggregate:
+    impacted_workspaces
+    incident_impact_minutes
+    severe_customer_impact_minutes
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By Lens Syntax
+// ---------------------------------------------------------------------------
+//
+// A compiler can load the base package, apply each active lens in order, merge
+// `refine: Concept extend { ... }` declarations into the visible concept, and
+// AND together any lens `where:` clauses with query/view filters. The important
+// behavioral contract in these examples is that lenses constrain or enrich the
+// semantic model for a query; they do not mutate the imported package.

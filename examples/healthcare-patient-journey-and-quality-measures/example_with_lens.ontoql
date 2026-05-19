@@ -1,0 +1,465 @@
+// OntoQL sketch for the healthcare patient journey and quality measures
+// example, extended with query-time lenses.
+//
+// The base file defines the shared semantic model. This file shows how a team
+// can apply temporary overlays without forking that model:
+//
+//   - `lens: name is { ... }` declares a reusable overlay.
+//   - `refine: Concept extend { ... }` adds filters, fields, roles,
+//     dimensions, measures, views, or validations while the lens is active.
+//   - `query: name is Concept with lens -> { ... }` runs as though the imported
+//     semantic package were overlaid with that lens first.
+//   - Multiple lenses compose left-to-right and their `where:` clauses
+//     intersect.
+//
+// In healthcare this is useful because different audiences need different
+// boundaries: a market leader wants only their facilities, a quality team wants
+// numerator/denominator operating bands, and a patient-access workflow may need
+// privileged contact fields that should not exist in the default model.
+
+package healthcare.patient_journey_quality_measures.with_lens
+
+include "./example.ontoql"
+
+// ---------------------------------------------------------------------------
+// Lens: Denver Market
+// ---------------------------------------------------------------------------
+//
+// A market operator should be able to ask ordinary questions without adding
+// `facility.market = 'Denver'` everywhere. The refinement narrows Facility and
+// then propagates the same restriction to common roots that reach Facility
+// directly or through another participant.
+
+lens: denver_market is {
+  description: "Operating view for teams accountable for the Denver market."
+
+  refine: Facility extend {
+    where: market = 'Denver'
+
+    role DenverMarketFacility when market = 'Denver'
+
+    dimension:
+      market_facility_label is concat(market, ' / ', facility_name)
+  }
+
+  refine: Encounter extend {
+    where: facility is DenverMarketFacility
+  }
+
+  refine: InpatientStay extend {
+    where: facility is DenverMarketFacility
+
+    view: denver_discharge_denominator is {
+      group_by:
+        discharge_month
+        facility.facility_name
+        service_line
+        discharge_disposition
+        coverage_at_discharge.payer_type
+      aggregate:
+        discharges
+        eligible_index_discharges
+        planned_index_admissions
+        mortality_exclusions
+        unplanned_readmissions_30d
+        readmission_rate_30d
+        average_length_of_stay_days
+    }
+  }
+
+  refine: LabResult extend {
+    where: facility is DenverMarketFacility
+  }
+
+  refine: Claim extend {
+    where: encounter.facility is DenverMarketFacility
+  }
+
+  refine: QualityMeasurePopulation extend {
+    where: facility is DenverMarketFacility
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Readmission Quality Operations
+// ---------------------------------------------------------------------------
+//
+// This lens does not mainly restrict rows. It adds operational definitions used
+// by a readmissions team: risk bands, transitional-care review flags, and a
+// queue-oriented view. The definitions live on InpatientStay only while the
+// lens is applied, so the default semantic model remains neutral.
+
+lens: readmission_quality_operations is {
+  description: "Temporary operating vocabulary for inpatient readmission review."
+
+  type: ReadmissionRiskBand is string {
+    scale_type: ordinal
+    allowed_values: ['low', 'watch', 'urgent']
+  }
+
+  refine: InpatientStay extend {
+    dimension:
+      readmission_risk_band :: ReadmissionRiskBand is case
+        when not eligible_denominator_discharge then 'low'
+        when discharge_disposition in ('home_health', 'skilled_nursing_facility') then 'urgent'
+        when length_of_stay_days >= 4
+          or coverage_at_discharge.payer_type in ('medicare', 'medicaid')
+        then 'watch'
+        else 'low'
+      end
+
+      needs_transition_review is
+        eligible_denominator_discharge
+        and (
+          readmission_risk_band in ('urgent', 'watch')
+          or coverage_at_discharge.payer_type in ('medicare', 'medicaid')
+        )
+
+    measure:
+      discharges_needing_transition_review is count(distinct case when needs_transition_review then stay_id end)
+      urgent_readmission_risk_discharges is count(distinct case when readmission_risk_band = 'urgent' then stay_id end)
+      average_los_for_review_queue is avg(case when needs_transition_review then length_of_stay_days end)
+
+    view: transition_review_queue is {
+      where:
+        needs_transition_review
+      group_by:
+        discharge_month
+        facility.facility_name
+        service_line
+        discharge_disposition
+        coverage_at_discharge.payer_type
+        readmission_risk_band
+      aggregate:
+        eligible_index_discharges
+        discharges_needing_transition_review
+        urgent_readmission_risk_discharges
+        unplanned_readmissions_30d
+        readmission_rate_30d
+        average_los_for_review_queue
+    }
+  }
+
+  refine: QualityMeasurePopulation extend {
+    dimension:
+      readmission_measure_member is measure_id = 'READM_30D'
+
+    measure:
+      readmission_effective_denominator_members is count(
+        case
+          when readmission_measure_member and effective_denominator_member
+          then population_member_id
+        end
+      )
+
+      readmission_numerator_members is count(
+        case
+          when readmission_measure_member and this is NumeratorMember
+          then population_member_id
+        end
+      )
+
+      readmission_measure_rate is
+        readmission_numerator_members / nullif(readmission_effective_denominator_members, 0)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Diabetes Registry Operations
+// ---------------------------------------------------------------------------
+//
+// A registry team thinks in terms of patient-period measure members and most
+// recent A1c evidence. This lens adds convenient bands and filters without
+// changing the base definition of LabResult or QualityMeasurePopulation.
+
+lens: diabetes_registry_operations is {
+  description: "Registry workspace for A1c control and diabetes follow-up."
+
+  type: A1cControlBand is string {
+    scale_type: ordinal
+    allowed_values: ['controlled', 'elevated', 'poor_control']
+  }
+
+  refine: LabResult extend {
+    where:
+      this is A1cResult
+
+    dimension:
+      a1c_control_band :: A1cControlBand is case
+        when result_value < 8.0 then 'controlled'
+        when result_value < 9.0 then 'elevated'
+        else 'poor_control'
+      end
+
+      is_poor_control_a1c is a1c_control_band = 'poor_control'
+
+    measure:
+      poor_control_a1c_results is count(case when is_poor_control_a1c then lab_result_id end)
+      poor_control_a1c_rate is poor_control_a1c_results / nullif(lab_results, 0)
+
+    view: a1c_registry_labs is {
+      group_by:
+        resulted_month
+        facility.facility_name
+        ordering_provider.specialty
+        a1c_control_band
+      aggregate:
+        patients_with_labs
+        lab_results
+        abnormal_results
+        poor_control_a1c_results
+        poor_control_a1c_rate
+        average_result_value
+        average_turnaround_minutes
+    }
+  }
+
+  refine: QualityMeasurePopulation extend {
+    where: measure_id = 'A1C_CONTROL'
+
+    dimension:
+      a1c_measure_member is measure_id = 'A1C_CONTROL'
+
+    view: a1c_registry_scorecard is {
+      group_by:
+        measure_version
+        facility.facility_name
+        provider.specialty
+        source_system
+      aggregate:
+        effective_denominator_members
+        numerator_members
+        exclusion_members
+        measure_rate
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: With Patient Contact
+// ---------------------------------------------------------------------------
+//
+// The base sample schema intentionally keeps patient identity minimal. A real
+// deployment might have contact fields in a secure source or governed column
+// set. This lens sketches how those fields could be exposed only for workflows
+// that explicitly opt into the privileged view.
+
+lens: with_patient_contact is {
+  description: "Privileged care-management view with direct patient contact fields."
+
+  refine: Patient extend {
+    field:
+      legal_name :: string
+      email_address :: string?
+      phone_number :: string?
+      postal_code :: string?
+      preferred_language :: string?
+      contact_verified_at :: EventTimestamp?
+
+    dimension:
+      patient_display_name is legal_name
+      contact_email is email_address
+      contact_phone is phone_number
+      has_verified_contact is contact_verified_at is not null
+  }
+
+  refine: InpatientStay extend {
+    dimension:
+      patient_display_name is patient.patient_display_name
+      patient_contact_email is patient.contact_email
+      patient_contact_phone is patient.contact_phone
+      patient_has_verified_contact is patient.has_verified_contact
+  }
+
+  refine: QualityMeasurePopulation extend {
+    dimension:
+      patient_display_name is patient.patient_display_name
+      patient_contact_email is patient.contact_email
+      patient_contact_phone is patient.contact_phone
+      patient_has_verified_contact is patient.has_verified_contact
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens Composition
+// ---------------------------------------------------------------------------
+//
+// Lenses compose into practical workspaces. This one is the Denver market view
+// plus the readmission operating vocabulary. A query using it sees both the
+// market filters and the transition-review definitions.
+
+lens: denver_readmission_operations is denver_market, readmission_quality_operations extend {
+  description: "Denver-market readmission operations workspace."
+
+  refine: InpatientStay extend {
+    view: denver_transition_review_queue is {
+      where:
+        needs_transition_review
+      group_by:
+        discharge_month
+        facility.facility_name
+        service_line
+        discharge_disposition
+        coverage_at_discharge.payer_type
+        readmission_risk_band
+      aggregate:
+        eligible_index_discharges
+        discharges_needing_transition_review
+        urgent_readmission_risk_discharges
+        unplanned_readmissions_30d
+        readmission_rate_30d
+        average_los_for_review_queue
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: denver_readmission_monitor is InpatientStay with denver_market -> {
+  // Same core question as the base readmission_monitor, but the Denver lens
+  // contributes the facility filters automatically.
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concept: InpatientStay; lens: denver_market
+  //   mcp.lens.expand({ lens: "denver_market", concept: "InpatientStay" })
+  //   -> where facility.market = 'Denver' through Facility refinement
+  where:
+    eligible_denominator_discharge
+  group_by:
+    discharge_month
+    facility.facility_name
+    service_line
+    coverage_at_discharge.payer_type
+  aggregate:
+    eligible_index_discharges
+    unplanned_readmissions_30d
+    readmission_rate_30d
+    average_length_of_stay_days
+}
+
+query: denver_transition_review_queue is InpatientStay with denver_readmission_operations -> {
+  // Uses lens composition: denver_market scopes the facilities, and
+  // readmission_quality_operations adds risk bands and review measures.
+  where:
+    needs_transition_review
+  group_by:
+    discharge_month
+    facility.facility_name
+    service_line
+    discharge_disposition
+    coverage_at_discharge.payer_type
+    readmission_risk_band
+  aggregate:
+    eligible_index_discharges
+    discharges_needing_transition_review
+    urgent_readmission_risk_discharges
+    unplanned_readmissions_30d
+    readmission_rate_30d
+    average_los_for_review_queue
+}
+
+query: patient_transition_call_list is InpatientStay with denver_readmission_operations, with_patient_contact -> {
+  // Without with_patient_contact, the patient display/contact fields do not
+  // exist. Applying it alongside the operations lens creates a governed call
+  // list for the discharges most likely to need follow-up.
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concepts: InpatientStay, Patient, PayerCoverageInterval
+  //   mcp.lens.required_fields({ fields: ["patient_contact_phone"] })
+  //   -> requires lens with_patient_contact
+  //   mcp.query.validate(...)
+  //   -> valid with lenses; invalid without patient-contact lens
+  where:
+    needs_transition_review
+    and patient_has_verified_contact
+  group_by:
+    discharge_date
+    patient_display_name
+    patient_contact_phone
+    facility.facility_name
+    service_line
+    discharge_disposition
+    coverage_at_discharge.payer_type
+    readmission_risk_band
+  aggregate:
+    eligible_index_discharges
+    discharges_needing_transition_review
+    unplanned_readmissions_30d
+}
+
+query: a1c_registry_scorecard is QualityMeasurePopulation with diabetes_registry_operations -> {
+  // The diabetes lens narrows QualityMeasurePopulation to A1C_CONTROL and adds
+  // registry-oriented naming. The query stays rooted at official measure
+  // population grain rather than raw lab-result grain.
+  group_by:
+    measure_version
+    facility.facility_name
+    provider.specialty
+    source_system
+  aggregate:
+    effective_denominator_members
+    numerator_members
+    exclusion_members
+    measure_rate
+}
+
+query: a1c_poor_control_followup is LabResult with diabetes_registry_operations, with_patient_contact -> {
+  // A registry outreach workflow needs lab evidence plus governed contact
+  // fields. The patient-contact lens contributes Patient fields, while the
+  // diabetes lens contributes A1c control bands and filters LabResult to A1C.
+  where:
+    is_poor_control_a1c
+    and patient.has_verified_contact
+  group_by:
+    resulted_at.date
+    patient.patient_display_name
+    patient.contact_phone
+    facility.facility_name
+    ordering_provider.provider_name
+    a1c_control_band
+  aggregate:
+    patients_with_labs
+    lab_results
+    average_result_value
+    average_turnaround_minutes
+}
+
+query: denver_readmission_measure_reconciliation is QualityMeasurePopulation with denver_readmission_operations -> {
+  // Reconcile operating discharge counts with official readmission measure
+  // population rows. The lens adds readmission-specific measures on
+  // QualityMeasurePopulation and scopes the result to Denver facilities.
+  where:
+    readmission_measure_member
+  group_by:
+    measure_version
+    facility.facility_name
+    provider.specialty
+    source_system
+  aggregate:
+    readmission_effective_denominator_members
+    readmission_numerator_members
+    readmission_measure_rate
+    exclusion_members
+    exception_members
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By Lens Syntax
+// ---------------------------------------------------------------------------
+//
+// A first OntoQL implementation could compile a lens application in this order:
+//
+//   1. Load the imported package graph from `./example.ontoql`.
+//   2. Copy the visible declarations into a query-local semantic environment.
+//   3. Apply the requested lenses in order.
+//   4. Merge each `refine: X extend { ... }` body into existing concept X.
+//   5. Treat `where:` inside a refinement as a lens-local source filter on that
+//      concept. If the concept appears through a join path, the filter follows
+//      that path. Multiple filters are ANDed with query and view filters.
+//   6. Validate the final query against the lens-expanded concept graph.
+//   7. Compile the expanded model to Malloy source extensions and run the
+//      semantic query from the requested concept root.

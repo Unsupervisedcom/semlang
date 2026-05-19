@@ -1,0 +1,525 @@
+// OntoQL sketch for the banking credit risk and customer exposure example,
+// extended with query-time lenses.
+//
+// The base package names durable banking concepts. This file shows how agents
+// and analysts can apply temporary overlays without cloning those concepts:
+//
+//   - `lens: name is { ... }` declares a reusable overlay.
+//   - `refine: X extend { ... }` modifies the visible definition of an
+//     existing concept while the lens is active.
+//   - `where:` inside a refinement is a lens-local filter. Multiple active
+//     lens filters compose by intersection.
+//   - `query: q is Concept with lens -> { ... }` runs the query against the
+//     lens-expanded semantic model.
+
+package banking.credit_risk_customer_exposure.with_lens
+
+include "./example.ontoql"
+
+// ---------------------------------------------------------------------------
+// Lens: Regulatory Base Reporting
+// ---------------------------------------------------------------------------
+//
+// A regulatory reporting user usually wants quarter-end base exposure under
+// the regulatory accounting basis. The base concept already has the role
+// RegulatoryBaseExposure; this lens turns that role into an ambient filter and
+// adds reporting-specific capital measures.
+
+lens: regulatory_base_reporting is {
+  description: "Quarter-end regulatory base exposure workspace."
+
+  refine: LoanExposureSnapshot extend {
+    where: this is RegulatoryBaseExposure
+
+    dimension:
+      capital_density is rwa_amount / nullif(ead_amount, 0)
+      ecl_density is ecl_amount / nullif(ead_amount, 0)
+
+    measure:
+      average_capital_density is avg(capital_density)
+      average_ecl_density is avg(ecl_density)
+      watchlist_exposure is sum(
+        case when facility is WatchlistFacility then ead_amount else 0 end
+      )
+
+    view: regulatory_capital_by_segment is {
+      group_by:
+        as_of_quarter
+        legal_customer.risk_segment
+        legal_customer.relationship_manager
+        facility.facility_type
+        current_rating_grade
+      aggregate:
+        loans_reported
+        customers_reported
+        exposure_at_default
+        expected_credit_loss
+        risk_weighted_assets
+        watchlist_exposure
+        average_capital_density
+        average_ecl_density
+    }
+  }
+
+  refine: RiskRating extend {
+    // Ratings visible through this lens should be assigned by a governed source
+    // rather than ad hoc exploratory scoring.
+    where: assignment_source in ('committee', 'annual_review', 'quarterly_review', 'model')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Watchlist Credit Review
+// ---------------------------------------------------------------------------
+//
+// Credit officers need more than a filter. They need a shared operating
+// vocabulary for rows that deserve a written explanation: watchlist facilities,
+// problem loans, problem exposure status, high internal grades, or covenant
+// pressure from the latest review.
+
+lens: watchlist_credit_review is {
+  description: "Credit officer workspace for watchlist and problem exposure triage."
+
+  type: CreditActionBand is string {
+    scale_type: ordinal
+    allowed_values: ['monitor', 'explain', 'escalate']
+  }
+
+  refine: CreditFacility extend {
+    where: this is ActiveFacility
+
+    dimension:
+      facility_credit_attention is case
+        when this is WatchlistFacility then 'escalate'
+        else 'monitor'
+      end
+  }
+
+  refine: QuarterlyReview extend {
+    role ReviewNeedsOfficerAction
+      when this is OverdueReview or this is CovenantBreachReview or review_status = 'submitted'
+
+    dimension:
+      review_action_band :: CreditActionBand is case
+        when this is OverdueReview or covenant_status = 'breached' then 'escalate'
+        when this is CovenantBreachReview or review_status = 'submitted' then 'explain'
+        else 'monitor'
+      end
+  }
+
+  refine: LoanExposureSnapshot extend {
+    where:
+      facility is WatchlistFacility
+      or loan is ProblemLoan
+      or this is ProblemExposure
+      or current_rating_grade in ('7', '8', '9', '10')
+
+    dimension:
+      credit_action_band :: CreditActionBand is case
+        when default_status in ('defaulted', 'charged_off')
+          or nonaccrual_flag
+          or current_rating_grade in ('8', '9', '10')
+        then 'escalate'
+        when default_status = 'past_due'
+          or facility is WatchlistFacility
+          or current_rating_grade = '7'
+        then 'explain'
+        else 'monitor'
+      end
+
+    measure:
+      // Aggregate-safe: guarantee and collateral support both come through
+      // one-to-many paths, so the lens subtracts their declared measures from
+      // exposure_at_default instead of mixing both paths inside a row formula.
+      unsecured_ead_after_caps is greatest(
+        exposure_at_default - active_guarantee_support - active_collateral_secured_cap,
+        0
+      )
+      escalation_exposure is sum(
+        case when credit_action_band = 'escalate' then ead_amount else 0 end
+      )
+      explanation_exposure is sum(
+        case when credit_action_band = 'explain' then ead_amount else 0 end
+      )
+
+    view: officer_watchlist_queue is {
+      group_by:
+        as_of_date
+        legal_customer.relationship_manager
+        legal_customer.customer_number
+        legal_customer.legal_name
+        facility.facility_number
+        loan.loan_number
+        current_rating_grade
+        default_status
+        credit_action_band
+      aggregate:
+        outstanding_principal
+        exposure_at_default
+        expected_credit_loss
+        unsecured_ead_after_caps
+        active_guarantee_count
+        active_collateral_link_count
+        escalation_exposure
+        explanation_exposure
+    }
+  }
+
+  refine: ReviewDocument extend {
+    where:
+      this is GapDocument
+      or review is ReviewNeedsOfficerAction
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Model Validation
+// ---------------------------------------------------------------------------
+//
+// A model validation analyst does not want to change the business meaning of a
+// score or exposure row. This lens adds comparison fields that make it obvious
+// when model score rows and exposure rows disagree.
+
+lens: model_validation is {
+  description: "Model validation workspace for CECL and stress-scenario checks."
+
+  refine: ModelScoreSnapshot extend {
+    dimension:
+      modeled_ecl_formula_amount is
+        probability_of_default * loss_given_default * exposure_at_default_amount
+
+      ecl_formula_delta is ecl_amount - modeled_ecl_formula_amount
+
+      model_validation_key is concat(
+        as_of_date,
+        ' / ',
+        legal_customer_id,
+        ' / ',
+        coalesce(loan_id, 'customer_level'),
+        ' / ',
+        model_name,
+        ' / ',
+        model_version,
+        ' / ',
+        model_run_id,
+        ' / ',
+        stress_scenario,
+        ' / ',
+        accounting_basis
+      )
+
+    measure:
+      absolute_ecl_formula_delta is sum(abs(ecl_formula_delta))
+      score_rows_with_formula_delta is count(
+        case when abs(ecl_formula_delta) > 1.00 then model_score_snapshot_id end
+      )
+
+    view: score_formula_reconciliation is {
+      group_by:
+        as_of_quarter
+        model_name
+        model_version
+        model_run_id
+        stress_scenario
+        accounting_basis
+        score_band
+      aggregate:
+        score_rows
+        exposure_at_default
+        expected_credit_loss
+        absolute_ecl_formula_delta
+        score_rows_with_formula_delta
+    }
+  }
+
+  refine: LoanExposureSnapshot extend {
+    measure:
+      // `model_scores` is a one-to-many path because the physical table can
+      // hold multiple model names for the same exposure grain. V1 keeps this
+      // comparison aggregate-safe instead of creating row-level dimensions from
+      // that path.
+      model_score_expected_credit_loss is model_scores.sum(ecl_amount)
+      aggregate_score_ecl_delta is expected_credit_loss - model_score_expected_credit_loss
+      absolute_aggregate_score_ecl_delta is abs(aggregate_score_ecl_delta)
+
+    view: exposure_score_reconciliation is {
+      group_by:
+        as_of_quarter
+        accounting_basis
+        stress_scenario
+        model_version
+        model_run_id
+        legal_customer.risk_segment
+      aggregate:
+        snapshot_rows
+        model_score_rows
+        exposure_at_default
+        expected_credit_loss
+        model_score_expected_credit_loss
+        aggregate_score_ecl_delta
+        absolute_aggregate_score_ecl_delta
+    }
+  }
+
+  refine: ReviewDocument extend {
+    where: this is ModelValidationEvidence
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: CRE Concentration
+// ---------------------------------------------------------------------------
+//
+// This lens is intentionally narrow. It asks the same exposure questions, but
+// only for commercial real estate customers, real estate loans, and property
+// collateral. It is a useful example for agent planning because the filter can
+// enter through customer segment, loan type, or collateral type depending on
+// the starting concept.
+
+lens: commercial_real_estate_concentration is {
+  description: "Commercial real estate concentration view across exposure and collateral."
+
+  refine: LegalCustomer extend {
+    where: risk_segment = 'commercial_real_estate'
+  }
+
+  refine: Loan extend {
+    where: loan_type in ('commercial_mortgage', 'construction_draw')
+  }
+
+  refine: CollateralAsset extend {
+    where: this is RealEstateCollateral
+  }
+
+  refine: LoanExposureSnapshot extend {
+    where:
+      legal_customer.risk_segment = 'commercial_real_estate'
+      or loan.loan_type in ('commercial_mortgage', 'construction_draw')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens Composition
+// ---------------------------------------------------------------------------
+//
+// Lenses compose left-to-right. Here, a credit officer can work a smaller queue
+// containing only regulatory base CRE exposure rows that also satisfy watchlist
+// or problem criteria.
+
+lens: regulatory_cre_watchlist is
+  regulatory_base_reporting,
+  commercial_real_estate_concentration,
+  watchlist_credit_review
+extend {
+  description: "Regulatory base CRE watchlist workspace."
+
+  refine: LoanExposureSnapshot extend {
+    view: regulatory_cre_watchlist_queue is {
+      group_by:
+        as_of_quarter
+        legal_customer.relationship_manager
+        legal_customer.customer_number
+        legal_customer.legal_name
+        facility.facility_number
+        loan.loan_number
+        current_rating_grade
+        credit_action_band
+      aggregate:
+        outstanding_principal
+        exposure_at_default
+        expected_credit_loss
+        risk_weighted_assets
+        unsecured_ead_after_caps
+        escalation_exposure
+      }
+    }
+  }
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: regulatory_capital_snapshot is LoanExposureSnapshot with regulatory_base_reporting -> {
+  // Business question:
+  //   "Give me regulatory base exposure, ECL, and capital density by segment."
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concept: LoanExposureSnapshot
+  //   -> candidate lens: regulatory_base_reporting
+  //   mcp.lens.describe({ lens: "regulatory_base_reporting" })
+  //   -> ambient filter: RegulatoryBaseExposure
+  group_by:
+    as_of_quarter
+    legal_customer.risk_segment
+    legal_customer.relationship_manager
+    facility.facility_type
+    current_rating_grade
+  aggregate:
+    loans_reported
+    customers_reported
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    watchlist_exposure
+    average_capital_density
+    average_ecl_density
+}
+
+query: officer_watchlist_exposure_queue is LoanExposureSnapshot with watchlist_credit_review -> {
+  // Business question:
+  //   "Which exposures need officer action today?"
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> concepts: LoanExposureSnapshot, CreditFacility, Loan, RiskRating
+  //   -> candidate lens: watchlist_credit_review
+  //   mcp.query.validate(...)
+  //   -> valid; credit_action_band exists only while this lens is active.
+  group_by:
+    as_of_date
+    legal_customer.relationship_manager
+    legal_customer.customer_number
+    legal_customer.legal_name
+    facility.facility_number
+    loan.loan_number
+    current_rating_grade
+    default_status
+    credit_action_band
+  aggregate:
+    outstanding_principal
+    exposure_at_default
+    expected_credit_loss
+    unsecured_ead_after_caps
+    active_guarantee_count
+    active_collateral_link_count
+    escalation_exposure
+    explanation_exposure
+}
+
+query: model_validation_reconciliation is LoanExposureSnapshot with model_validation -> {
+  // Business question:
+  //   "Do exposure rows reconcile to the model score rows at the full model
+  //    run, scenario, version, and accounting basis grain?"
+  //
+  // Agent discovery sketch:
+  //   mcp.ontology.describe_concept({ concept: "LoanExposureSnapshot" })
+  //   -> model_scores join includes loan, as_of_date, run, version, scenario,
+  //      and accounting basis
+  //   mcp.lens.describe({ lens: "model_validation" })
+  //   -> adds aggregate-safe model score reconciliation measures
+  group_by:
+    as_of_quarter
+    accounting_basis
+    stress_scenario
+    model_version
+    model_run_id
+    legal_customer.risk_segment
+  aggregate:
+    snapshot_rows
+    model_score_rows
+    exposure_at_default
+    expected_credit_loss
+    model_score_expected_credit_loss
+    aggregate_score_ecl_delta
+    absolute_aggregate_score_ecl_delta
+}
+
+query: cre_regulatory_watchlist_queue is LoanExposureSnapshot with regulatory_cre_watchlist -> {
+  // Business question:
+  //   "Show the regulatory base CRE watchlist queue with unsecured exposure
+  //    after guarantee and collateral caps."
+  //
+  // Agent discovery sketch:
+  //   mcp.lens.plan({
+  //     lenses: [
+  //       "regulatory_base_reporting",
+  //       "commercial_real_estate_concentration",
+  //       "watchlist_credit_review"
+  //     ]
+  //   })
+  //   -> filters compose by AND/intersection; added dimensions and measures are
+  //      visible on the final expanded LoanExposureSnapshot concept.
+  group_by:
+    as_of_quarter
+    legal_customer.relationship_manager
+    legal_customer.customer_number
+    legal_customer.legal_name
+    facility.facility_number
+    loan.loan_number
+    current_rating_grade
+    credit_action_band
+  aggregate:
+    outstanding_principal
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    unsecured_ead_after_caps
+    escalation_exposure
+}
+
+query: model_validation_evidence_gap is ReviewDocument with model_validation -> {
+  // Business question:
+  //   "What model-validation evidence exists for the review packet?"
+  //
+  // Agent discovery sketch:
+  //   mcp.semantic.search_terms({ question })
+  //   -> ReviewDocument role ModelValidationEvidence
+  //   -> model_validation lens narrows ReviewDocument to that role.
+  group_by:
+    review.review_quarter
+    review.officer_name
+    review.legal_customer.customer_number
+    review.review_status
+    document_type
+    document_status
+    source_system
+  aggregate:
+    reviews_with_documents
+    review_documents
+    received_documents
+    accepted_documents
+    model_validation_documents
+}
+
+query: cre_model_validation_watchlist is LoanExposureSnapshot with commercial_real_estate_concentration, watchlist_credit_review, model_validation -> {
+  // Multiple lenses can be applied directly to a query. This one asks for CRE
+  // rows, watchlist triage vocabulary, and model reconciliation fields without
+  // requiring a separately named composed lens.
+  where:
+    credit_action_band = 'escalate'
+  group_by:
+    as_of_quarter
+    legal_customer.relationship_manager
+    legal_customer.customer_number
+    loan.loan_number
+    stress_scenario
+    model_version
+    credit_action_band
+  aggregate:
+    exposure_at_default
+    expected_credit_loss
+    model_score_expected_credit_loss
+    aggregate_score_ecl_delta
+    absolute_aggregate_score_ecl_delta
+    unsecured_ead_after_caps
+    escalation_exposure
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By Lens Syntax
+// ---------------------------------------------------------------------------
+//
+// A first OntoQL implementation could compile a lens application in this order:
+//
+//   1. Load the imported package graph from example.ontoql.
+//   2. Copy visible declarations into a query-local model environment.
+//   3. Apply each requested lens in order.
+//   4. Merge each `refine: X extend { ... }` block into the existing concept X.
+//   5. Treat `where:` inside refinement blocks as lens-local source filters.
+//      Multiple lens filters, view filters, and query filters are ANDed
+//      together.
+//   6. Validate that lens-created names, such as credit_action_band, are only
+//      referenced by queries that activate the relevant lens.
+//   7. Compile the expanded model to Malloy source extensions and compile the
+//      query against the expanded semantic source.
