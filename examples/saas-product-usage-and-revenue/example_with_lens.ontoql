@@ -85,7 +85,7 @@ lens: production_adoption_operations is {
 
   type: FeatureUsageIntensity is string {
     scale_type: ordinal
-    allowed_values: ['low', 'moderate', 'high']
+    enum: ['low', 'moderate', 'high']
   }
 
   refine: Workspace extend {
@@ -150,7 +150,7 @@ lens: customer_success_risk is {
 
   type: RenewalRiskBand is string {
     scale_type: ordinal
-    allowed_values: ['healthy', 'watch', 'intervene']
+    enum: ['healthy', 'watch', 'intervene']
   }
 
   refine: Renewal extend {

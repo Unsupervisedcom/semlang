@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ontoql": "./bin/ontoql.js"
+    "ontoql": "./bin/ontoql.js",
+    "ontoql-mcp": "./bin/ontoql-mcp.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -16,8 +17,10 @@
     "docs:build": "npm --prefix docs-site run build"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "chevrotain": "^11.0.3",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

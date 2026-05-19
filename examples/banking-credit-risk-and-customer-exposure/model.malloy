@@ -1,4 +1,4 @@
-source: legal_customers is table('legal_customers') extend {
+source: legal_customers is duckdb.table('legal_customers') extend {
   primary_key: legal_customer_id
 
   dimension:
@@ -11,7 +11,7 @@ source: legal_customers is table('legal_customers') extend {
     relationship_groups is count(distinct relationship_group_id)
 }
 
-source: credit_facilities is table('credit_facilities') extend {
+source: credit_facilities is duckdb.table('credit_facilities') extend {
   primary_key: facility_id
 
   join_one: legal_customer is legal_customers
@@ -40,7 +40,7 @@ source: credit_facilities is table('credit_facilities') extend {
   }
 }
 
-source: loans is table('loans') extend {
+source: loans is duckdb.table('loans') extend {
   primary_key: loan_id
 
   join_one: facility is credit_facilities
@@ -73,7 +73,7 @@ source: loans is table('loans') extend {
   }
 }
 
-source: collateral_assets is table('collateral_assets') extend {
+source: collateral_assets is duckdb.table('collateral_assets') extend {
   primary_key: collateral_asset_id
 
   join_one: owner_customer is legal_customers
@@ -88,7 +88,7 @@ source: collateral_assets is table('collateral_assets') extend {
     initial_appraised_value is sum(initial_appraised_value)
 }
 
-source: collateral_valuations is table('collateral_valuations') extend {
+source: collateral_valuations is duckdb.table('collateral_valuations') extend {
   primary_key: collateral_valuation_id
 
   join_one: collateral_asset is collateral_assets
@@ -120,7 +120,7 @@ source: collateral_valuations is table('collateral_valuations') extend {
   }
 }
 
-source: loan_collateral_links is table('loan_collateral_links') extend {
+source: loan_collateral_links is duckdb.table('loan_collateral_links') extend {
   primary_key: concat(loan_id, '|', collateral_asset_id, '|', effective_from)
 
   join_one: loan is loans
@@ -160,7 +160,7 @@ source: loan_collateral_links is table('loan_collateral_links') extend {
   }
 }
 
-source: guarantees is table('guarantees') extend {
+source: guarantees is duckdb.table('guarantees') extend {
   primary_key: guarantee_id
 
   join_one: loan is loans
@@ -193,7 +193,7 @@ source: guarantees is table('guarantees') extend {
   }
 }
 
-source: quarterly_reviews is table('quarterly_reviews') extend {
+source: quarterly_reviews is duckdb.table('quarterly_reviews') extend {
   primary_key: review_id
 
   join_one: legal_customer is legal_customers
@@ -231,7 +231,7 @@ source: quarterly_reviews is table('quarterly_reviews') extend {
   }
 }
 
-source: risk_ratings is table('risk_ratings') extend {
+source: risk_ratings is duckdb.table('risk_ratings') extend {
   primary_key: risk_rating_id
 
   join_one: legal_customer is legal_customers
@@ -272,7 +272,7 @@ source: risk_ratings is table('risk_ratings') extend {
   }
 }
 
-source: model_score_snapshots is table('model_score_snapshots') extend {
+source: model_score_snapshots is duckdb.table('model_score_snapshots') extend {
   primary_key: model_score_snapshot_id
 
   join_one: legal_customer is legal_customers
@@ -311,7 +311,7 @@ source: model_score_snapshots is table('model_score_snapshots') extend {
   }
 }
 
-source: loan_exposure_snapshots is table('loan_exposure_snapshots') extend {
+source: loan_exposure_snapshots is duckdb.table('loan_exposure_snapshots') extend {
   primary_key: exposure_snapshot_id
 
   join_one: loan is loans
@@ -417,7 +417,7 @@ source: loan_exposure_snapshots is table('loan_exposure_snapshots') extend {
   }
 }
 
-source: review_documents is table('review_documents') extend {
+source: review_documents is duckdb.table('review_documents') extend {
   primary_key: review_document_id
 
   join_one: review is quarterly_reviews

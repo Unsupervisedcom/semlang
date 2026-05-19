@@ -13,10 +13,9 @@ program
   .command("compile")
   .argument("<file>", "OntoQL file to compile")
   .option("--out <file>", "Output file")
-  .addOption(new Option("--source-mode <mode>", "Malloy source mode").choices(["bare", "duckdb"]).default("bare"))
-  .addOption(new Option("--emit <kind>", "Artifact to emit").choices(["ast", "model", "malloy"]).default("malloy"))
-  .action(async (file: string, options: { out?: string; sourceMode: "bare" | "duckdb"; emit: "ast" | "model" | "malloy" }) => {
-    const result = await compileFile(file, { sourceMode: options.sourceMode });
+  .addOption(new Option("--emit <kind>", "Artifact to emit").choices(["ast", "model", "malloy", "json-schema"]).default("malloy"))
+  .action(async (file: string, options: { out?: string; emit: "ast" | "model" | "malloy" | "json-schema" }) => {
+    const result = await compileFile(file);
     if (result.diagnostics.length > 0) {
       for (const diagnostic of result.diagnostics) {
         const loc = diagnostic.location ? `${diagnostic.location.file ?? "<input>"}:${diagnostic.location.line}:${diagnostic.location.column}` : "<input>";
@@ -32,8 +31,9 @@ program
     else process.stdout.write(output);
   });
 
-function artifact(result: Awaited<ReturnType<typeof compileFile>>, emit: "ast" | "model" | "malloy"): string {
+function artifact(result: Awaited<ReturnType<typeof compileFile>>, emit: "ast" | "model" | "malloy" | "json-schema"): string {
   if (emit === "ast") return `${JSON.stringify(result.ast, null, 2)}\n`;
+  if (emit === "json-schema") return `${JSON.stringify(result.jsonSchema, null, 2)}\n`;
   if (emit === "model") {
     return `${JSON.stringify(result.model, (_key, value) => {
       if (value instanceof Map) return Object.fromEntries(value);

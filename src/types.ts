@@ -15,7 +15,6 @@ export interface Diagnostic {
 
 export interface CompileOptions {
   filePath?: string;
-  sourceMode?: "bare" | "duckdb";
   packageLoader?: PackageLoader;
 }
 
@@ -37,6 +36,20 @@ export interface CompileResult {
   ast?: OntoqlAst;
   model?: SemanticModel;
   malloy?: string;
+  jsonSchema?: JsonSchemaDocument;
+  diagnostics: Diagnostic[];
+}
+
+export type JsonSchemaDocument = Record<string, unknown>;
+
+export interface JsonSchemaEmitOptions {
+  id?: string;
+  title?: string;
+  concepts?: string[];
+}
+
+export interface JsonSchemaEmitResult {
+  schema: JsonSchemaDocument;
   diagnostics: Diagnostic[];
 }
 
@@ -45,6 +58,7 @@ export interface OntoqlAst {
   packageName: string;
   filePath?: string;
   includes: IncludeDecl[];
+  sources: SourceDecl[];
   types: TypeDecl[];
   concepts: ConceptDecl[];
   lenses: LensDecl[];
@@ -72,11 +86,41 @@ export interface TypeDecl {
 
 export type ConceptStereotype = "kind" | "event" | "situation" | "relator" | "phase";
 
+export type SourceExpression =
+  | {
+      kind: "table";
+      connection: string;
+      path: string;
+      expression: string;
+      location: SourceLocation;
+    }
+  | {
+      kind: "sql";
+      connection: string;
+      sql: string;
+      expression: string;
+      location: SourceLocation;
+    }
+  | {
+      kind: "reference";
+      name: string;
+      expression: string;
+      location: SourceLocation;
+    };
+
+export interface SourceDecl {
+  name: string;
+  source: SourceExpression;
+  query?: QueryBodyDecl;
+  location: SourceLocation;
+}
+
 export interface ConceptDecl {
   name: string;
+  description?: string;
   stereotype: ConceptStereotype;
   phaseParent?: string;
-  table: string;
+  source: SourceExpression;
   identities: IdentityField[];
   fields: FieldDecl[];
   joins: JoinDecl[];
@@ -106,11 +150,12 @@ export interface FieldDecl {
 }
 
 export interface JoinDecl {
-  kind: "join_one" | "join_many";
+  kind: "join_one" | "join_many" | "join_cross";
   name: string;
   optional: boolean;
   target: string;
   on: string;
+  with?: string;
   at?: string;
   location: SourceLocation;
 }
@@ -155,13 +200,32 @@ export interface ViewDecl {
 
 export interface QueryBodyDecl {
   where?: ExpressionDecl;
+  having?: ExpressionDecl;
+  select: QueryItemDecl[];
   groupBy: QueryItemDecl[];
   aggregate: QueryItemDecl[];
+  calculate: QueryItemDecl[];
+  orderBy: QueryItemDecl[];
+  nest?: QueryNestDecl[];
+  index?: QueryItemDecl[];
+  limit?: LimitDecl;
 }
 
 export interface QueryItemDecl {
   expression: string;
   alias?: string;
+  location: SourceLocation;
+}
+
+export interface QueryNestDecl {
+  name?: string;
+  view?: string;
+  body?: QueryBodyDecl;
+  location: SourceLocation;
+}
+
+export interface LimitDecl {
+  value: number;
   location: SourceLocation;
 }
 
@@ -181,6 +245,7 @@ export interface RefinementDecl {
 }
 
 export interface ConceptMembers {
+  description?: string;
   identities: IdentityField[];
   fields: FieldDecl[];
   joins: JoinDecl[];
@@ -198,12 +263,14 @@ export interface QueryDecl {
   root: string;
   lenses: string[];
   body: QueryBodyDecl;
+  view?: string;
   location: SourceLocation;
 }
 
 export interface SemanticModel {
   packageName: string;
   files: string[];
+  sources: Map<string, SourceDecl>;
   types: Map<string, TypeDecl>;
   concepts: Map<string, ResolvedConcept>;
   lenses: Map<string, LensDecl>;
@@ -217,6 +284,7 @@ export interface ResolvedConcept extends ConceptDecl {
 
 export function emptyMembers(): ConceptMembers {
   return {
+    description: undefined,
     identities: [],
     fields: [],
     joins: [],

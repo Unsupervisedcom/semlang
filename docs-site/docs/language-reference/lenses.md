@@ -1,6 +1,6 @@
 ---
 title: Lenses
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 A lens is a query-time semantic overlay. Lenses let a query refine concepts without changing the base semantic model.
@@ -74,7 +74,7 @@ Lenses can declare additional semantic types:
 ```ontoql
 lens: margin_operations is {
   type: MarginBand is string {
-    allowed_values: ["negative", "low", "healthy"]
+    enum: ["negative", "low", "healthy"]
   }
 }
 ```

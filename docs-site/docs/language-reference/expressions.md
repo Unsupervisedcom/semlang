@@ -1,6 +1,6 @@
 ---
 title: Expressions
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 OntoQL expressions intentionally stay close to Malloy expressions. The compiler preserves row-level and aggregate expressions where possible, while adding semantic lowering for role tests, temporal joins, lenses, and query aliases.
@@ -84,7 +84,7 @@ Lens filters compose by conjunction when multiple lenses or refinements apply.
 
 ## Query Items and Aliases
 
-`group_by:` and `aggregate:` sections contain expressions. Aggregate entries may define query-local aliases:
+`select:`, `group_by:`, `aggregate:`, `calculate:`, and `order_by:` sections contain expressions. Aggregate entries may define query-local aliases:
 
 ```ontoql
 aggregate:
@@ -93,3 +93,7 @@ aggregate:
 ```
 
 Aliases may reference visible measures, aggregate functions, and earlier aggregate aliases. Raw row-level fields must appear inside aggregate functions.
+
+`order_by:` items may include `asc` or `desc` after the expression. `limit:` accepts an integer row count.
+
+Malloy filter forms such as `status ? 'new' | 'open'`, ranges with `to`, regex/string matching with `~` and `!~`, and filter strings such as `f'this week'` are validated for referenced paths and emitted unchanged.

@@ -30,25 +30,25 @@ package banking.credit_risk_customer_exposure
 type: LegalCustomerId is string {
   scale_type: nominal
   identifies: LegalCustomer
-  semantics: "Stable identifier for a legal customer or guarantor."
+  description: "Stable identifier for a legal customer or guarantor."
 }
 
 type: FacilityId is string {
   scale_type: nominal
   identifies: CreditFacility
-  semantics: "Stable identifier for a committed credit facility."
+  description: "Stable identifier for a committed credit facility."
 }
 
 type: LoanId is string {
   scale_type: nominal
   identifies: Loan
-  semantics: "Stable identifier for a booked loan or draw."
+  description: "Stable identifier for a booked loan or draw."
 }
 
 type: CollateralAssetId is string {
   scale_type: nominal
   identifies: CollateralAsset
-  semantics: "Stable identifier for a pledged collateral asset."
+  description: "Stable identifier for a pledged collateral asset."
 }
 
 type: ExposureSnapshotId is string {
@@ -63,139 +63,139 @@ type: ReviewId is string {
 
 type: BusinessDate is date {
   scale_type: interval
-  semantics: "Calendar date used for effective dates, as-of dates, and due dates."
+  description: "Calendar date used for effective dates, as-of dates, and due dates."
 }
 
 type: EventTimestamp is timestamp {
   scale_type: interval
-  semantics: "Point in time when a banking event or evidence event was observed."
+  description: "Point in time when a banking event or evidence event was observed."
 }
 
 type: USDollars is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
-  semantics: "US dollar amount. Aggregation is safe only at the declared grain or through fanout-safe measures."
+  render_format: currency("USD", 2)
+  description: "US dollar amount. Aggregation is safe only at the declared grain or through fanout-safe measures."
 }
 
 type: Rate is number {
   scale_type: ratio
-  semantics: "Decimal rate or probability, usually between 0 and 1."
+  description: "Decimal rate or probability, usually between 0 and 1."
 }
 
 type: DayCount is number {
   scale_type: ratio
-  semantics: "Count of days with a meaningful zero."
+  description: "Count of days with a meaningful zero."
 }
 
 type: CreditRatingGrade is string {
   scale_type: ordinal
-  semantics: "Internal credit grade. Higher grades in this sample are weaker credit quality."
+  description: "Internal credit grade. Higher grades in this sample are weaker credit quality."
 }
 
 type: CustomerType is string {
   scale_type: nominal
-  allowed_values: ['operating_company', 'individual', 'trust', 'holding_company']
+  enum: ['operating_company', 'individual', 'trust', 'holding_company']
 }
 
 type: KycStatus is string {
   scale_type: nominal
-  allowed_values: ['current', 'refresh_due', 'restricted']
+  enum: ['current', 'refresh_due', 'restricted']
 }
 
 type: RiskSegment is string {
   scale_type: nominal
-  allowed_values: ['commercial_real_estate', 'middle_market', 'small_business', 'private_bank']
+  enum: ['commercial_real_estate', 'middle_market', 'small_business', 'private_bank']
 }
 
 type: FacilityType is string {
   scale_type: nominal
-  allowed_values: ['revolver', 'term_loan', 'construction_line', 'letter_of_credit']
+  enum: ['revolver', 'term_loan', 'construction_line', 'letter_of_credit']
 }
 
 type: FacilityStatus is string {
   scale_type: ordinal
-  allowed_values: ['active', 'watchlist', 'matured', 'charged_off']
+  enum: ['active', 'watchlist', 'matured', 'charged_off']
 }
 
 type: LoanType is string {
   scale_type: nominal
-  allowed_values: ['commercial_mortgage', 'equipment_note', 'working_capital_draw', 'construction_draw']
+  enum: ['commercial_mortgage', 'equipment_note', 'working_capital_draw', 'construction_draw']
 }
 
 type: LoanStatus is string {
   scale_type: ordinal
-  allowed_values: ['current', 'past_due', 'nonaccrual', 'charged_off', 'paid_off']
+  enum: ['current', 'past_due', 'nonaccrual', 'charged_off', 'paid_off']
 }
 
 type: CollateralAssetType is string {
   scale_type: nominal
-  allowed_values: ['commercial_property', 'equipment', 'receivables', 'marketable_securities']
+  enum: ['commercial_property', 'equipment', 'receivables', 'marketable_securities']
 }
 
 type: ValuationMethod is string {
   scale_type: nominal
-  allowed_values: ['appraisal', 'automated_model', 'borrowing_base', 'market_quote']
+  enum: ['appraisal', 'automated_model', 'borrowing_base', 'market_quote']
 }
 
 type: ReleaseStatus is string {
   scale_type: ordinal
-  allowed_values: ['active', 'partial_release', 'released']
+  enum: ['active', 'partial_release', 'released']
 }
 
 type: GuaranteeType is string {
   scale_type: nominal
-  allowed_values: ['full_recourse', 'limited_recourse', 'springing', 'government_program']
+  enum: ['full_recourse', 'limited_recourse', 'springing', 'government_program']
 }
 
 type: GuaranteeStatus is string {
   scale_type: ordinal
-  allowed_values: ['active', 'expired', 'released']
+  enum: ['active', 'expired', 'released']
 }
 
 type: ReviewStatus is string {
   scale_type: ordinal
-  allowed_values: ['not_started', 'in_progress', 'submitted', 'approved', 'overdue', 'waived']
+  enum: ['not_started', 'in_progress', 'submitted', 'approved', 'overdue', 'waived']
 }
 
 type: CovenantStatus is string {
   scale_type: ordinal
-  allowed_values: ['in_compliance', 'waived', 'breach_under_review', 'breached']
+  enum: ['in_compliance', 'waived', 'breach_under_review', 'breached']
 }
 
 type: RatingScope is string {
   scale_type: nominal
-  allowed_values: ['customer', 'facility', 'loan']
+  enum: ['customer', 'facility', 'loan']
 }
 
 type: RatingAssignmentSource is string {
   scale_type: nominal
-  allowed_values: ['model', 'analyst_override', 'committee', 'annual_review', 'quarterly_review']
+  enum: ['model', 'analyst_override', 'committee', 'annual_review', 'quarterly_review']
 }
 
 type: AccountingBasis is string {
   scale_type: nominal
-  allowed_values: ['regulatory', 'cecl', 'ifrs9', 'management']
+  enum: ['regulatory', 'cecl', 'ifrs9', 'management']
 }
 
 type: StressScenario is string {
   scale_type: nominal
-  allowed_values: ['base', 'downside', 'severe_recession']
+  enum: ['base', 'downside', 'severe_recession']
 }
 
 type: DefaultStatus is string {
   scale_type: ordinal
-  allowed_values: ['performing', 'past_due', 'defaulted', 'charged_off']
+  enum: ['performing', 'past_due', 'defaulted', 'charged_off']
 }
 
 type: DocumentStatus is string {
   scale_type: ordinal
-  allowed_values: ['requested', 'received', 'accepted', 'rejected', 'waived']
+  enum: ['requested', 'received', 'accepted', 'rejected', 'waived']
 }
 
 type: DocumentType is string {
   scale_type: nominal
-  allowed_values: [
+  enum: [
     'financial_statement',
     'rent_roll',
     'borrowing_base_certificate',
@@ -211,7 +211,7 @@ type: DocumentType is string {
 // Semantic Sources
 // ---------------------------------------------------------------------------
 
-concept LegalCustomer is kind from table('legal_customers') {
+concept LegalCustomer is kind from duckdb.table('legal_customers') {
   identity legal_customer_id :: LegalCustomerId
 
   field:
@@ -257,7 +257,7 @@ concept LegalCustomer is kind from table('legal_customers') {
     }
 }
 
-concept CreditFacility is relator from table('credit_facilities') {
+concept CreditFacility is relator from duckdb.table('credit_facilities') {
   // A facility is modeled as a relator because it creates the lending
   // relationship between the bank and a legal customer. Loans draw against it.
   identity facility_id :: FacilityId
@@ -316,7 +316,7 @@ concept CreditFacility is relator from table('credit_facilities') {
     }
 }
 
-concept Loan is relator from table('loans') {
+concept Loan is relator from duckdb.table('loans') {
   // The loan is a booked credit contract. It sits below a facility but can have
   // separate collateral, guarantees, ratings, model scores, and exposure rows.
   identity loan_id :: LoanId
@@ -376,7 +376,7 @@ concept Loan is relator from table('loans') {
     }
 }
 
-concept CollateralAsset is kind from table('collateral_assets') {
+concept CollateralAsset is kind from duckdb.table('collateral_assets') {
   identity collateral_asset_id :: CollateralAssetId
 
   join_one owner_customer: LegalCustomer on owner_customer_id = legal_customer_id
@@ -412,7 +412,7 @@ concept CollateralAsset is kind from table('collateral_assets') {
     }
 }
 
-concept CollateralValuation is situation from table('collateral_valuations') {
+concept CollateralValuation is situation from duckdb.table('collateral_valuations') {
   // Valuations are effective-dated state about a collateral asset. Queries that
   // need the value "as of" an exposure date should use `at exposure.as_of_date`.
   identity collateral_valuation_id :: string
@@ -472,7 +472,7 @@ concept CollateralValuation is situation from table('collateral_valuations') {
     }
 }
 
-concept LoanCollateralLink is relator from table('loan_collateral_links') {
+concept LoanCollateralLink is relator from duckdb.table('loan_collateral_links') {
   // Many-to-many pledge path between loans and collateral assets.
   identity loan_id :: LoanId, collateral_asset_id :: CollateralAssetId, effective_from :: BusinessDate
   valid_time: period(effective_from, coalesce(effective_to, date '9999-12-31'))
@@ -528,7 +528,7 @@ concept LoanCollateralLink is relator from table('loan_collateral_links') {
     }
 }
 
-concept Guarantee is relator from table('guarantees') {
+concept Guarantee is relator from duckdb.table('guarantees') {
   identity guarantee_id :: string
   valid_time: period(effective_from, coalesce(effective_to, date '9999-12-31'))
 
@@ -583,7 +583,7 @@ concept Guarantee is relator from table('guarantees') {
     }
 }
 
-concept QuarterlyReview is event from table('quarterly_reviews') {
+concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
   // This is modeled as a review event with a due date occurrence. The submitted
   // and approved timestamps remain visible because review timeliness is often
   // the actual analytical question.
@@ -658,7 +658,7 @@ concept QuarterlyReview is event from table('quarterly_reviews') {
     }
 }
 
-concept RiskRating is situation from table('risk_ratings') {
+concept RiskRating is situation from duckdb.table('risk_ratings') {
   // Ratings can be scoped to a customer, facility, or loan. The SQL enforces a
   // single populated target. OntoQL makes that rule visible and executable.
   identity risk_rating_id :: string
@@ -736,7 +736,7 @@ concept RiskRating is situation from table('risk_ratings') {
     }
 }
 
-concept ModelScoreSnapshot is situation from table('model_score_snapshots') {
+concept ModelScoreSnapshot is situation from duckdb.table('model_score_snapshots') {
   identity model_score_snapshot_id :: string
   valid_time: as_of_date
   observation_time: as_of_date
@@ -801,7 +801,7 @@ concept ModelScoreSnapshot is situation from table('model_score_snapshots') {
     }
 }
 
-concept LoanExposureSnapshot is situation from table('loan_exposure_snapshots') {
+concept LoanExposureSnapshot is situation from duckdb.table('loan_exposure_snapshots') {
   // Central reporting fact. The joins below preserve the source's explicit
   // accounting basis, scenario, model version, and model run fields. Joining to
   // scores requires all of those fields, not just loan and date.
@@ -986,7 +986,7 @@ concept LoanExposureSnapshot is situation from table('loan_exposure_snapshots') 
     }
 }
 
-concept ReviewDocument is situation from table('review_documents') {
+concept ReviewDocument is situation from duckdb.table('review_documents') {
   // Documents are review evidence. Some rows represent a request with no
   // received timestamp, so this is a situation rather than a simple event.
   identity review_document_id :: string

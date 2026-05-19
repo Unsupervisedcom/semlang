@@ -1,25 +1,25 @@
 ---
 title: Diagnostics and Lowering
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 OntoQL's compiler has two obligations: accepted constructs must lower deterministically to Malloy, and invalid constructs must produce diagnostics with useful locations.
 
 ## Malloy Lowering
 
-Default source mode emits bare Malloy tables:
+OntoQL emits the Malloy source expression written in the declaration:
 
 ```malloy
-source: retail_line_items is table('retail_line_items') extend {
+source: retail_line_items is duckdb.table('retail_line_items') extend {
   primary_key: line_item_id
 }
 ```
 
-DuckDB test mode emits connection-qualified table forms such as `duckdb.table('retail_line_items')`. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
+Source declarations must use real Malloy source syntax, including named connections such as `duckdb.table('retail_line_items')` or `duckdb.sql("""select ...""")`. Unqualified `table('...')` is diagnosed because it would hide a connection decision in the OntoQL compiler. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
 
 Semantic-only constructs lower as follows:
 
-- Concept source becomes a Malloy `source`.
+- Concept source becomes a Malloy `source` over its table, SQL, named source, concept, or query source expression.
 - Identity becomes `primary_key`.
 - Composite identity becomes a concatenated primary key.
 - Field declarations are assumed to be source columns; only derived fields emit.
@@ -42,7 +42,7 @@ query: monthly_margin is SaleLine -> {
 }
 ```
 
-Lowering resolves the root concept to the generated Malloy source name and emits a Malloy query. When a query applies lenses, the compiler creates a query-specific semantic model, emits lens-refined sources for that query, and points the query at the refined root source.
+Lowering resolves the root concept to the generated Malloy source name and emits a Malloy query. Query and view bodies preserve Malloy-shaped `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:` clauses. When a query applies lenses, the compiler creates a query-specific semantic model, emits lens-refined sources for that query, and points the query at the refined root source.
 
 ## Diagnostics
 

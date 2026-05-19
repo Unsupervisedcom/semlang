@@ -6,7 +6,7 @@
 //
 // Style notes mirrored from the retail example:
 //
-//   - `concept ... is kind/event/situation/relator from table(...)` declares a
+//   - `concept ... is kind/event/situation/relator from duckdb.table(...)` declares a
 //     semantic concept and its canonical source together.
 //   - `field_name :: Type` uses Malloy-like field declarations with semantic
 //     metadata carried by the named type.
@@ -27,19 +27,19 @@ package saas.product_usage_revenue
 type: AccountId is string {
   scale_type: nominal
   identifies: Account
-  semantics: "Stable customer account key used across finance, product, support, and renewal systems."
+  description: "Stable customer account key used across finance, product, support, and renewal systems."
 }
 
 type: WorkspaceId is string {
   scale_type: nominal
   identifies: Workspace
-  semantics: "Tenant workspace key. Accounts can own production, sandbox, and internal workspaces."
+  description: "Tenant workspace key. Accounts can own production, sandbox, and internal workspaces."
 }
 
 type: UserId is string {
   scale_type: nominal
   identifies: ProductUser
-  semantics: "Application user key at workspace scope."
+  description: "Application user key at workspace scope."
 }
 
 type: PlanId is string {
@@ -99,151 +99,151 @@ type: RenewalId is string {
 
 type: BusinessDate is date {
   scale_type: interval
-  semantics: "Calendar date used for service periods, subscription months, renewals, and daily product activity."
+  description: "Calendar date used for service periods, subscription months, renewals, and daily product activity."
 }
 
 type: BusinessTimestamp is timestamp {
   scale_type: interval
-  semantics: "Point in time when a SaaS lifecycle event was observed or occurred."
+  description: "Point in time when a SaaS lifecycle event was observed or occurred."
 }
 
 type: Money is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
-  semantics: "Commercial amount. Source rows may carry non-USD currency, so analyses should group by currency when converting is unavailable."
+  render_format: currency("USD", 2)
+  description: "Commercial amount. Source rows may carry non-USD currency, so analyses should group by currency when converting is unavailable."
 }
 
 type: Count is number {
   scale_type: ratio
-  semantics: "Countable quantity with a meaningful zero."
+  description: "Countable quantity with a meaningful zero."
 }
 
 type: Seconds is number {
   scale_type: ratio
-  semantics: "Duration measured in seconds."
+  description: "Duration measured in seconds."
 }
 
 type: Minutes is number {
   scale_type: ratio
-  semantics: "Duration measured in minutes."
+  description: "Duration measured in minutes."
 }
 
 type: AccountSegment is string {
   scale_type: ordinal
-  allowed_values: ['startup', 'mid_market', 'enterprise']
+  enum: ['startup', 'mid_market', 'enterprise']
 }
 
 type: WorkspaceType is string {
   scale_type: nominal
-  allowed_values: ['production', 'sandbox', 'internal']
+  enum: ['production', 'sandbox', 'internal']
 }
 
 type: UserRole is string {
   scale_type: nominal
-  allowed_values: ['admin', 'builder', 'viewer']
+  enum: ['admin', 'builder', 'viewer']
 }
 
 type: SeatType is string {
   scale_type: nominal
-  allowed_values: ['paid', 'free', 'service']
+  enum: ['paid', 'free', 'service']
 }
 
 type: PlanFamily is string {
   scale_type: ordinal
-  allowed_values: ['team', 'business', 'enterprise']
+  enum: ['team', 'business', 'enterprise']
 }
 
 type: BillingInterval is string {
   scale_type: nominal
-  allowed_values: ['monthly', 'annual']
+  enum: ['monthly', 'annual']
 }
 
 type: SubscriptionState is string {
   scale_type: ordinal
-  allowed_values: ['active', 'cancel_pending', 'paused', 'churned']
+  enum: ['active', 'cancel_pending', 'paused', 'churned']
 }
 
 type: ContractType is string {
   scale_type: nominal
-  allowed_values: ['new', 'renewal', 'expansion', 'contraction']
+  enum: ['new', 'renewal', 'expansion', 'contraction']
 }
 
 type: InvoiceStatus is string {
   scale_type: nominal
-  allowed_values: ['draft', 'open', 'paid', 'void', 'uncollectible']
+  enum: ['draft', 'open', 'paid', 'void', 'uncollectible']
 }
 
 type: InvoiceLineType is string {
   scale_type: nominal
-  allowed_values: ['recurring', 'usage', 'credit', 'tax']
+  enum: ['recurring', 'usage', 'credit', 'tax']
 }
 
 type: RevenueCategory is string {
   scale_type: nominal
-  allowed_values: ['subscription', 'usage', 'professional_services', 'tax', 'credit']
+  enum: ['subscription', 'usage', 'professional_services', 'tax', 'credit']
 }
 
 type: AccountingBasis is string {
   scale_type: nominal
-  allowed_values: ['ratable', 'point_in_time', 'credit']
+  enum: ['ratable', 'point_in_time', 'credit']
 }
 
 type: EntitlementStatus is string {
   scale_type: nominal
-  allowed_values: ['included', 'metered', 'disabled']
+  enum: ['included', 'metered', 'disabled']
 }
 
 type: EnforcementMode is string {
   scale_type: nominal
-  allowed_values: ['hard_limit', 'soft_limit', 'none']
+  enum: ['hard_limit', 'soft_limit', 'none']
 }
 
 type: SupportPriority is string {
   scale_type: ordinal
-  allowed_values: ['low', 'normal', 'high', 'urgent']
+  enum: ['low', 'normal', 'high', 'urgent']
 }
 
 type: SupportCaseStatus is string {
   scale_type: ordinal
-  allowed_values: ['open', 'pending_customer', 'resolved', 'closed']
+  enum: ['open', 'pending_customer', 'resolved', 'closed']
 }
 
 type: SupportChannel is string {
   scale_type: nominal
-  allowed_values: ['email', 'chat', 'web', 'phone']
+  enum: ['email', 'chat', 'web', 'phone']
 }
 
 type: IncidentSeverity is string {
   scale_type: ordinal
-  allowed_values: ['sev4', 'sev3', 'sev2', 'sev1']
+  enum: ['sev4', 'sev3', 'sev2', 'sev1']
 }
 
 type: IncidentStatus is string {
   scale_type: ordinal
-  allowed_values: ['investigating', 'monitoring', 'resolved']
+  enum: ['investigating', 'monitoring', 'resolved']
 }
 
 type: ImpactType is string {
   scale_type: nominal
-  allowed_values: ['degraded_performance', 'partial_outage', 'full_outage']
+  enum: ['degraded_performance', 'partial_outage', 'full_outage']
 }
 
 type: RenewalStage is string {
   scale_type: ordinal
-  allowed_values: ['not_started', 'discovery', 'negotiation', 'committed', 'closed_won', 'closed_lost']
+  enum: ['not_started', 'discovery', 'negotiation', 'committed', 'closed_won', 'closed_lost']
 }
 
 type: ForecastCategory is string {
   scale_type: ordinal
-  allowed_values: ['pipeline', 'best_case', 'commit', 'closed']
+  enum: ['pipeline', 'best_case', 'commit', 'closed']
 }
 
 // ---------------------------------------------------------------------------
 // Core Customer and Product Concepts
 // ---------------------------------------------------------------------------
 
-concept Account is kind from table('accounts') {
+concept Account is kind from duckdb.table('accounts') {
   // The account is the common party across contracts, invoices, product
   // activity, support, incidents, and renewals. It is not itself a revenue fact.
   identity account_id :: AccountId
@@ -275,7 +275,7 @@ concept Account is kind from table('accounts') {
     }
 }
 
-concept Workspace is kind from table('workspaces') {
+concept Workspace is kind from duckdb.table('workspaces') {
   identity workspace_id :: WorkspaceId
 
   join_one account: Account on account_id
@@ -303,7 +303,7 @@ concept Workspace is kind from table('workspaces') {
     }
 }
 
-concept ProductUser is kind from table('users') {
+concept ProductUser is kind from duckdb.table('users') {
   // Users are modeled under workspaces, but account_id is denormalized in the
   // source. Keeping both joins makes account-scoped and workspace-scoped product
   // questions easy for agents to discover.
@@ -336,7 +336,7 @@ concept ProductUser is kind from table('users') {
     }
 }
 
-concept ProductPlan is kind from table('product_plans') {
+concept ProductPlan is kind from duckdb.table('product_plans') {
   identity plan_id :: PlanId
 
   field:
@@ -362,7 +362,7 @@ concept ProductPlan is kind from table('product_plans') {
     }
 }
 
-concept ProductFeature is kind from table('product_features') {
+concept ProductFeature is kind from duckdb.table('product_features') {
   identity feature_key :: FeatureKey
 
   field:
@@ -382,7 +382,7 @@ concept ProductFeature is kind from table('product_features') {
 // Subscription, Contract, Billing, and Revenue Concepts
 // ---------------------------------------------------------------------------
 
-concept Subscription is kind from table('subscriptions') {
+concept Subscription is kind from duckdb.table('subscriptions') {
   // Current subscription terms live here. Month-by-month movement lives in
   // SubscriptionPeriod, and recognized revenue lives in RevenueRecognitionEntry.
   identity subscription_id :: SubscriptionId
@@ -439,7 +439,7 @@ concept Subscription is kind from table('subscriptions') {
     }
 }
 
-concept Contract is relator from table('contracts') {
+concept Contract is relator from duckdb.table('contracts') {
   // A contract relates an account to a subscription for a commercial term. It is
   // a signed commercial event and also has a valid service period.
   identity contract_id :: ContractId
@@ -487,7 +487,7 @@ concept Contract is relator from table('contracts') {
     }
 }
 
-concept SubscriptionPeriod is situation from table('subscription_periods') {
+concept SubscriptionPeriod is situation from duckdb.table('subscription_periods') {
   // This is the analytical center for ARR movement. It is deliberately separate
   // from invoices and revenue recognition because ARR is a run-rate state, not
   // cash billed and not accounting revenue.
@@ -561,7 +561,7 @@ concept SubscriptionPeriod is situation from table('subscription_periods') {
     }
 }
 
-concept Invoice is event from table('invoices') {
+concept Invoice is event from duckdb.table('invoices') {
   identity invoice_id :: InvoiceId
   occurrence_time: invoice_date
 
@@ -599,7 +599,7 @@ concept Invoice is event from table('invoices') {
     }
 }
 
-concept InvoiceLine is relator from table('invoice_lines') {
+concept InvoiceLine is relator from duckdb.table('invoice_lines') {
   identity invoice_line_id :: InvoiceLineId
   valid_time: period(service_period_start, service_period_end)
 
@@ -638,7 +638,7 @@ concept InvoiceLine is relator from table('invoice_lines') {
     }
 }
 
-concept RevenueRecognitionEntry is situation from table('revenue_recognition') {
+concept RevenueRecognitionEntry is situation from duckdb.table('revenue_recognition') {
   // Recognition entries are monthly accounting facts. They should not be used
   // to infer contracted run-rate without joining to SubscriptionPeriod.
   identity revenue_recognition_id :: RevenueRecognitionId
@@ -693,7 +693,7 @@ concept RevenueRecognitionEntry is situation from table('revenue_recognition') {
 // Entitlements and Product Activity
 // ---------------------------------------------------------------------------
 
-concept EntitlementInterval is relator from table('entitlement_intervals') {
+concept EntitlementInterval is relator from duckdb.table('entitlement_intervals') {
   // Effective-dated plan-to-feature rights. Feature usage points directly to the
   // interval row in the sample data, and the semantic join below also supports
   // reconstructing the right in force with `at activity_date`.
@@ -738,7 +738,7 @@ concept EntitlementInterval is relator from table('entitlement_intervals') {
     }
 }
 
-concept UserActivityDay is situation from table('user_activity_days') {
+concept UserActivityDay is situation from duckdb.table('user_activity_days') {
   // Daily user activity is useful for adoption, but it is not feature-level
   // usage. Reach FeatureUsageDay when the question names features or rights.
   identity user_activity_day_id :: string
@@ -796,7 +796,7 @@ concept UserActivityDay is situation from table('user_activity_days') {
   }
 }
 
-concept FeatureUsageDay is situation from table('feature_usage_days') {
+concept FeatureUsageDay is situation from duckdb.table('feature_usage_days') {
   identity feature_usage_day_id :: string
   valid_time: activity_date
   observation_time: activity_date
@@ -880,7 +880,7 @@ concept FeatureUsageDay is situation from table('feature_usage_days') {
 // Customer Experience, Reliability, and Renewal Concepts
 // ---------------------------------------------------------------------------
 
-concept SupportCase is event from table('support_cases') {
+concept SupportCase is event from duckdb.table('support_cases') {
   identity support_case_id :: SupportCaseId
   occurrence_time: opened_at
 
@@ -945,7 +945,7 @@ concept SupportCase is event from table('support_cases') {
     }
 }
 
-concept Incident is event from table('incidents') {
+concept Incident is event from duckdb.table('incidents') {
   identity incident_id :: IncidentId
   occurrence_time: started_at
   recorded_time: detected_at
@@ -987,7 +987,7 @@ concept Incident is event from table('incidents') {
     }
 }
 
-concept IncidentWorkspaceImpact is relator from table('incident_workspace_impacts') {
+concept IncidentWorkspaceImpact is relator from duckdb.table('incident_workspace_impacts') {
   identity incident_impact_id :: string
   valid_time: period(impact_start_at, impact_end_at)
 
@@ -1040,7 +1040,7 @@ concept IncidentWorkspaceImpact is relator from table('incident_workspace_impact
     }
 }
 
-concept Renewal is situation from table('renewals') {
+concept Renewal is situation from duckdb.table('renewals') {
   // Renewal is a forecasted lifecycle state around a future due date. It joins
   // back to the current contract and, when closed-won, may point to the next
   // signed contract.

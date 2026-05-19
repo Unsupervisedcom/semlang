@@ -1,6 +1,7 @@
 import { lexOntoql } from "./lexer.js";
 import {
   collectBraceBlock,
+  countNetBraces,
   location,
   normalizeExpression,
   startsDeclaration,
@@ -19,12 +20,16 @@ import {
   type IdentityField,
   type JoinDecl,
   type LensDecl,
+  type MetadataEntry,
   type OntoqlAst,
   type ParseResult,
   type QueryBodyDecl,
   type QueryDecl,
   type QueryItemDecl,
+  type QueryNestDecl,
   type RefinementDecl,
+  type SourceDecl,
+  type SourceExpression,
   type SourceLocation,
   type TemporalAxisDecl,
   type TypeDecl,
@@ -54,6 +59,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
     packageName,
     filePath: options.filePath,
     includes: [],
+    sources: [],
     types: [],
     concepts: [],
     lenses: [],
@@ -98,8 +104,18 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
       continue;
     }
 
+    if (/^source:/.test(trimmed)) {
+      const header = collectSourceHeader(lines, i);
+      const parsed = header.header.stripped.includes("->")
+        ? parseSourceBlock(lines, i, options.filePath, diagnostics)
+        : { source: parseSource(header.header, [], options.filePath, diagnostics), end: header.end };
+      if (parsed.source) ast.sources.push(parsed.source);
+      i = parsed.end;
+      continue;
+    }
+
     if (/^concept\b/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
+      const block = collectDeclarationBlock(lines, i);
       diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseConcept(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.concepts.push(parsed);
@@ -150,37 +166,240 @@ function parseType(header: SourceLine, body: SourceLine[], file: string | undefi
   return {
     name: match[1]!,
     base: match[2]!,
-    metadata: trimBlankEdges(body)
-      .filter((line) => line.stripped.trim() !== "")
-      .map((line) => {
-        const [keyPart, ...valueParts] = line.stripped.trim().split(":");
-        return {
-          key: keyPart!.trim(),
-          value: valueParts.join(":").trim(),
-          location: location(file, line.line, line.text, keyPart)
-        };
-      }),
+    metadata: parseTypeMetadata(body, file),
     location: location(file, header.line, header.text, "type")
   };
 }
 
+function parseTypeMetadata(body: SourceLine[], file: string | undefined): MetadataEntry[] {
+  const lines = trimBlankEdges(body).filter((line) => line.stripped.trim() !== "");
+  const metadata: MetadataEntry[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    const [keyPart, ...valueParts] = line.stripped.trim().split(":");
+    let value = valueParts.join(":").trim();
+    let balance = delimiterBalance(value);
+    while (balance > 0 && i + 1 < lines.length) {
+      i += 1;
+      const continuation = lines[i]!.stripped.trim();
+      value = `${value} ${continuation}`;
+      balance += delimiterBalance(continuation);
+    }
+    metadata.push({
+      key: keyPart!.trim(),
+      value,
+      location: location(file, line.line, line.text, keyPart)
+    });
+  }
+  return metadata;
+}
+
+function delimiterBalance(text: string): number {
+  let balance = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]!;
+    if ((char === "'" || char === "\"") && text[i - 1] !== "\\") {
+      quote = quote === char ? undefined : quote ?? char;
+      continue;
+    }
+    if (quote) continue;
+    if (char === "[" || char === "{" || char === "(") balance += 1;
+    if (char === "]" || char === "}" || char === ")") balance -= 1;
+  }
+  return balance;
+}
+
+function parseSourceBlock(lines: SourceLine[], start: number, file: string | undefined, diagnostics: Diagnostic[]): { source?: SourceDecl; end: number } {
+  const block = collectDeclarationBlock(lines, start);
+  diagnoseUnclosedBlock(block, file, diagnostics);
+  return { source: parseSource(block.header, block.body, file, diagnostics), end: block.end };
+}
+
+function parseSource(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): SourceDecl | undefined {
+  const queryMatch = /^source:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(.+?)\s*->\s*\{$/.exec(header.stripped.trim());
+  if (queryMatch) {
+    const source = parseSourceExpression(queryMatch[2]!, file, header, diagnostics);
+    if (!source) return undefined;
+    return {
+      name: queryMatch[1]!,
+      source,
+      query: parseQueryBody(body, file, diagnostics),
+      location: location(file, header.line, header.text, "source")
+    };
+  }
+
+  const match = /^source:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(.+)$/.exec(header.stripped.trim());
+  if (!match) {
+    diagnostics.push(error("INVALID_SOURCE_DECL", "Invalid source declaration.", file, header));
+    return undefined;
+  }
+  const source = parseSourceExpression(match[2]!, file, header, diagnostics);
+  if (!source) return undefined;
+  return {
+    name: match[1]!,
+    source,
+    location: location(file, header.line, header.text, "source")
+  };
+}
+
 function parseConcept(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ConceptDecl | undefined {
-  const match = /^concept\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(?:(phase)\s+of\s+([A-Za-z_][A-Za-z0-9_]*)|(kind|event|situation|relator))\s+from\s+table\(["']([^"']+)["']\)\s*\{$/.exec(
+  const match = /^concept\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(?:(phase)\s+of\s+([A-Za-z_][A-Za-z0-9_]*)|(kind|event|situation|relator))\s+from\s+(.+?)\s*\{$/.exec(
     header.stripped.trim()
   );
   if (!match) {
     diagnostics.push(error("INVALID_CONCEPT_DECL", "Invalid concept declaration.", file, header));
     return undefined;
   }
+  const source = parseSourceExpression(match[5]!, file, header, diagnostics);
+  if (!source) return undefined;
   const members = parseConceptMembers(body, file, diagnostics);
   return {
     name: match[1]!,
     stereotype: (match[2] ? "phase" : match[4]) as ConceptDecl["stereotype"],
     phaseParent: match[3],
-    table: match[5]!,
+    source,
     location: location(file, header.line, header.text, "concept"),
     ...members
   };
+}
+
+function parseSourceExpression(text: string, file: string | undefined, line: SourceLine, diagnostics: Diagnostic[]): SourceExpression | undefined {
+  const expression = normalizeSourceExpression(text);
+  const connectionMatch = /^([A-Za-z_][A-Za-z0-9_]*)\.(table|sql)\(([\s\S]*)\)$/.exec(expression);
+  if (connectionMatch) {
+    const method = connectionMatch[2]!;
+    const argument = parseSourceStringArgument(connectionMatch[3]!, line, file, diagnostics);
+    if (argument === undefined) return undefined;
+    if (method === "table") {
+      return {
+        kind: "table",
+        connection: connectionMatch[1]!,
+        path: argument,
+        expression,
+        location: location(file, line.line, line.text, expression)
+      };
+    }
+    return {
+      kind: "sql",
+      connection: connectionMatch[1]!,
+      sql: argument,
+      expression,
+      location: location(file, line.line, line.text, expression)
+    };
+  }
+
+  if (/^table\(/.test(expression) || /^sql\(/.test(expression)) {
+    diagnostics.push(error(
+      "UNQUALIFIED_SOURCE",
+      `Source expression ${expression} is missing a named Malloy connection; use a form like duckdb.${expression}.`,
+      file,
+      line
+    ));
+    return undefined;
+  }
+
+  const referenceMatch = /^([A-Za-z_][A-Za-z0-9_]*)$/.exec(expression);
+  if (referenceMatch) {
+    return {
+      kind: "reference",
+      name: referenceMatch[1]!,
+      expression,
+      location: location(file, line.line, line.text, expression)
+    };
+  }
+
+  diagnostics.push(error("INVALID_SOURCE_EXPR", `Invalid source expression: ${expression}`, file, line));
+  return undefined;
+}
+
+function parseSourceStringArgument(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): string | undefined {
+  const trimmed = text.trim();
+  const triple = /^"""([\s\S]*)"""$/.exec(trimmed);
+  if (triple) return triple[1]!;
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
+  if (quoted) return quoted[2]!;
+  diagnostics.push(error("INVALID_SOURCE_EXPR", `Source method argument must be a string literal: ${trimmed}`, file, line));
+  return undefined;
+}
+
+function normalizeSourceExpression(text: string): string {
+  return text.trim();
+}
+
+function collectSourceHeader(lines: SourceLine[], start: number): { header: SourceLine; end: number } {
+  const collected = [lines[start]!];
+  let i = start + 1;
+  while (i < lines.length && !sourceHeaderComplete(combineHeader(collected).stripped)) {
+    collected.push(lines[i]!);
+    i += 1;
+  }
+  return { header: combineHeader(collected), end: i };
+}
+
+function sourceHeaderComplete(text: string): boolean {
+  if (text.includes("->")) return text.includes("{");
+  const sourceMatch = /^source:\s+[A-Za-z_][A-Za-z0-9_]*\s+is\s+([\s\S]+)$/.exec(text.trim());
+  if (!sourceMatch) return true;
+  const expression = sourceMatch[1]!.trim();
+  return tripleQuoteCount(expression) % 2 === 0 && parenBalance(expression) <= 0;
+}
+
+function collectDeclarationBlock(lines: SourceLine[], start: number): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
+  const collected = [lines[start]!];
+  let i = start + 1;
+  while (i < lines.length && !combineHeader(collected).stripped.includes("{")) {
+    collected.push(lines[i]!);
+    i += 1;
+  }
+
+  const header = combineHeader(collected);
+  let depth = countNetBraces(header.stripped);
+  const body: SourceLine[] = [];
+  while (i < lines.length && depth > 0) {
+    const line = lines[i]!;
+    depth += countNetBraces(line.stripped);
+    if (depth >= 0) body.push(line);
+    i += 1;
+  }
+  if (body.length > 0 && body[body.length - 1]!.stripped.trim() === "}") {
+    body.pop();
+  }
+  return { header, body, end: i, unclosed: depth > 0 };
+}
+
+function combineHeader(lines: SourceLine[]): SourceLine {
+  const first = lines[0]!;
+  return {
+    line: first.line,
+    text: lines.map((line) => line.text.trim()).join(" "),
+    stripped: lines.map((line) => line.stripped.trim()).join(" ")
+  };
+}
+
+function tripleQuoteCount(text: string): number {
+  return text.match(/"""/g)?.length ?? 0;
+}
+
+function parenBalance(text: string): number {
+  let depth = 0;
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.slice(i, i + 3) === '"""') {
+      i += 2;
+      continue;
+    }
+    const char = text[i]!;
+    const prev = text[i - 1];
+    if ((char === "'" || char === '"') && prev !== "\\") {
+      quote = quote === char ? undefined : quote ?? char;
+      continue;
+    }
+    if (quote) continue;
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+  }
+  return depth;
 }
 
 function parseLens(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): LensDecl | undefined {
@@ -247,18 +466,28 @@ function parseRefinement(header: SourceLine, body: SourceLine[], file: string | 
 }
 
 function parseQuery(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): QueryDecl | undefined {
-  const match = /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s+\{$/.exec(
-    header.stripped.trim()
-  );
-  if (!match) {
+  const blockMatch = /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s+\{$/.exec(header.stripped.trim());
+  if (blockMatch) {
+    return {
+      name: blockMatch[1]!,
+      root: blockMatch[2]!,
+      lenses: blockMatch[3] ? blockMatch[3].split(",").map((part) => part.trim()) : [],
+      body: parseQueryBody(body, file, diagnostics),
+      location: location(file, header.line, header.text, "query")
+    };
+  }
+
+  const viewMatch = /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(header.stripped.trim());
+  if (!viewMatch) {
     diagnostics.push(error("INVALID_QUERY_DECL", "Invalid query declaration.", file, header));
     return undefined;
   }
   return {
-    name: match[1]!,
-    root: match[2]!,
-    lenses: match[3] ? match[3].split(",").map((part) => part.trim()) : [],
-    body: parseQueryBody(body, file, diagnostics),
+    name: viewMatch[1]!,
+    root: viewMatch[2]!,
+    lenses: viewMatch[3] ? viewMatch[3].split(",").map((part) => part.trim()) : [],
+    view: viewMatch[4]!,
+    body: emptyQueryBody(),
     location: location(file, header.line, header.text, "query")
   };
 }
@@ -291,10 +520,10 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
       continue;
     }
 
-    if (/^join_(one|many)\b/.test(trimmed)) {
+    if (/^join_(one|many|cross)\b/.test(trimmed)) {
       const collected = collectContinuation(lines, i, (next) => {
         const text = next.stripped.trim();
-        return /^(on\b|and\b|at\b)/.test(text);
+        return /^(on\b|with\b|and\b|at\b)/.test(text);
       });
       const parsed = parseJoin(collected.lines, file, diagnostics);
       if (parsed) members.joins.push(parsed);
@@ -342,7 +571,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
           i += 1;
           continue;
         }
-        if (startsDeclaration(validationLine.stripped.trim())) break;
+        if (startsConceptMemberDeclaration(validationLine.stripped.trim())) break;
         const block = collectBraceBlock(lines, i);
         diagnoseUnclosedBlock(block, file, diagnostics);
         const parsed = parseValidation(block.header, block.body, file, diagnostics);
@@ -363,6 +592,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
 
     const description = /^description:\s*/.exec(trimmed);
     if (description) {
+      members.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
       i += 1;
       continue;
     }
@@ -371,6 +601,12 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     i += 1;
   }
   return members;
+}
+
+function parseDescription(text: string): string {
+  const trimmed = text.trim();
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
+  return quoted ? quoted[2]! : trimmed;
 }
 
 function parseIdentityLine(line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): IdentityField[] {
@@ -403,18 +639,29 @@ function parseTypedName(text: string, line: SourceLine, file: string | undefined
 
 function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): JoinDecl | undefined {
   const text = normalizeExpression(lines);
-  const match = /^(join_one|join_many)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s+on\s+(.+?)(?:\s+at\s+(.+))?$/.exec(text);
+  const match = /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(text);
   if (!match) {
     diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
     return undefined;
   }
+  const kind = match[1] as JoinDecl["kind"];
+  const operator = match[5];
+  if (kind !== "join_cross" && !operator) {
+    diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
+    return undefined;
+  }
+  if (kind === "join_cross" && operator === "with") {
+    diagnostics.push(error("INVALID_JOIN", "join_cross does not support with joins.", file, lines[0]!));
+    return undefined;
+  }
   return {
-    kind: match[1] as JoinDecl["kind"],
+    kind,
     name: match[2]!,
     optional: Boolean(match[3]),
     target: match[4]!,
-    on: match[5]!.trim(),
-    at: match[6]?.trim(),
+    on: operator === "on" ? match[6]!.trim() : "",
+    with: operator === "with" ? match[6]!.trim() : undefined,
+    at: match[7]?.trim(),
     location: location(file, lines[0]!.line, lines[0]!.text, match[1])
   };
 }
@@ -483,7 +730,7 @@ function parseView(header: SourceLine, body: SourceLine[], file: string | undefi
 }
 
 function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): QueryBodyDecl {
-  const body: QueryBodyDecl = { groupBy: [], aggregate: [] };
+  const body = emptyQueryBody();
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
@@ -503,11 +750,41 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
       i = collected.end;
       continue;
     }
-    if (trimmed === "group_by:" || trimmed === "aggregate:") {
+    if (trimmed === "having:" || trimmed.startsWith("having: ")) {
+      const first = trimmed === "having:" ? undefined : line.stripped.replace(/^(\s*)having:\s*/, "$1");
+      const startLines = first ? [{ ...line, stripped: first }] : [];
+      const collected = collectQuerySection(lines, i + 1);
+      body.having = {
+        expression: normalizeExpression([...startLines, ...collected.lines]),
+        location: location(file, line.line, line.text, "having")
+      };
+      i = collected.end;
+      continue;
+    }
+    const limit = /^(limit|top):\s*(\d+)$/.exec(trimmed);
+    if (limit) {
+      body.limit = {
+        value: Number(limit[2]),
+        location: location(file, line.line, line.text, limit[1])
+      };
+      i += 1;
+      continue;
+    }
+    if (trimmed === "select:" || trimmed === "project:" || trimmed === "group_by:" || trimmed === "aggregate:" || trimmed === "calculate:" || trimmed === "order_by:" || trimmed === "index:") {
       const collected = collectQuerySection(lines, i + 1);
       const items = parseQueryItems(collected.lines, file);
-      if (trimmed === "group_by:") body.groupBy.push(...items);
-      else body.aggregate.push(...items);
+      if (trimmed === "select:" || trimmed === "project:") body.select.push(...items);
+      else if (trimmed === "group_by:") body.groupBy.push(...items);
+      else if (trimmed === "aggregate:") body.aggregate.push(...items);
+      else if (trimmed === "calculate:") body.calculate.push(...items);
+      else if (trimmed === "order_by:") body.orderBy.push(...items);
+      else body.index?.push(...items);
+      i = collected.end;
+      continue;
+    }
+    if (trimmed === "nest:") {
+      const collected = collectQuerySection(lines, i + 1);
+      body.nest?.push(...parseNestItems(collected.lines, file, diagnostics));
       i = collected.end;
       continue;
     }
@@ -515,6 +792,10 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
     i += 1;
   }
   return body;
+}
+
+function emptyQueryBody(): QueryBodyDecl {
+  return { select: [], groupBy: [], aggregate: [], calculate: [], orderBy: [], nest: [], index: [] };
 }
 
 function parseQueryItems(lines: SourceLine[], file: string | undefined): QueryItemDecl[] {
@@ -527,28 +808,83 @@ function parseQueryItems(lines: SourceLine[], file: string | undefined): QueryIt
   });
 }
 
+function parseNestItems(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): QueryNestDecl[] {
+  const items: QueryNestDecl[] = [];
+  const trimmed = trimBlankEdges(lines);
+  let i = 0;
+  while (i < trimmed.length) {
+    const line = trimmed[i]!;
+    const text = line.stripped.trim();
+    const inlineMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s+is\s+\{$/.exec(text);
+    if (inlineMatch) {
+      const block = collectBraceBlock(trimmed, i);
+      diagnoseUnclosedBlock(block, file, diagnostics);
+      items.push({
+        name: inlineMatch[1]!,
+        body: parseQueryBody(block.body, file, diagnostics),
+        location: location(file, line.line, line.text, inlineMatch[1])
+      });
+      i = block.end;
+      continue;
+    }
+    const aliasMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(text);
+    if (aliasMatch) {
+      items.push({
+        name: aliasMatch[1]!,
+        view: aliasMatch[2]!,
+        location: location(file, line.line, line.text, aliasMatch[1])
+      });
+      i += 1;
+      continue;
+    }
+    const viewMatch = /^([A-Za-z_][A-Za-z0-9_]*)$/.exec(text);
+    if (viewMatch) {
+      items.push({
+        view: viewMatch[1]!,
+        location: location(file, line.line, line.text, viewMatch[1])
+      });
+      i += 1;
+      continue;
+    }
+    diagnostics.push(error("INVALID_NEST", `Invalid nest item: ${text}`, file, line));
+    i += 1;
+  }
+  return items;
+}
+
 function collectSection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {
   const collected: SourceLine[] = [];
   let i = start;
   while (i < lines.length) {
     const trimmed = lines[i]!.stripped.trim();
-    if (trimmed !== "" && startsDeclaration(trimmed)) break;
+    if (trimmed !== "" && startsConceptMemberDeclaration(trimmed)) break;
     collected.push(lines[i]!);
     i += 1;
   }
   return { lines: collected, end: i };
 }
 
+function startsConceptMemberDeclaration(trimmed: string): boolean {
+  return startsDeclaration(trimmed) || /^join_cross\b/.test(trimmed);
+}
+
 function collectQuerySection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {
   const collected: SourceLine[] = [];
   let i = start;
+  let depth = 0;
   while (i < lines.length) {
     const trimmed = lines[i]!.stripped.trim();
-    if (trimmed !== "" && /^(where:|group_by:|aggregate:)/.test(trimmed)) break;
-    collected.push(lines[i]!);
+    if (depth === 0 && trimmed !== "" && isQueryClauseStart(trimmed)) break;
+    const line = lines[i]!;
+    collected.push(line);
+    depth += countNetBraces(line.stripped);
     i += 1;
   }
   return { lines: collected, end: i };
+}
+
+function isQueryClauseStart(trimmed: string): boolean {
+  return /^(where:|having:|select:|project:|group_by:|aggregate:|calculate:|nest:|index:|order_by:|limit:|top:)/.test(trimmed);
 }
 
 function collectContinuation(lines: SourceLine[], start: number, shouldContinue: (line: SourceLine) => boolean): { lines: SourceLine[]; end: number } {

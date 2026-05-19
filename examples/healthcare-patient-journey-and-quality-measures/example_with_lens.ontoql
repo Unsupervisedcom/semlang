@@ -94,7 +94,7 @@ lens: readmission_quality_operations is {
 
   type: ReadmissionRiskBand is string {
     scale_type: ordinal
-    allowed_values: ['low', 'watch', 'urgent']
+    enum: ['low', 'watch', 'urgent']
   }
 
   refine: InpatientStay extend {
@@ -177,7 +177,7 @@ lens: diabetes_registry_operations is {
 
   type: A1cControlBand is string {
     scale_type: ordinal
-    allowed_values: ['controlled', 'elevated', 'poor_control']
+    enum: ['controlled', 'elevated', 'poor_control']
   }
 
   refine: LabResult extend {

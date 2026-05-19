@@ -1,4 +1,4 @@
-source: suppliers is table('suppliers') extend {
+source: suppliers is duckdb.table('suppliers') extend {
   primary_key: supplier_id
 
   dimension:
@@ -6,7 +6,7 @@ source: suppliers is table('suppliers') extend {
     is_approved_supplier is approved_status = 'approved'
 }
 
-source: materials is table('materials') extend {
+source: materials is duckdb.table('materials') extend {
   primary_key: material_id
 
   dimension:
@@ -14,7 +14,7 @@ source: materials is table('materials') extend {
     is_critical_material is criticality_level in ('quality_critical', 'safety_critical')
 }
 
-source: supplier_lots is table('supplier_lots') extend {
+source: supplier_lots is duckdb.table('supplier_lots') extend {
   primary_key: supplier_lot_id
 
   join_one: supplier is suppliers
@@ -50,7 +50,7 @@ source: supplier_lots is table('supplier_lots') extend {
   }
 }
 
-source: supplier_lot_genealogy is table('supplier_lot_genealogy') extend {
+source: supplier_lot_genealogy is duckdb.table('supplier_lot_genealogy') extend {
   primary_key: lot_genealogy_id
 
   join_one: parent_lot is supplier_lots
@@ -76,7 +76,7 @@ source: supplier_lot_genealogy is table('supplier_lot_genealogy') extend {
   }
 }
 
-source: product_models is table('product_models') extend {
+source: product_models is duckdb.table('product_models') extend {
   primary_key: product_model_id
 
   dimension:
@@ -84,7 +84,7 @@ source: product_models is table('product_models') extend {
     is_active_model is retired_date is null
 }
 
-source: bom_versions is table('bom_versions') extend {
+source: bom_versions is duckdb.table('bom_versions') extend {
   primary_key: bom_version_id
 
   join_one: product_model is product_models
@@ -99,7 +99,7 @@ source: bom_versions is table('bom_versions') extend {
     released_bom_versions is count(case when release_status in ('released', 'superseded') then bom_version_id end)
 }
 
-source: bom_components is table('bom_components') extend {
+source: bom_components is duckdb.table('bom_components') extend {
   primary_key: bom_component_id
 
   join_one: bom_version is bom_versions
@@ -130,7 +130,7 @@ source: bom_components is table('bom_components') extend {
   }
 }
 
-source: production_order_lot_consumption is table('production_order_lot_consumption') extend {
+source: production_order_lot_consumption is duckdb.table('production_order_lot_consumption') extend {
   primary_key: consumption_id
 
   join_one: supplier_lot is supplier_lots
@@ -156,7 +156,7 @@ source: production_order_lot_consumption is table('production_order_lot_consumpt
   }
 }
 
-source: production_orders is table('production_orders') extend {
+source: production_orders is duckdb.table('production_orders') extend {
   primary_key: production_order_id
 
   join_one: product_model is product_models
@@ -198,7 +198,7 @@ source: production_orders is table('production_orders') extend {
   }
 }
 
-source: inspection_defects is table('inspection_defects') extend {
+source: inspection_defects is duckdb.table('inspection_defects') extend {
   primary_key: defect_id
 
   join_one: related_supplier_lot is supplier_lots
@@ -227,7 +227,7 @@ source: inspection_defects is table('inspection_defects') extend {
   }
 }
 
-source: inspections is table('inspections') extend {
+source: inspections is duckdb.table('inspections') extend {
   primary_key: inspection_id
 
   join_many: defects is inspection_defects
@@ -267,7 +267,7 @@ source: inspections is table('inspections') extend {
   }
 }
 
-source: shipments is table('shipments') extend {
+source: shipments is duckdb.table('shipments') extend {
   primary_key: shipment_id
 
   dimension:
@@ -278,7 +278,7 @@ source: shipments is table('shipments') extend {
     shipments is count()
 }
 
-source: shipment_units is table('shipment_units') extend {
+source: shipment_units is duckdb.table('shipment_units') extend {
   primary_key: shipment_unit_id
 
   join_one: shipment is shipments
@@ -289,7 +289,7 @@ source: shipment_units is table('shipment_units') extend {
     shipped_units is count(distinct serial_number)
 }
 
-source: warranty_claims is table('warranty_claims') extend {
+source: warranty_claims is duckdb.table('warranty_claims') extend {
   primary_key: warranty_claim_id
 
   dimension:
@@ -316,7 +316,7 @@ source: warranty_claims is table('warranty_claims') extend {
   }
 }
 
-source: serialized_units is table('serialized_units') extend {
+source: serialized_units is duckdb.table('serialized_units') extend {
   primary_key: serial_number
 
   join_one: production_order is production_orders
@@ -400,7 +400,7 @@ source: serialized_units is table('serialized_units') extend {
   }
 }
 
-source: recall_campaigns is table('recall_campaigns') extend {
+source: recall_campaigns is duckdb.table('recall_campaigns') extend {
   primary_key: recall_campaign_id
 
   dimension:
@@ -409,7 +409,7 @@ source: recall_campaigns is table('recall_campaigns') extend {
     requires_regulatory_report is regulatory_report_required = 1
 }
 
-source: recall_affected_units is table('recall_affected_units') extend {
+source: recall_affected_units is duckdb.table('recall_affected_units') extend {
   primary_key: recall_unit_id
 
   join_one: recall_campaign is recall_campaigns

@@ -1,11 +1,11 @@
-source: patients is table('patients') extend {
+source: patients is duckdb.table('patients') extend {
   primary_key: patient_id
 
   dimension:
     is_deceased is deceased_at is not null
 }
 
-source: facilities is table('facilities') extend {
+source: facilities is duckdb.table('facilities') extend {
   primary_key: facility_id
 
   dimension:
@@ -13,7 +13,7 @@ source: facilities is table('facilities') extend {
     is_hospital is facility_type in ('acute_care_hospital', 'critical_access_hospital')
 }
 
-source: providers is table('providers') extend {
+source: providers is duckdb.table('providers') extend {
   primary_key: provider_id
 
   dimension:
@@ -21,7 +21,7 @@ source: providers is table('providers') extend {
     is_physician is provider_type = 'physician'
 }
 
-source: payer_coverage_intervals is table('payer_coverage_intervals') extend {
+source: payer_coverage_intervals is duckdb.table('payer_coverage_intervals') extend {
   primary_key: coverage_interval_id
 
   join_one: patient is patients
@@ -37,7 +37,7 @@ source: payer_coverage_intervals is table('payer_coverage_intervals') extend {
     primary_coverage_intervals is count(case when is_primary then coverage_interval_id end)
 }
 
-source: encounters is table('encounters') extend {
+source: encounters is duckdb.table('encounters') extend {
   primary_key: encounter_id
 
   join_one: patient is patients
@@ -84,7 +84,7 @@ source: encounters is table('encounters') extend {
   }
 }
 
-source: readmission_events is table('readmission_events') extend {
+source: readmission_events is duckdb.table('readmission_events') extend {
   primary_key: readmission_event_id
 
   join_one: patient is patients
@@ -98,7 +98,7 @@ source: readmission_events is table('readmission_events') extend {
     average_days_to_readmit is avg(days_after_discharge)
 }
 
-source: inpatient_stays is table('inpatient_stays') extend {
+source: inpatient_stays is duckdb.table('inpatient_stays') extend {
   primary_key: stay_id
 
   join_one: encounter is encounters
@@ -170,7 +170,7 @@ source: inpatient_stays is table('inpatient_stays') extend {
   }
 }
 
-source: diagnosis_intervals is table('diagnosis_intervals') extend {
+source: diagnosis_intervals is duckdb.table('diagnosis_intervals') extend {
   primary_key: diagnosis_interval_id
 
   join_one: patient is patients
@@ -204,7 +204,7 @@ source: diagnosis_intervals is table('diagnosis_intervals') extend {
   }
 }
 
-source: lab_results is table('lab_results') extend {
+source: lab_results is duckdb.table('lab_results') extend {
   primary_key: lab_result_id
 
   join_one: patient is patients
@@ -248,7 +248,7 @@ source: lab_results is table('lab_results') extend {
   }
 }
 
-source: claims is table('claims') extend {
+source: claims is duckdb.table('claims') extend {
   primary_key: claim_id
 
   join_one: encounter is encounters
@@ -292,7 +292,7 @@ source: claims is table('claims') extend {
   }
 }
 
-source: quality_measure_populations is table('quality_measure_populations') extend {
+source: quality_measure_populations is duckdb.table('quality_measure_populations') extend {
   primary_key: population_member_id
 
   join_one: patient is patients

@@ -29,7 +29,7 @@ Semantic types name value domains over primitive Malloy-compatible values:
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
+  render_format: currency("USD", 2)
 }
 ```
 
@@ -42,14 +42,21 @@ V1 primitive bases are:
 - `currency`
 - `boolean`
 
-Type bodies are metadata maps. Recognized metadata includes `scale_type`, `allowed_values`, `identifies`, `identifies_role`, `currency`, `format`, and `semantics`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
+Type bodies are metadata maps. Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`. OntoQL-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
 
-## Concepts
+## Sources and Concepts
 
-A concept declaration binds an ontological classifier to a source table:
+Use `source:` to name a reusable Malloy source expression:
 
 ```ontoql
-concept Store is kind from table('stores') {
+source: store_rows is duckdb.table('stores')
+source: active_store_rows is duckdb.sql("""select * from stores where closed_date is null""")
+```
+
+A concept declaration binds an ontological classifier to a Malloy source expression:
+
+```ontoql
+concept Store is kind from store_rows {
   identity store_id :: StoreId
 
   field:
@@ -57,6 +64,8 @@ concept Store is kind from table('stores') {
     opened_date :: BusinessDate
 }
 ```
+
+The source expression uses Malloy's named connection forms. Use `duckdb.table('stores')`, `bigquery.table('dataset.table')`, `duckdb.sql("""select ...""")`, or a named source/query reference. OntoQL does not invent an implicit connection for `table('stores')`.
 
 Concept bodies can contain identities, temporal axes, fields, joins, roles, dimensions, measures, views, validations, and `where` filters.
 
@@ -93,7 +102,7 @@ view: sales_by_region_category is {
 }
 ```
 
-A view body can contain `where:`, `group_by:`, and `aggregate:` sections.
+A view body can contain `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:` sections.
 
 ## Validations
 
@@ -131,4 +140,4 @@ query: western_margin is SaleLine with western_region -> {
 }
 ```
 
-Query bodies use the same `where:`, `group_by:`, and `aggregate:` sections as views.
+Query bodies use the same sections as views, including Malloy-shaped projection, post-aggregate filtering, nesting, indexing, ordering, and limiting clauses.

@@ -36,37 +36,37 @@ package healthcare.patient_journey_quality_measures
 type: PatientId is string {
   scale_type: nominal
   identifies: Patient
-  semantics: "Stable patient key inside the analytics warehouse."
+  description: "Stable patient key inside the analytics warehouse."
 }
 
 type: MedicalRecordNumber is string {
   scale_type: nominal
   identifies_role: PatientRecord
-  semantics: "Facility/network-facing patient record identifier."
+  description: "Facility/network-facing patient record identifier."
 }
 
 type: FacilityId is string {
   scale_type: nominal
   identifies: Facility
-  semantics: "Stable facility key for hospitals and clinics."
+  description: "Stable facility key for hospitals and clinics."
 }
 
 type: ProviderId is string {
   scale_type: nominal
   identifies: Provider
-  semantics: "Stable provider or provider-group key."
+  description: "Stable provider or provider-group key."
 }
 
 type: EncounterId is string {
   scale_type: nominal
   identifies: Encounter
-  semantics: "Clinical contact key. Inpatient encounters may create an InpatientStay."
+  description: "Clinical contact key. Inpatient encounters may create an InpatientStay."
 }
 
 type: StayId is string {
   scale_type: nominal
   identifies: InpatientStay
-  semantics: "Inpatient stay and discharge key. This is the denominator grain for readmission measures."
+  description: "Inpatient stay and discharge key. This is the denominator grain for readmission measures."
 }
 
 type: DiagnosisIntervalId is string {
@@ -101,96 +101,96 @@ type: PopulationMemberId is string {
 
 type: BusinessDate is date {
   scale_type: interval
-  semantics: "Calendar date used for discharge, measurement-period, and coverage-effective dates."
+  description: "Calendar date used for discharge, measurement-period, and coverage-effective dates."
 }
 
 type: EventTimestamp is timestamp {
   scale_type: interval
-  semantics: "Point in time when a clinical, billing, or quality event occurred."
+  description: "Point in time when a clinical, billing, or quality event occurred."
 }
 
 type: Days is number {
   scale_type: ratio
-  semantics: "Elapsed day count with a meaningful zero."
+  description: "Elapsed day count with a meaningful zero."
 }
 
 type: Minutes is number {
   scale_type: ratio
-  semantics: "Elapsed minute count with a meaningful zero."
+  description: "Elapsed minute count with a meaningful zero."
 }
 
 type: MoneyUSD is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
-  semantics: "US dollar amount. Do not aggregate through one-to-many joins unless the measure is declared fanout-safe."
+  render_format: currency("USD", 2)
+  description: "US dollar amount. Do not aggregate through one-to-many joins unless the measure is declared fanout-safe."
 }
 
 type: ClinicalResultValue is number {
   scale_type: ratio
-  semantics: "Numeric lab value whose interpretation depends on test code, unit, and reference range."
+  description: "Numeric lab value whose interpretation depends on test code, unit, and reference range."
 }
 
 type: SexAtBirth is string {
   scale_type: nominal
-  allowed_values: ['female', 'male', 'intersex', 'unknown']
+  enum: ['female', 'male', 'intersex', 'unknown']
 }
 
 type: FacilityType is string {
   scale_type: nominal
-  allowed_values: ['acute_care_hospital', 'critical_access_hospital', 'ambulatory_clinic']
+  enum: ['acute_care_hospital', 'critical_access_hospital', 'ambulatory_clinic']
 }
 
 type: ProviderType is string {
   scale_type: nominal
-  allowed_values: ['physician', 'advanced_practice_provider', 'hospitalist_group']
+  enum: ['physician', 'advanced_practice_provider', 'hospitalist_group']
 }
 
 type: EncounterType is string {
   scale_type: nominal
-  allowed_values: ['inpatient', 'emergency', 'observation', 'outpatient']
+  enum: ['inpatient', 'emergency', 'observation', 'outpatient']
 }
 
 type: DiagnosisSystem is string {
   scale_type: nominal
-  allowed_values: ['ICD-10-CM', 'SNOMED-CT']
+  enum: ['ICD-10-CM', 'SNOMED-CT']
 }
 
 type: DiagnosisSourceSystem is string {
   scale_type: nominal
-  allowed_values: ['ehr_problem_list', 'encounter_coding', 'claims']
+  enum: ['ehr_problem_list', 'encounter_coding', 'claims']
 }
 
 type: ClaimType is string {
   scale_type: nominal
-  allowed_values: ['facility', 'professional']
+  enum: ['facility', 'professional']
 }
 
 type: ClaimStatus is string {
   scale_type: ordinal
-  allowed_values: ['submitted', 'denied', 'partially_paid', 'paid']
+  enum: ['submitted', 'denied', 'partially_paid', 'paid']
 }
 
 type: PayerType is string {
   scale_type: nominal
-  allowed_values: ['commercial', 'medicare', 'medicaid', 'self_pay']
+  enum: ['commercial', 'medicare', 'medicaid', 'self_pay']
 }
 
 type: DenominatorGrain is string {
   scale_type: nominal
-  allowed_values: ['inpatient_discharge', 'patient_measure_period']
+  enum: ['inpatient_discharge', 'patient_measure_period']
 }
 
 type: QualitySourceSystem is string {
   scale_type: nominal
-  allowed_values: ['quality_registry', 'ehr_abstraction', 'claims_measure_engine']
+  enum: ['quality_registry', 'ehr_abstraction', 'claims_measure_engine']
 }
 
 // ---------------------------------------------------------------------------
 // Semantic Sources
 // ---------------------------------------------------------------------------
 
-concept Patient is kind from table('patients') {
+concept Patient is kind from duckdb.table('patients') {
   identity patient_id :: PatientId
 
   field:
@@ -212,7 +212,7 @@ concept Patient is kind from table('patients') {
     }
 }
 
-concept Facility is kind from table('facilities') {
+concept Facility is kind from duckdb.table('facilities') {
   identity facility_id :: FacilityId
 
   field:
@@ -240,7 +240,7 @@ concept Facility is kind from table('facilities') {
     }
 }
 
-concept Provider is kind from table('providers') {
+concept Provider is kind from duckdb.table('providers') {
   identity provider_id :: ProviderId
   valid_time: period(active_from, coalesce(active_to, date '9999-12-31'))
 
@@ -267,7 +267,7 @@ concept Provider is kind from table('providers') {
     }
 }
 
-concept PayerCoverageInterval is situation from table('payer_coverage_intervals') {
+concept PayerCoverageInterval is situation from duckdb.table('payer_coverage_intervals') {
   // Coverage is administrative state, not an encounter property. Query agents
   // should attach it at the event date being analyzed, such as admit time or
   // discharge date.
@@ -307,7 +307,7 @@ concept PayerCoverageInterval is situation from table('payer_coverage_intervals'
     }
 }
 
-concept Encounter is event from table('encounters') {
+concept Encounter is event from duckdb.table('encounters') {
   // One row per clinical contact. This is the right root for utilization mix,
   // but not for discharge-denominator quality measures because outpatient and
   // emergency encounters share this table.
@@ -378,7 +378,7 @@ concept Encounter is event from table('encounters') {
     }
 }
 
-concept InpatientStay is event from table('inpatient_stays') {
+concept InpatientStay is event from duckdb.table('inpatient_stays') {
   // This is the analytical center for inpatient quality. It repeats patient,
   // facility, and provider keys from Encounter so the discharge denominator can
   // be measured without joining through broader utilization first.
@@ -488,7 +488,7 @@ concept InpatientStay is event from table('inpatient_stays') {
     }
 }
 
-concept DiagnosisInterval is situation from table('diagnosis_intervals') {
+concept DiagnosisInterval is situation from duckdb.table('diagnosis_intervals') {
   // Diagnoses are interval facts. A chronic problem-list diagnosis and an
   // encounter-coded diagnosis can both describe the same patient but with
   // different source and valid-time semantics.
@@ -550,7 +550,7 @@ concept DiagnosisInterval is situation from table('diagnosis_intervals') {
     }
 }
 
-concept LabResult is event from table('lab_results') {
+concept LabResult is event from duckdb.table('lab_results') {
   identity lab_result_id :: LabResultId
   occurrence_time: resulted_at
 
@@ -623,7 +623,7 @@ concept LabResult is event from table('lab_results') {
     }
 }
 
-concept Claim is relator from table('claims') {
+concept Claim is relator from duckdb.table('claims') {
   // Claims connect an encounter to a payer outcome. They should not be used as
   // a proxy for the clinical denominator because denied, submitted, and
   // professional claims have their own billing lifecycle.
@@ -693,7 +693,7 @@ concept Claim is relator from table('claims') {
     }
 }
 
-concept ReadmissionEvent is event from table('readmission_events') {
+concept ReadmissionEvent is event from duckdb.table('readmission_events') {
   // This event relates an index discharge to a later inpatient stay. Measures on
   // InpatientStay use this concept through a one-to-many join, while direct
   // readmission queries can study the readmission lifecycle itself.
@@ -739,7 +739,7 @@ concept ReadmissionEvent is event from table('readmission_events') {
     }
 }
 
-concept QualityMeasurePopulation is relator from table('quality_measure_populations') {
+concept QualityMeasurePopulation is relator from duckdb.table('quality_measure_populations') {
   // One row is a measure-population membership decision. This is the safest
   // concept for regulatory scorecards because denominator, numerator,
   // exclusion, and exception status are explicit rather than inferred from raw
@@ -996,7 +996,7 @@ query: discharge_diagnosis_denominator_audit is InpatientStay -> {
 // A first OntoQL implementation could expand this file into verbose concept
 // declarations plus Malloy source definitions:
 //
-//   - `concept X is kind/event/situation/relator from table('x')` creates both
+//   - `concept X is kind/event/situation/relator from duckdb.table('x')` creates both
 //     the semantic concept and its canonical source.
 //   - `field_name :: Type` maps by name to a physical column unless an
 //     explicit expression follows.
@@ -1007,7 +1007,7 @@ query: discharge_diagnosis_denominator_audit is InpatientStay -> {
 //     `thing is R`.
 //   - `validation: name is { predicate: ... }` compiles to an executable
 //     data-quality check where false rows are invalid model state.
-//   - `format: currency("USD", 2)` is metadata that a Malloy or BI emitter can
+//   - `render_format: currency("USD", 2)` is metadata that a Malloy or BI emitter can
 //     translate into display annotations.
 //   - `join_one x?: Concept` marks an optional participant. Clinical data often
 //     needs this for claims, outpatient labs, coverage, and population rows.

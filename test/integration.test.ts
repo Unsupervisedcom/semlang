@@ -5,10 +5,8 @@ import { compileFile } from "../src/index.js";
 const root = path.resolve(import.meta.dirname, "..");
 
 describe("Malloy/DuckDB integration", () => {
-  it("generates DuckDB-mode Malloy suitable for runtime execution", async () => {
-    const result = await compileFile(path.join(root, "examples/retail-omnichannel-margin-and-returns/example.ontoql"), {
-      sourceMode: "duckdb"
-    });
+  it("generates connection-qualified Malloy suitable for runtime execution", async () => {
+    const result = await compileFile(path.join(root, "examples/retail-omnichannel-margin-and-returns/example.ontoql"));
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("duckdb.table('retail_line_items')");
 

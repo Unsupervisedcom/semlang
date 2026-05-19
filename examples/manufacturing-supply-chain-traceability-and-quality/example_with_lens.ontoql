@@ -90,7 +90,7 @@ lens: active_recall_response is {
 
   type: RecallPriorityBand is string {
     scale_type: ordinal
-    allowed_values: ['standard', 'expedite', 'regulatory_hot']
+    enum: ['standard', 'expedite', 'regulatory_hot']
   }
 
   refine: RecallCampaign extend {
@@ -193,7 +193,7 @@ lens: quality_operations is {
 
   type: QualityRiskBand is string {
     scale_type: ordinal
-    allowed_values: ['watch', 'contain', 'escalate']
+    enum: ['watch', 'contain', 'escalate']
   }
 
   refine: SerializedUnit extend {

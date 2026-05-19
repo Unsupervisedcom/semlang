@@ -1,4 +1,4 @@
-source: accounts is table('accounts') extend {
+source: accounts is duckdb.table('accounts') extend {
   primary_key: account_id
 
   dimension:
@@ -6,7 +6,7 @@ source: accounts is table('accounts') extend {
     is_enterprise is segment = 'enterprise'
 }
 
-source: workspaces is table('workspaces') extend {
+source: workspaces is duckdb.table('workspaces') extend {
   primary_key: workspace_id
 
   join_one: account is accounts
@@ -17,7 +17,7 @@ source: workspaces is table('workspaces') extend {
     is_archived is archived_at is not null
 }
 
-source: users is table('users') extend {
+source: users is duckdb.table('users') extend {
   primary_key: user_id
 
   join_one: account is accounts
@@ -31,18 +31,18 @@ source: users is table('users') extend {
     is_active_user_record is deactivated_at is null
 }
 
-source: product_plans is table('product_plans') extend {
+source: product_plans is duckdb.table('product_plans') extend {
   primary_key: plan_id
 
   dimension:
     plan_label is concat(plan_code, ' / ', plan_family)
 }
 
-source: product_features is table('product_features') extend {
+source: product_features is duckdb.table('product_features') extend {
   primary_key: feature_key
 }
 
-source: subscriptions is table('subscriptions') extend {
+source: subscriptions is duckdb.table('subscriptions') extend {
   primary_key: subscription_id
 
   join_one: account is accounts
@@ -64,7 +64,7 @@ source: subscriptions is table('subscriptions') extend {
     paid_seats is sum(paid_seats)
 }
 
-source: contracts is table('contracts') extend {
+source: contracts is duckdb.table('contracts') extend {
   primary_key: contract_id
 
   join_one: account is accounts
@@ -87,7 +87,7 @@ source: contracts is table('contracts') extend {
     contraction_arr_booked is sum(case when arr_delta < 0 then abs(arr_delta) else 0 end)
 }
 
-source: subscription_periods is table('subscription_periods') extend {
+source: subscription_periods is duckdb.table('subscription_periods') extend {
   primary_key: subscription_period_id
 
   join_one: account is accounts
@@ -135,7 +135,7 @@ source: subscription_periods is table('subscription_periods') extend {
   }
 }
 
-source: invoices is table('invoices') extend {
+source: invoices is duckdb.table('invoices') extend {
   primary_key: invoice_id
 
   join_one: account is accounts
@@ -154,7 +154,7 @@ source: invoices is table('invoices') extend {
     paid_invoice_total is sum(case when invoice_status = 'paid' then invoice_total else 0 end)
 }
 
-source: invoice_lines is table('invoice_lines') extend {
+source: invoice_lines is duckdb.table('invoice_lines') extend {
   primary_key: invoice_line_id
 
   join_one: invoice is invoices
@@ -177,7 +177,7 @@ source: invoice_lines is table('invoice_lines') extend {
     credit_amount is sum(case when line_type = 'credit' then billed_amount else 0 end)
 }
 
-source: revenue_recognition is table('revenue_recognition') extend {
+source: revenue_recognition is duckdb.table('revenue_recognition') extend {
   primary_key: revenue_recognition_id
 
   join_one: invoice_line is invoice_lines
@@ -213,7 +213,7 @@ source: revenue_recognition is table('revenue_recognition') extend {
   }
 }
 
-source: entitlement_intervals is table('entitlement_intervals') extend {
+source: entitlement_intervals is duckdb.table('entitlement_intervals') extend {
   primary_key: entitlement_interval_id
 
   join_one: plan is product_plans
@@ -230,7 +230,7 @@ source: entitlement_intervals is table('entitlement_intervals') extend {
     enabled_entitlements is count() { where: entitlement_status in ('included', 'metered') }
 }
 
-source: user_activity_days is table('user_activity_days') extend {
+source: user_activity_days is duckdb.table('user_activity_days') extend {
   primary_key: user_activity_day_id
 
   join_one: user is users
@@ -278,7 +278,7 @@ source: user_activity_days is table('user_activity_days') extend {
   }
 }
 
-source: feature_usage_days is table('feature_usage_days') extend {
+source: feature_usage_days is duckdb.table('feature_usage_days') extend {
   primary_key: feature_usage_day_id
 
   join_one: user is users
@@ -340,7 +340,7 @@ source: feature_usage_days is table('feature_usage_days') extend {
   }
 }
 
-source: support_cases is table('support_cases') extend {
+source: support_cases is duckdb.table('support_cases') extend {
   primary_key: support_case_id
 
   join_one: account is accounts
@@ -383,7 +383,7 @@ source: support_cases is table('support_cases') extend {
   }
 }
 
-source: incidents is table('incidents') extend {
+source: incidents is duckdb.table('incidents') extend {
   primary_key: incident_id
 
   dimension:
@@ -398,7 +398,7 @@ source: incidents is table('incidents') extend {
     avg_duration_minutes is avg(duration_minutes)
 }
 
-source: incident_workspace_impacts is table('incident_workspace_impacts') extend {
+source: incident_workspace_impacts is duckdb.table('incident_workspace_impacts') extend {
   primary_key: incident_impact_id
 
   join_one: incident is incidents
@@ -434,7 +434,7 @@ source: incident_workspace_impacts is table('incident_workspace_impacts') extend
   }
 }
 
-source: renewals is table('renewals') extend {
+source: renewals is duckdb.table('renewals') extend {
   primary_key: renewal_id
 
   join_one: account is accounts

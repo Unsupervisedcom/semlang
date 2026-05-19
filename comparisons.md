@@ -193,7 +193,7 @@ These examples use the compact OntoQL style: concepts declare their source table
   type: Dollars is currency {
     scale_type: ratio
     currency: "USD"
-    format: currency("USD", 2)
+    render_format: currency("USD", 2)
   }
 
   field:
@@ -210,7 +210,7 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```ontoql
   type: Dollars is currency {
     currency: "USD"
-    format: currency("USD", 2)
+    render_format: currency("USD", 2)
   }
   ```
 
@@ -367,7 +367,7 @@ These examples use the compact OntoQL style: concepts declare their source table
   ```ontoql
   type: ReturnStatus is string {
     scale_type: ordinal
-    allowed_values: ['authorized', 'received', 'accepted', 'rejected', 'settled']
+    enum: ['authorized', 'received', 'accepted', 'rejected', 'settled']
   }
 
   where: return_status = 'settled'

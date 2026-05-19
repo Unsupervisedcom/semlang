@@ -11,6 +11,7 @@ The public API is exported from `src/index.ts`:
 - `parseOntoql(source, options)`: produce an `OntoqlAst` plus parse diagnostics.
 - `resolveOntoql(ast, options)`: load includes, merge declarations, validate semantics, and produce a `SemanticModel`.
 - `emitMalloy(model, options)`: lower a resolved model to Malloy text.
+- `emitJsonSchema(model, options)`: project semantic types and concept row shapes to JSON Schema draft 2020-12.
 - `applyQueryLenses(model, query, diagnostics)`: clone a model and apply the lenses named by a query.
 - `filePackageLoader()`: resolve `include` paths relative to the including file.
 
@@ -19,10 +20,10 @@ The main public artifacts are:
 - `OntoqlAst`: the syntactic tree returned by the parser. It preserves source locations and declaration structure.
 - `SemanticModel`: the resolved package graph. It indexes types, concepts, lenses, and queries by their compiler names.
 - `ResolvedConcept`: a concept declaration plus compiler metadata such as `sourceName` and `roleBaseNames`.
-- `CompileResult`: the aggregate result containing any available `ast`, `model`, emitted `malloy`, and all diagnostics.
+- `CompileResult`: the aggregate result containing any available `ast`, `model`, emitted `malloy`, emitted `jsonSchema`, and all diagnostics.
 - `Diagnostic`: a stable error or warning record with severity, code, message, and optional source location.
 
-Callers should treat diagnostics as part of the API contract. If `ast`, `model`, or `malloy` is absent, the diagnostics explain why that stage could not continue.
+Callers should treat diagnostics as part of the API contract. If `ast`, `model`, `malloy`, or `jsonSchema` is absent, the diagnostics explain why that stage could not continue.
 
 ## Pipeline Overview
 
@@ -32,6 +33,7 @@ Callers should treat diagnostics as part of the API contract. If `ast`, `model`,
 2. Resolve includes and merge AST declarations into a `SemanticModel`.
 3. Validate the semantic model, including query-specific lens overlays.
 4. Emit Malloy from the validated semantic model.
+5. Emit JSON Schema from the validated semantic model.
 
 The implementation keeps the stages separate even where the resolver currently owns both resolution and validation. That separation is useful: future work can add richer parsing, semantic passes, emitters, or tooling without changing the high-level contract.
 
@@ -96,11 +98,11 @@ Emission also uses lens expansion. For lensed queries, the emitter generates que
 
 ## Emit Stage
 
-`src/emitter.ts` lowers a validated `SemanticModel` to Malloy text. It emits all base concepts as Malloy sources, then emits queries. If a query uses lenses, it emits the lens-expanded sources for that query before the query itself.
+`src/emitter.ts` lowers a validated `SemanticModel` to Malloy text. It emits named raw sources, concept sources, query-backed sources, queries, and finally concepts backed by query results. If a query uses lenses, it emits the lens-expanded sources for that query before the query itself.
 
 Important lowering rules:
 
-- Concepts become Malloy `source` declarations over `table(...)` or `duckdb.table(...)`.
+- Concepts become Malloy `source` declarations over Malloy source expressions such as `duckdb.table(...)`, `duckdb.sql("""...""")`, named source references, and query results.
 - Identities become `primary_key`; composite identities lower to `concat(...)`.
 - Joins become Malloy joins, including role-target predicates and valid-time containment for temporal joins.
 - Roles become boolean dimensions named with an `is_...` prefix and role tests are lowered into predicates.

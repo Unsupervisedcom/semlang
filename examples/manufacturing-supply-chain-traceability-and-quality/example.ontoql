@@ -31,19 +31,19 @@ package manufacturing.supply_chain_traceability_quality
 type: SupplierId is string {
   scale_type: nominal
   identifies: Supplier
-  semantics: "Stable supplier master key."
+  description: "Stable supplier master key."
 }
 
 type: MaterialId is string {
   scale_type: nominal
   identifies: Material
-  semantics: "Stable material master key used by BOMs, supplier lots, and consumption records."
+  description: "Stable material master key used by BOMs, supplier lots, and consumption records."
 }
 
 type: SupplierLotId is string {
   scale_type: nominal
   identifies: SupplierLot
-  semantics: "Stable key for a supplier-provided material lot or lot derivative."
+  description: "Stable key for a supplier-provided material lot or lot derivative."
 }
 
 type: ProductModelId is string {
@@ -64,7 +64,7 @@ type: ProductionOrderId is string {
 type: SerialNumber is string {
   scale_type: nominal
   identifies: SerializedUnit
-  semantics: "Externally traceable serial number for one manufactured unit."
+  description: "Externally traceable serial number for one manufactured unit."
 }
 
 type: InspectionId is string {
@@ -94,22 +94,22 @@ type: RecallCampaignId is string {
 
 type: BusinessDate is date {
   scale_type: interval
-  semantics: "Calendar date used for receipt, launch, and business-effective periods."
+  description: "Calendar date used for receipt, launch, and business-effective periods."
 }
 
 type: EventTimestamp is timestamp {
   scale_type: interval
-  semantics: "Point in time when a manufacturing, quality, logistics, or field event occurred."
+  description: "Point in time when a manufacturing, quality, logistics, or field event occurred."
 }
 
 type: Quantity is number {
   scale_type: ratio
-  semantics: "Physical quantity with a meaningful zero."
+  description: "Physical quantity with a meaningful zero."
 }
 
 type: UnitCount is number {
   scale_type: ratio
-  semantics: "Count of serialized units, orders, inspections, or claims."
+  description: "Count of serialized units, orders, inspections, or claims."
 }
 
 type: Percent is number {
@@ -118,125 +118,125 @@ type: Percent is number {
 
 type: Hours is number {
   scale_type: ratio
-  semantics: "Labor or rework duration in hours."
+  description: "Labor or rework duration in hours."
 }
 
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
+  render_format: currency("USD", 2)
 }
 
 type: SupplierTier is string {
   scale_type: nominal
-  allowed_values: ['tier_1', 'tier_2', 'contract_manufacturer']
+  enum: ['tier_1', 'tier_2', 'contract_manufacturer']
 }
 
 type: SupplierApprovalStatus is string {
   scale_type: nominal
-  allowed_values: ['approved', 'conditional', 'suspended']
+  enum: ['approved', 'conditional', 'suspended']
 }
 
 type: MaterialType is string {
   scale_type: nominal
-  allowed_values: ['raw_material', 'component', 'subassembly', 'packaging']
+  enum: ['raw_material', 'component', 'subassembly', 'packaging']
 }
 
 type: CriticalityLevel is string {
   scale_type: ordinal
-  allowed_values: ['standard', 'quality_critical', 'safety_critical']
+  enum: ['standard', 'quality_critical', 'safety_critical']
 }
 
 type: SupplierLotStatus is string {
   scale_type: ordinal
-  allowed_values: ['received', 'released', 'quarantined', 'rejected', 'depleted']
+  enum: ['received', 'released', 'quarantined', 'rejected', 'depleted']
 }
 
 type: LotGenealogyRelationship is string {
   scale_type: nominal
-  allowed_values: ['split', 'merge', 'relabel', 'rework']
+  enum: ['split', 'merge', 'relabel', 'rework']
 }
 
 type: BOMReleaseStatus is string {
   scale_type: ordinal
-  allowed_values: ['engineering', 'released', 'superseded', 'obsolete']
+  enum: ['engineering', 'released', 'superseded', 'obsolete']
 }
 
 type: ComponentRole is string {
   scale_type: nominal
-  allowed_values: ['primary', 'alternate', 'consumable', 'packaging']
+  enum: ['primary', 'alternate', 'consumable', 'packaging']
 }
 
 type: ProductionOrderStatus is string {
   scale_type: ordinal
-  allowed_values: ['planned', 'in_process', 'completed', 'closed', 'cancelled']
+  enum: ['planned', 'in_process', 'completed', 'closed', 'cancelled']
 }
 
 type: ConsumptionSource is string {
   scale_type: nominal
-  allowed_values: ['mes_scan', 'weigh_scale', 'inventory_issue', 'manual_adjustment']
+  enum: ['mes_scan', 'weigh_scale', 'inventory_issue', 'manual_adjustment']
 }
 
 type: UnitStatus is string {
   scale_type: ordinal
-  allowed_values: ['built', 'released', 'shipped', 'held', 'scrapped', 'returned']
+  enum: ['built', 'released', 'shipped', 'held', 'scrapped', 'returned']
 }
 
 type: QualityDisposition is string {
   scale_type: ordinal
-  allowed_values: ['pending', 'accepted', 'rework_required', 'rejected']
+  enum: ['pending', 'accepted', 'rework_required', 'rejected']
 }
 
 type: InspectionType is string {
   scale_type: nominal
-  allowed_values: ['incoming', 'in_process', 'final', 'audit', 'return_analysis']
+  enum: ['incoming', 'in_process', 'final', 'audit', 'return_analysis']
 }
 
 type: InspectionStatus is string {
   scale_type: ordinal
-  allowed_values: ['passed', 'failed', 'conditional']
+  enum: ['passed', 'failed', 'conditional']
 }
 
 type: SeverityLevel is string {
   scale_type: ordinal
-  allowed_values: ['minor', 'major', 'critical']
+  enum: ['minor', 'major', 'critical']
 }
 
 type: DefectDisposition is string {
   scale_type: ordinal
-  allowed_values: ['use_as_is', 'rework', 'scrap', 'supplier_chargeback', 'under_review']
+  enum: ['use_as_is', 'rework', 'scrap', 'supplier_chargeback', 'under_review']
 }
 
 type: ShipmentStatus is string {
   scale_type: ordinal
-  allowed_values: ['planned', 'shipped', 'delivered', 'returned']
+  enum: ['planned', 'shipped', 'delivered', 'returned']
 }
 
 type: ShippedUnitStatus is string {
   scale_type: ordinal
-  allowed_values: ['released', 'exception_approved', 'replacement', 'returned']
+  enum: ['released', 'exception_approved', 'replacement', 'returned']
 }
 
 type: WarrantyClaimStatus is string {
   scale_type: ordinal
-  allowed_values: ['opened', 'approved', 'rejected', 'closed']
+  enum: ['opened', 'approved', 'rejected', 'closed']
 }
 
 type: RecallCampaignStatus is string {
   scale_type: ordinal
-  allowed_values: ['draft', 'active', 'closed']
+  enum: ['draft', 'active', 'closed']
 }
 
 type: RecallAffectedStatus is string {
   scale_type: ordinal
-  allowed_values: ['identified', 'notified', 'remediated', 'excluded']
+  enum: ['identified', 'notified', 'remediated', 'excluded']
 }
 
 // ---------------------------------------------------------------------------
 // Semantic Sources
 // ---------------------------------------------------------------------------
 
-concept Supplier is kind from table('suppliers') {
+concept Supplier is kind from duckdb.table('suppliers') {
   identity supplier_id :: SupplierId
 
   field:
@@ -262,7 +262,7 @@ concept Supplier is kind from table('suppliers') {
     }
 }
 
-concept Material is kind from table('materials') {
+concept Material is kind from duckdb.table('materials') {
   identity material_id :: MaterialId
 
   field:
@@ -280,7 +280,7 @@ concept Material is kind from table('materials') {
     is_critical_material is this is CriticalMaterial
 }
 
-concept SupplierLot is kind from table('supplier_lots') {
+concept SupplierLot is kind from duckdb.table('supplier_lots') {
   identity supplier_lot_id :: SupplierLotId
 
   join_one supplier: Supplier on supplier_id
@@ -345,7 +345,7 @@ concept SupplierLot is kind from table('supplier_lots') {
     }
 }
 
-concept SupplierLotGenealogy is relator from table('supplier_lot_genealogy') {
+concept SupplierLotGenealogy is relator from duckdb.table('supplier_lot_genealogy') {
   // Lot genealogy records physical or administrative derivations. This is the
   // structure agents need when a parent lot recall should include child lots.
   identity lot_genealogy_id :: string
@@ -387,7 +387,7 @@ concept SupplierLotGenealogy is relator from table('supplier_lot_genealogy') {
     }
 }
 
-concept ProductModel is kind from table('product_models') {
+concept ProductModel is kind from duckdb.table('product_models') {
   identity product_model_id :: ProductModelId
 
   field:
@@ -411,7 +411,7 @@ concept ProductModel is kind from table('product_models') {
     }
 }
 
-concept BOMVersion is situation from table('bom_versions') {
+concept BOMVersion is situation from duckdb.table('bom_versions') {
   // A BOM version is a time-valid engineering definition for a product model.
   // It is not the same thing as the production order's declared BOM usage; the
   // order below can check whether the declaration was valid at start time.
@@ -453,7 +453,7 @@ concept BOMVersion is situation from table('bom_versions') {
     }
 }
 
-concept BOMComponent is relator from table('bom_components') {
+concept BOMComponent is relator from duckdb.table('bom_components') {
   identity bom_component_id :: string
   valid_time: period(valid_from, valid_to)
 
@@ -498,7 +498,7 @@ concept BOMComponent is relator from table('bom_components') {
     }
 }
 
-concept ProductionOrder is event from table('production_orders') {
+concept ProductionOrder is event from duckdb.table('production_orders') {
   identity production_order_id :: ProductionOrderId
   occurrence_time: started_at
 
@@ -580,7 +580,7 @@ concept ProductionOrder is event from table('production_orders') {
     }
 }
 
-concept ProductionOrderLotConsumption is event from table('production_order_lot_consumption') {
+concept ProductionOrderLotConsumption is event from duckdb.table('production_order_lot_consumption') {
   // This is the traceability hinge. It links a production order to each supplier
   // lot and material actually issued or scanned into the build.
   identity consumption_id :: string
@@ -625,7 +625,7 @@ concept ProductionOrderLotConsumption is event from table('production_order_lot_
   }
 }
 
-concept SerializedUnit is kind from table('serialized_units') {
+concept SerializedUnit is kind from duckdb.table('serialized_units') {
   // One row per finished unit. This concept deliberately joins outward to
   // orders, inspections, defects, shipments, claims, and recall scope so a
   // natural-language question about "units affected by lot A100" can stay at
@@ -703,7 +703,7 @@ concept SerializedUnit is kind from table('serialized_units') {
   }
 }
 
-concept Inspection is event from table('inspections') {
+concept Inspection is event from duckdb.table('inspections') {
   identity inspection_id :: InspectionId
   occurrence_time: performed_at
 
@@ -762,7 +762,7 @@ concept Inspection is event from table('inspections') {
   }
 }
 
-concept InspectionDefect is event from table('inspection_defects') {
+concept InspectionDefect is event from duckdb.table('inspection_defects') {
   identity defect_id :: DefectId
   occurrence_time: detected_at
 
@@ -818,7 +818,7 @@ concept InspectionDefect is event from table('inspection_defects') {
   }
 }
 
-concept Shipment is event from table('shipments') {
+concept Shipment is event from duckdb.table('shipments') {
   identity shipment_id :: ShipmentId
   occurrence_time: shipped_at
 
@@ -846,7 +846,7 @@ concept Shipment is event from table('shipments') {
     shipped_units is count(distinct units.serial_number)
 }
 
-concept ShipmentUnit is relator from table('shipment_units') {
+concept ShipmentUnit is relator from duckdb.table('shipment_units') {
   identity shipment_unit_id :: string
 
   join_one shipment: Shipment on shipment_id
@@ -865,7 +865,7 @@ concept ShipmentUnit is relator from table('shipment_units') {
     exception_approved_units is count(case when this is ExceptionApprovedShipmentUnit then serial_number end)
 }
 
-concept WarrantyClaim is event from table('warranty_claims') {
+concept WarrantyClaim is event from duckdb.table('warranty_claims') {
   identity warranty_claim_id :: WarrantyClaimId
   occurrence_time: claim_opened_at
 
@@ -911,7 +911,7 @@ concept WarrantyClaim is event from table('warranty_claims') {
   }
 }
 
-concept RecallCampaign is event from table('recall_campaigns') {
+concept RecallCampaign is event from duckdb.table('recall_campaigns') {
   identity recall_campaign_id :: RecallCampaignId
   occurrence_time: initiated_at
 
@@ -943,7 +943,7 @@ concept RecallCampaign is event from table('recall_campaigns') {
     )
 }
 
-concept RecallAffectedUnit is relator from table('recall_affected_units') {
+concept RecallAffectedUnit is relator from duckdb.table('recall_affected_units') {
   identity recall_unit_id :: string
   occurrence_time: identified_at
 

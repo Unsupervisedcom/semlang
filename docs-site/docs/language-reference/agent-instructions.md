@@ -1,6 +1,6 @@
 ---
 title: Agent Instructions
-sidebar_position: 7
+sidebar_position: 8
 ---
 
 This is a concise guide for agents that need to read or write OntoQL.
@@ -10,7 +10,7 @@ OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy'
 ## Start From Malloy
 
 - A Malloy `source` becomes an OntoQL `concept`.
-- A Malloy table stays close by: `concept Sale is event from table('transactions')`.
+- A Malloy table stays close by: `concept Sale is event from duckdb.table('transactions')`.
 - Malloy-style `dimension:`, `measure:`, `view:`, `where:`, `group_by:`, `aggregate:`, and `query: ... -> { ... }` remain the default shape.
 - Queries target concepts, not physical source names: `query: q is SaleLine -> { ... }`.
 - OntoQL should compile to Malloy. Do not invent syntax that cannot lower clearly.
@@ -36,12 +36,19 @@ OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy'
 - Put fields in `field:` blocks and derived values in `dimension:` or `measure:` blocks.
 - Keep aggregate aliases aggregate-safe: raw row fields must be inside aggregate functions.
 
+## Requirements Discipline
+
+- Durable language and compiler requirements belong in `requirements/REQ-XX-NAME.md` files.
+- Requirement files use RFC 2119 language and stable requirement IDs such as `01.02.001`.
+- Compiler functions and tests should reference the requirement ID they implement or protect when a clear local reference is practical.
+- Update the relevant requirement file before or alongside changing compiler behavior.
+
 ## Common Translations
 
 Malloy:
 
 ```malloy
-source: line_items is table('retail_line_items') extend {
+source: line_items is duckdb.table('retail_line_items') extend {
   primary_key: line_item_id
   join_one: sale is transactions on transaction_id = sale.transaction_id
   measure:
@@ -52,7 +59,7 @@ source: line_items is table('retail_line_items') extend {
 OntoQL:
 
 ```ontoql
-concept SaleLine is situation from table('retail_line_items') {
+concept SaleLine is situation from duckdb.table('retail_line_items') {
   identity line_item_id :: SaleLineId
   join_one sale: Sale on transaction_id
 

@@ -1,6 +1,5 @@
 import { applyQueryLenses } from "./resolver.js";
 import type {
-  CompileOptions,
   Diagnostic,
   JoinDecl,
   QueryBodyDecl,
@@ -8,16 +7,26 @@ import type {
   QueryItemDecl,
   ResolvedConcept,
   SemanticModel,
+  SourceDecl,
+  SourceExpression,
   TemporalAxisDecl
 } from "./types.js";
 
-export function emitMalloy(model: SemanticModel, options: CompileOptions = {}): { malloy: string; diagnostics: Diagnostic[] } {
+export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
   const chunks: string[] = [];
   const sourceNames = new Map([...model.concepts].map(([name, concept]) => [name, concept.sourceName]));
 
-  for (const concept of model.concepts.values()) {
-    chunks.push(emitConcept(model, concept, sourceNames, options));
+  for (const source of [...model.sources.values()].filter((source) => !source.query)) {
+    chunks.push(emitSourceDecl(model, source, sourceNames));
+  }
+
+  for (const concept of [...model.concepts.values()].filter((concept) => !conceptUsesQuerySource(model, concept))) {
+    chunks.push(emitConcept(model, concept, sourceNames));
+  }
+
+  for (const source of [...model.sources.values()].filter((source) => source.query)) {
+    chunks.push(emitSourceDecl(model, source, sourceNames));
   }
 
   for (const query of model.queries) {
@@ -29,20 +38,31 @@ export function emitMalloy(model: SemanticModel, options: CompileOptions = {}): 
     }));
     if (query.lenses.length > 0) {
       for (const concept of queryModel.concepts.values()) {
-        chunks.push(emitConcept(queryModel, concept, names, options));
+        chunks.push(emitConcept(queryModel, concept, names));
       }
     }
     const rootSource = names.get(query.root) ?? query.root;
     chunks.push(emitQuery(query, rootSource, queryModel, queryModel.concepts.get(query.root)));
   }
 
+  for (const concept of [...model.concepts.values()].filter((concept) => conceptUsesQuerySource(model, concept))) {
+    chunks.push(emitConcept(model, concept, sourceNames));
+  }
+
   return { malloy: chunks.filter(Boolean).join("\n\n") + "\n", diagnostics };
 }
 
-function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames: Map<string, string>, options: CompileOptions): string {
+function conceptUsesQuerySource(model: SemanticModel, concept: ResolvedConcept): boolean {
+  const source = concept.source;
+  if (source.kind !== "reference") return false;
+  if (model.queries.some((query) => query.name === source.name)) return true;
+  return Boolean(model.sources.get(source.name)?.query);
+}
+
+function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames: Map<string, string>): string {
   const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
   const lines: string[] = [];
-  lines.push(`source: ${sourceName} is ${tableExpr(concept.table, options.sourceMode)} extend {`);
+  lines.push(`source: ${sourceName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`);
   if (concept.identities.length > 0) lines.push(`  primary_key: ${primaryKey(concept.identities)}`);
   for (const join of concept.joins) {
     lines.push("");
@@ -81,12 +101,24 @@ function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames
   return lines.join("\n");
 }
 
+function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: Map<string, string>): string {
+  const expression = sourceExpr(model, source.source, sourceNames);
+  if (!source.query) return `source: ${source.name} is ${expression}`;
+  const root = sourceExpressionConcept(model, source.source);
+  const body = root ? emitQueryBody(source.query, model, root, 2) : emitRawQueryBody(source.query, 2);
+  return [`source: ${source.name} is ${expression} -> {`, ...body, "}"].join("\n");
+}
+
 function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl, sourceNames: Map<string, string>): string[] {
   const targetConcept = model.concepts.get(join.target) ?? roleTarget(model, join.target);
   const targetSource = targetConcept ? sourceNames.get(targetConcept.name) ?? targetConcept.sourceName : join.target;
   const lines = [`${join.kind}: ${join.name} is ${targetSource}`];
-  const onParts = [lowerJoinOn(model, source, targetConcept, join)];
-  if (join.at && targetConcept) {
+  if (join.with) {
+    lines.push(`  with ${lowerExpression(model, source, join.with)}`);
+    return lines;
+  }
+  const onParts = join.on ? [lowerJoinOn(model, source, targetConcept, join)] : [];
+  if (join.at && targetConcept && onParts.length > 0) {
     const period = periodAxis(targetConcept.temporal.find((axis) => axis.axis === "valid_time"));
     if (period) {
       const at = lowerExpression(model, source, join.at);
@@ -94,23 +126,25 @@ function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl,
       onParts.push(`${at} < ${join.name}.${period.end}`);
     }
   }
-  lines.push(`  on ${onParts[0]}`);
+  const firstOn = onParts[0];
+  if (firstOn) lines.push(`  on ${firstOn}`);
   for (const part of onParts.slice(1)) lines.push(`  and ${part}`);
   if (targetConcept && targetConcept.name !== join.target) {
     const role = targetConcept.roles.find((candidate) => candidate.name === join.target);
-    if (role) lines.push(`  and ${prefixRolePredicate(model, targetConcept, role.predicate, join.name)}`);
+    if (role && onParts.length > 0) lines.push(`  and ${prefixRolePredicate(model, targetConcept, role.predicate, join.name)}`);
   }
   return lines;
 }
 
 function lowerJoinOn(model: SemanticModel, source: ResolvedConcept, target: ResolvedConcept | undefined, join: JoinDecl): string {
-  const raw = lowerExpression(model, source, join.on);
+  const raw = lowerExpression(model, source, join.on ?? "");
   if (!target) return raw;
   if (!/[=\s<>]/.test(raw)) return `${raw} = ${join.name}.${raw}`;
-  return raw.replace(/=\s*([A-Za-z_][A-Za-z0-9_]*)\b/g, (_match, field: string) => `= ${join.name}.${field}`);
+  return raw.replace(/=\s*([A-Za-z_][A-Za-z0-9_]*)\b(?!\.)/g, (_match, field: string) => `= ${join.name}.${field}`);
 }
 
 function emitQuery(query: QueryDecl, rootSource: string, model: SemanticModel, root: ResolvedConcept | undefined): string {
+  if (query.view) return `query: ${query.name} is ${rootSource} -> ${query.view}`;
   const body = root ? emitQueryBody(query.body, model, root, 2) : [];
   return [`query: ${query.name} is ${rootSource} -> {`, ...body, "}"].join("\n");
 }
@@ -122,6 +156,10 @@ function emitView(name: string, body: QueryBodyDecl, model: SemanticModel, root:
 function emitQueryBody(body: QueryBodyDecl, model: SemanticModel, root: ResolvedConcept, indentSpaces: number): string[] {
   const lines: string[] = [];
   if (body.where) lines.push(`${spaces(indentSpaces)}where: ${lowerExpression(model, root, body.where.expression)}`);
+  if (body.select.length > 0) {
+    lines.push(`${spaces(indentSpaces)}select:`);
+    for (const item of body.select) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
+  }
   if (body.groupBy.length > 0) {
     lines.push(`${spaces(indentSpaces)}group_by:`);
     for (const item of body.groupBy) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
@@ -130,6 +168,34 @@ function emitQueryBody(body: QueryBodyDecl, model: SemanticModel, root: Resolved
     lines.push(`${spaces(indentSpaces)}aggregate:`);
     for (const item of body.aggregate) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
   }
+  if (body.having) lines.push(`${spaces(indentSpaces)}having: ${lowerExpression(model, root, body.having.expression)}`);
+  if (body.calculate.length > 0) {
+    lines.push(`${spaces(indentSpaces)}calculate:`);
+    for (const item of body.calculate) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
+  }
+  if (body.nest && body.nest.length > 0) {
+    lines.push(`${spaces(indentSpaces)}nest:`);
+    for (const nest of body.nest) {
+      if (nest.body) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is {`);
+        lines.push(...emitQueryBody(nest.body, model, root, indentSpaces + 4));
+        lines.push(`${spaces(indentSpaces + 2)}}`);
+      } else if (nest.name && nest.view) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is ${nest.view}`);
+      } else if (nest.view) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.view}`);
+      }
+    }
+  }
+  if (body.index && body.index.length > 0) {
+    lines.push(`${spaces(indentSpaces)}index:`);
+    for (const item of body.index) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
+  }
+  if (body.orderBy.length > 0) {
+    lines.push(`${spaces(indentSpaces)}order_by:`);
+    for (const item of body.orderBy) lines.push(`${spaces(indentSpaces + 2)}${lowerOrderByExpression(model, root, item.expression)}`);
+  }
+  if (body.limit) lines.push(`${spaces(indentSpaces)}limit: ${body.limit.value}`);
   return lines;
 }
 
@@ -167,6 +233,12 @@ export function lowerExpression(model: SemanticModel, root: ResolvedConcept, exp
   return lowered;
 }
 
+function lowerOrderByExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
+  const match = /^(.+?)(\s+(?:asc|desc))?$/i.exec(expression);
+  if (!match) return lowerExpression(model, root, expression);
+  return `${lowerExpression(model, root, match[1]!.trim())}${match[2] ?? ""}`;
+}
+
 function prefixRolePredicate(model: SemanticModel, concept: ResolvedConcept, predicate: string, prefix: string): string {
   let result = lowerExpression(model, concept, predicate);
   const members = new Set([
@@ -181,8 +253,64 @@ function prefixRolePredicate(model: SemanticModel, concept: ResolvedConcept, pre
   return result;
 }
 
-function tableExpr(table: string, sourceMode: CompileOptions["sourceMode"]): string {
-  return sourceMode === "duckdb" ? `duckdb.table('${table}')` : `table('${table}')`;
+function sourceExpr(model: SemanticModel, source: SourceExpression, sourceNames: Map<string, string>): string {
+  if (source.kind === "table" || source.kind === "sql") return source.expression;
+  return sourceNames.get(source.name)
+    ?? (model.sources.has(source.name) || model.queries.some((query) => query.name === source.name) ? source.name : source.expression);
+}
+
+function sourceExpressionConcept(model: SemanticModel, source: SourceExpression): ResolvedConcept | undefined {
+  return source.kind === "reference" ? model.concepts.get(source.name) : undefined;
+}
+
+function emitRawQueryBody(body: QueryBodyDecl, indentSpaces: number): string[] {
+  const lines: string[] = [];
+  if (body.where) lines.push(`${spaces(indentSpaces)}where: ${body.where.expression}`);
+  if (body.select.length > 0) {
+    lines.push(`${spaces(indentSpaces)}select:`);
+    for (const item of body.select) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.groupBy.length > 0) {
+    lines.push(`${spaces(indentSpaces)}group_by:`);
+    for (const item of body.groupBy) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.aggregate.length > 0) {
+    lines.push(`${spaces(indentSpaces)}aggregate:`);
+    for (const item of body.aggregate) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.having) lines.push(`${spaces(indentSpaces)}having: ${body.having.expression}`);
+  if (body.calculate.length > 0) {
+    lines.push(`${spaces(indentSpaces)}calculate:`);
+    for (const item of body.calculate) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.nest && body.nest.length > 0) {
+    lines.push(`${spaces(indentSpaces)}nest:`);
+    for (const nest of body.nest) {
+      if (nest.body) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is {`);
+        lines.push(...emitRawQueryBody(nest.body, indentSpaces + 4));
+        lines.push(`${spaces(indentSpaces + 2)}}`);
+      } else if (nest.name && nest.view) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is ${nest.view}`);
+      } else if (nest.view) {
+        lines.push(`${spaces(indentSpaces + 2)}${nest.view}`);
+      }
+    }
+  }
+  if (body.index && body.index.length > 0) {
+    lines.push(`${spaces(indentSpaces)}index:`);
+    for (const item of body.index) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.orderBy.length > 0) {
+    lines.push(`${spaces(indentSpaces)}order_by:`);
+    for (const item of body.orderBy) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
+  }
+  if (body.limit) lines.push(`${spaces(indentSpaces)}limit: ${body.limit.value}`);
+  return lines;
+}
+
+function rawQueryItem(item: QueryItemDecl): string {
+  return item.alias ? `${item.alias} is ${item.expression}` : item.expression;
 }
 
 function primaryKey(fields: Array<{ name: string }>): string {

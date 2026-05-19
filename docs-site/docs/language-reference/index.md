@@ -23,7 +23,7 @@ include "./example.ontoql"
 
 Includes are loaded before the including file is resolved. Include cycles are invalid.
 
-After the package and any includes, a file can declare semantic types, concepts, lenses, and queries:
+After the package and any includes, a file can declare semantic types, named sources, concepts, lenses, and queries:
 
 ```ontoql
 type: Dollars is currency {
@@ -31,7 +31,9 @@ type: Dollars is currency {
   currency: "USD"
 }
 
-concept SaleLine is situation from table('retail_line_items') {
+source: sale_line_rows is duckdb.table('retail_line_items')
+
+concept SaleLine is situation from sale_line_rows {
   identity line_item_id :: SaleLineId
 }
 
@@ -40,6 +42,9 @@ query: monthly_margin is SaleLine -> {
     sold_month
   aggregate:
     net_sales
+  order_by:
+    sold_month desc
+  limit: 12
 }
 ```
 
@@ -47,6 +52,9 @@ query: monthly_margin is SaleLine -> {
 
 - [Concepts](./concepts.md) explains the ontology layer: concepts, stereotypes, identity, roles, joins, and time.
 - [Declarations](./declarations.md) covers package, include, type, field, dimension, measure, view, validation, and query declarations.
+- [Sources](./sources.md) covers Malloy-shaped table, SQL, named source, and query source references.
 - [Expressions](./expressions.md) describes where expressions appear and how aliases, role tests, joins, and aggregates are interpreted.
 - [Lenses](./lenses.md) explains query-time semantic overlays.
 - [Diagnostics and Lowering](./diagnostics-lowering.md) summarizes compiler errors and Malloy emission.
+- [Schema Vocabulary](./schema-vocabulary.md) describes JSON Schema export and OntoQL extension keywords.
+- [Supported Malloy Features](./supported_malloy_features.md) tracks Malloy compatibility row by row.

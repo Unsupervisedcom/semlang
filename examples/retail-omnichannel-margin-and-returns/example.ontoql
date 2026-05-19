@@ -2,7 +2,7 @@
 //
 // This version uses the preferred compact syntax:
 //
-//   - `concept ... is ... from table(...)` declares the semantic concept and its
+//   - `concept ... is ... from duckdb.table(...)` declares the semantic concept and its
 //     canonical source together.
 //   - `field:` declarations create source-backed semantic attributes by name
 //     and use Malloy-like `field_name :: Type` annotations.
@@ -27,7 +27,7 @@ package retail.omnichannel_margin_returns
 //
 // These are not separate ontology concepts with their own rows. They are
 // Malloy-like named types over primitive value domains. OntoQL adds semantic
-// metadata such as `identifies`, `allowed_values`, and `scale_type`.
+// metadata such as `identifies`, `enum`, and `scale_type`.
 //
 // `scale_type` follows the measurement-scale vocabulary:
 //   nominal  labels with no inherent order
@@ -38,126 +38,128 @@ package retail.omnichannel_margin_returns
 type: StoreId is string {
   scale_type: nominal
   identifies: Store
-  semantics: "Stable warehouse key for a retail location, ecommerce store, or fulfillment location."
+  description: "Stable warehouse key for a retail location, ecommerce store, or fulfillment location."
 }
 
 type: CustomerId is string {
   scale_type: nominal
   identifies: Customer
-  semantics: "Stable key for a shopper the retailer has recognized."
+  description: "Stable key for a shopper the retailer has recognized."
 }
 
 type: LoyaltyMemberId is string {
   scale_type: nominal
   identifies_role: LoyaltyCustomer
-  semantics: "Program membership identifier; present only for customers in the loyalty role."
+  description: "Program membership identifier; present only for customers in the loyalty role."
 }
 
 type: SKUId is string {
   scale_type: nominal
   identifies: ProductSKU
-  semantics: "Stable product SKU key, distinct from a sellable SKU number or UPC."
+  description: "Stable product SKU key, distinct from a sellable SKU number or UPC."
 }
 
 type: TransactionId is string {
   scale_type: nominal
   identifies: Sale
-  semantics: "Checkout/order event key. A sale can contain multiple sold item lines."
+  description: "Checkout/order event key. A sale can contain multiple sold item lines."
 }
 
 type: SaleLineId is string {
   scale_type: nominal
   identifies: SaleLine
-  semantics: "Line-grain key for one sold SKU within a sale."
+  description: "Line-grain key for one sold SKU within a sale."
 }
 
 type: BusinessDate is date {
   scale_type: interval
-  semantics: "Calendar date used for business-effective, balance, and snapshot dates."
+  description: "Calendar date used for business-effective, balance, and snapshot dates."
 }
 
 type: EventTimestamp is timestamp {
   scale_type: interval
-  semantics: "Point in time when an event was observed or occurred."
+  description: "Point in time when an event was observed or occurred."
 }
 
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
-  format: currency("USD", 2)
-  semantics: "US dollar amount. Amounts can be aggregated only at their declared grain unless a join is fanout-safe."
+  render_format: currency("USD", 2)
+  description: "US dollar amount. Amounts can be aggregated only at their declared grain unless a join is fanout-safe."
 }
 
 type: UnitCount is number {
   scale_type: ratio
-  semantics: "Countable unit quantity with a meaningful zero."
+  description: "Countable unit quantity with a meaningful zero."
 }
 
 type: LineNumber is number {
   scale_type: ordinal
-  semantics: "Position of a line within a sale."
+  description: "Position of a line within a sale."
 }
 
 type: StoreChannelRole is string {
   scale_type: nominal
-  allowed_values: ['physical_store', 'ecommerce', 'warehouse']
+  enum: ['physical_store', 'ecommerce', 'warehouse']
 }
 
 type: ConsentStatus is string {
   scale_type: nominal
-  allowed_values: ['granted', 'declined', 'unknown']
+  enum: ['granted', 'declined', 'unknown']
 }
 
 type: ProductLifecycleStatus is string {
   scale_type: nominal
-  allowed_values: ['active', 'discontinued', 'recalled']
+  enum: ['active', 'discontinued', 'recalled']
 }
 
 type: PromotionType is string {
   scale_type: nominal
-  allowed_values: ['coupon', 'markdown', 'loyalty_offer', 'free_shipping']
+  enum: ['coupon', 'markdown', 'loyalty_offer', 'free_shipping']
 }
 
 type: PromotionFundingSource is string {
   scale_type: nominal
-  allowed_values: ['retailer', 'vendor', 'shared']
+  enum: ['retailer', 'vendor', 'shared']
 }
 
 type: SalesChannel is string {
   scale_type: nominal
-  allowed_values: ['store', 'web', 'mobile']
+  enum: ['store', 'web', 'mobile']
 }
 
 type: FulfillmentMethod is string {
   scale_type: nominal
-  allowed_values: ['cash_and_carry', 'ship_to_home', 'buy_online_pickup_store']
+  enum: ['cash_and_carry', 'ship_to_home', 'buy_online_pickup_store']
 }
 
 type: PromotionAllocationBasis is string {
   scale_type: nominal
-  allowed_values: ['line_discount', 'order_proration', 'shipping_credit']
+  enum: ['line_discount', 'order_proration', 'shipping_credit']
 }
 
 type: ReturnChannel is string {
   scale_type: nominal
-  allowed_values: ['store', 'mail', 'carrier_pickup']
+  enum: ['store', 'mail', 'carrier_pickup']
 }
 
 type: ReturnStatus is string {
   scale_type: ordinal
-  allowed_values: ['authorized', 'received', 'accepted', 'rejected', 'settled']
+  enum: ['authorized', 'received', 'accepted', 'rejected', 'settled']
 }
 
 type: InventorySnapshotSource is string {
   scale_type: nominal
-  allowed_values: ['store_count', 'warehouse_management', 'ecommerce_available_to_sell']
+  enum: ['store_count', 'warehouse_management', 'ecommerce_available_to_sell']
 }
 
 // ---------------------------------------------------------------------------
 // Semantic Sources
 // ---------------------------------------------------------------------------
 
-concept Store is kind from table('stores') {
+concept Store is kind from duckdb.table('stores') {
+  description: "Retail location, ecommerce store, or fulfillment location used for regional sales and inventory analysis."
+
   identity store_id :: StoreId
 
   field:
@@ -183,7 +185,7 @@ concept Store is kind from table('stores') {
     }
 }
 
-concept Customer is kind from table('customers') {
+concept Customer is kind from duckdb.table('customers') {
   // A row exists only when the retailer recognized the shopper. Unrecognized
   // cash purchases have null transactions.customer_id.
   identity customer_id :: CustomerId
@@ -217,7 +219,7 @@ concept Customer is kind from table('customers') {
     }
 }
 
-concept LoyaltyPointBalance is situation from table('loyalty_point_balance') {
+concept LoyaltyPointBalance is situation from duckdb.table('loyalty_point_balance') {
   // Daily state attached only to loyalty customers.
   identity loyalty_member_id :: LoyaltyMemberId, balance_date :: BusinessDate
   valid_time: balance_date
@@ -244,7 +246,7 @@ concept LoyaltyPointBalance is situation from table('loyalty_point_balance') {
   }
 }
 
-concept ProductSKU is kind from table('product_skus') {
+concept ProductSKU is kind from duckdb.table('product_skus') {
   identity sku_id :: SKUId
 
   field:
@@ -253,7 +255,7 @@ concept ProductSKU is kind from table('product_skus') {
     created_at :: EventTimestamp
 }
 
-concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history') {
+concept ProductSKUVersion is phase of ProductSKU from duckdb.table('product_sku_history') {
   valid_time: period(valid_from, valid_to)
 
   // `phase of ProductSKU` defines the parent ProductSKU relation. The compiler
@@ -286,7 +288,7 @@ concept ProductSKUVersion is phase of ProductSKU from table('product_sku_history
     }
 }
 
-concept Promotion is relator from table('promotions') {
+concept Promotion is relator from duckdb.table('promotions') {
   identity promotion_id :: string
   valid_time: period(starts_at, ends_at)
 
@@ -310,7 +312,7 @@ concept Promotion is relator from table('promotions') {
     }
 }
 
-concept PromotionAllocation is relator from table('line_item_promotions') {
+concept PromotionAllocation is relator from duckdb.table('line_item_promotions') {
   identity line_item_id :: SaleLineId, promotion_id :: string
 
   join_one sale_line: SaleLine on line_item_id
@@ -329,7 +331,9 @@ concept PromotionAllocation is relator from table('line_item_promotions') {
     promotion_count is count()
 }
 
-concept ReturnLine is event from table('return_lines') {
+concept ReturnLine is event from duckdb.table('return_lines') {
+  description: "Returned item line linked back to the original sale line, including return status, quantity, refund, and settlement timing."
+
   identity return_line_id :: string
   occurrence_time: returned_at
 
@@ -374,7 +378,9 @@ concept ReturnLine is event from table('return_lines') {
     }
 }
 
-concept Sale is event from table('transactions') {
+concept Sale is event from duckdb.table('transactions') {
+  description: "Checkout or order transaction that anchors customer, store, channel, fulfillment, and sold-at time context."
+
   // One row per checkout/order event. The customer participant is optional
   // because unrecognized cash buyers do not have a customer_id.
   identity transaction_id :: TransactionId
@@ -431,14 +437,16 @@ concept Sale is event from table('transactions') {
   }
 }
 
-concept SaleLine is situation from table('retail_line_items') {
+concept SaleLine is situation from duckdb.table('retail_line_items') {
+  description: "Sold SKU line fact grain for merchandise margin, product category, promotion, return, store, and customer-recognition analysis."
+
   // One row per sold SKU line. Merchandise, margin, promotions, and returns
   // live at this grain, while customer/store/date context comes through Sale.
   identity line_item_id :: SaleLineId
 
-  join_one sale: Sale on transaction_id
+  join_one sale: Sale with transaction_id
 
-  join_one sku: ProductSKU on sku_id
+  join_one sku: ProductSKU with sku_id
 
   join_one product_at_sale: ProductSKUVersion
     on sku_id = product_at_sale.sku_id
@@ -539,7 +547,7 @@ concept SaleLine is situation from table('retail_line_items') {
   }
 }
 
-concept InventoryPosition is situation from table('inventory_snapshots') {
+concept InventoryPosition is situation from duckdb.table('inventory_snapshots') {
   identity inventory_snapshot_id :: string
   valid_time: snapshot_date
   observation_time: snapshot_date
@@ -599,6 +607,30 @@ query: monthly_margin_and_returns is SaleLine -> {
     settled_refund_amount
     net_after_settled_refunds
     settled_return_rate
+  having: net_sales > 0
+  nest:
+    loyalty_margin_mix
+  index:
+    sale.store.region
+    product_category is product_at_sale.category_name
+  order_by:
+    sold_month desc
+  limit: 24
+}
+
+query: recent_order_line_projection is SaleLine -> {
+  // Malloy compatibility smoke test: deprecated project syntax is accepted and
+  // emitted as select, while Malloy filter expressions pass through unchanged.
+  where:
+    channel ? 'store' | 'web'
+  project:
+    line_item_id
+    sold_at is sale.sold_at
+    channel
+    product_at_sale.category_name
+  order_by:
+    sale.sold_at desc
+  top: 25
 }
 
 query: inventory_exceptions is InventoryPosition -> {
@@ -751,7 +783,7 @@ query: same_store_category_health is SaleLine -> {
 // A first OntoQL implementation could expand this compact file into verbose
 // concept declarations plus Malloy source definitions:
 //
-//   - `concept X is kind from table('x')` creates both the concept and source.
+//   - `concept X is kind from duckdb.table('x')` creates both the concept and source.
 //   - `field_name :: Type` maps by name to `X.field_name`.
 //   - `occurrence_time`, `valid_time`, `observation_time`, and
 //     `recorded_time` are explicit temporal axes. Events usually use
@@ -763,7 +795,7 @@ query: same_store_category_health is SaleLine -> {
 //     `thing is R`.
 //   - `validation: name is { predicate: ... }` compiles the predicate into an
 //     executable data-quality check; false rows are errors.
-//   - `format: currency("USD", 2)` is OntoQL metadata; a Malloy emitter can
+//   - `render_format: currency("USD", 2)` is OntoQL metadata; a Malloy emitter can
 //     translate it to the target dialect's annotation syntax.
 //   - `join_one customer?: Customer on customer_id` creates an optional
 //     participant and a Malloy join.

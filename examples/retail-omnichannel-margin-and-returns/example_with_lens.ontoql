@@ -110,7 +110,7 @@ lens: margin_operations is {
 
   type: MarginRiskBand is string {
     scale_type: ordinal
-    allowed_values: ['healthy', 'watch', 'intervene']
+    enum: ['healthy', 'watch', 'intervene']
   }
 
   refine: SaleLine extend {

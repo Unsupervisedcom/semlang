@@ -27,7 +27,19 @@ describe("CLI", () => {
     expect(JSON.parse(ast.stdout).packageName).toBe("retail.omnichannel_margin_returns");
 
     const model = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "model"], { cwd: root });
-    expect(JSON.parse(model.stdout).concepts.Sale.table).toBe("transactions");
+    expect(JSON.parse(model.stdout).concepts.Sale.source).toMatchObject({
+      kind: "table",
+      connection: "duckdb",
+      path: "transactions"
+    });
+  });
+
+  it("01.02.013 emits JSON Schema", async () => {
+    const schema = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "json-schema"], { cwd: root });
+    const parsed = JSON.parse(schema.stdout);
+    expect(parsed.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/ontoql/1": true });
+    expect(parsed.$defs["type.ReturnStatus"].enum).toEqual(["authorized", "received", "accepted", "rejected", "settled"]);
+    expect(parsed.$defs["concept.Store"]["x-ontoql-stereotype"]).toBe("kind");
   });
 
   it("rejects invalid enum-like options", async () => {
@@ -37,14 +49,13 @@ describe("CLI", () => {
       "examples/retail-omnichannel-margin-and-returns/example.ontoql",
       "--emit",
       "wat"
-    ], { cwd: root })).rejects.toThrow(/Allowed choices are ast, model, malloy/);
+    ], { cwd: root })).rejects.toThrow(/Allowed choices are ast, model, malloy, json-schema/);
 
     await expect(execFileAsync("node", [
       "dist/src/cli.js",
       "compile",
       "examples/retail-omnichannel-margin-and-returns/example.ontoql",
-      "--source-mode",
-      "postgres"
-    ], { cwd: root })).rejects.toThrow(/Allowed choices are bare, duckdb/);
+      "--unknown-option"
+    ], { cwd: root })).rejects.toThrow(/unknown option/);
   });
 });

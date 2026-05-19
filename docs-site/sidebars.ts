@@ -12,10 +12,13 @@ const sidebars: SidebarsConfig = {
       items: [
         "language-reference/concepts",
         "language-reference/declarations",
+        "language-reference/sources",
         "language-reference/expressions",
         "language-reference/lenses",
         "language-reference/diagnostics-lowering",
-        "language-reference/agent-instructions"
+        "language-reference/schema-vocabulary",
+        "language-reference/agent-instructions",
+        "language-reference/supported_malloy_features"
       ]
     }
   ]

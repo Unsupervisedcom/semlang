@@ -55,7 +55,7 @@ describe("compiler diagnostics", () => {
 
     const unclosedBlock = parseOntoql(source([
       "package bad.unclosed",
-      "concept Broken is kind from table('broken') {",
+      "concept Broken is kind from duckdb.table('broken') {",
       "  identity id :: string"
     ]));
 
@@ -68,7 +68,7 @@ describe("compiler diagnostics", () => {
 
   it("reports a missing package declaration at the start of the file", () => {
     const result = parseOntoql(source([
-      "concept Customer is kind from table('customers') {",
+      "concept Customer is kind from duckdb.table('customers') {",
       "  identity customer_id :: string",
       "}"
     ]), { filePath: "/work/no_package.ontoql" });
@@ -86,7 +86,7 @@ describe("compiler diagnostics", () => {
       "package bad.unresolved",
       "type: Id is string {",
       "}",
-      "concept Sale is event from table('sales') {",
+      "concept Sale is event from duckdb.table('sales') {",
       "  identity sale_id :: MissingType",
       "  join_one customer: MissingCustomer on customer_id",
       "  field:",
@@ -129,7 +129,7 @@ describe("compiler diagnostics", () => {
       "}",
       "type: Id is string {",
       "}",
-      "concept Account is kind from table('accounts') {",
+      "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: Id",
       "  field:",
       "    status :: string",
@@ -137,7 +137,7 @@ describe("compiler diagnostics", () => {
       "  role Active when status = 'active'",
       "  role Active when status = 'enabled'",
       "}",
-      "concept Account is kind from table('accounts_archive') {",
+      "concept Account is kind from duckdb.table('accounts_archive') {",
       "  identity archive_id :: Id",
       "}",
       "query: q is Account -> {",
@@ -180,11 +180,11 @@ describe("compiler diagnostics", () => {
   it("reports globally ambiguous role names", async () => {
     const result = await compileOntoql(source([
       "package bad.roles",
-      "concept Customer is kind from table('customers') {",
+      "concept Customer is kind from duckdb.table('customers') {",
       "  identity customer_id :: string",
       "  role Active when customer_id is not null",
       "}",
-      "concept Account is kind from table('accounts') {",
+      "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
       "  role Active when account_id is not null",
       "}"
@@ -200,7 +200,7 @@ describe("compiler diagnostics", () => {
   it("reports bad lenses with the query or lens line that caused the failure", async () => {
     const unknownLens = await compileOntoql(source([
       "package bad.lens",
-      "concept Account is kind from table('accounts') {",
+      "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
       "}",
       "query: q is Account with missing_lens -> {",
@@ -233,7 +233,7 @@ describe("compiler diagnostics", () => {
 
     const invalidLensMember = await compileOntoql(source([
       "package bad.lens_member",
-      "concept Account is kind from table('accounts') {",
+      "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
       "}",
       "lens: broken is {",
@@ -256,7 +256,7 @@ describe("compiler diagnostics", () => {
 
     const cycle = await compileOntoql(source([
       "package bad.lens_cycle",
-      "concept Account is kind from table('accounts') {",
+      "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
       "}",
       "lens: first is second extend {",
@@ -307,10 +307,10 @@ describe("compiler diagnostics", () => {
   it("reports temporal join misuse on the join declaration", async () => {
     const result = await compileOntoql(source([
       "package bad.temporal",
-      "concept Product is kind from table('products') {",
+      "concept Product is kind from duckdb.table('products') {",
       "  identity product_id :: string",
       "}",
-      "concept SaleLine is event from table('sale_lines') {",
+      "concept SaleLine is event from duckdb.table('sale_lines') {",
       "  identity line_id :: string",
       "  field:",
       "    product_id :: string",
@@ -329,7 +329,7 @@ describe("compiler diagnostics", () => {
   it("reports aggregate aliases that expose raw row fields", async () => {
     const result = await compileOntoql(source([
       "package bad.aggregate",
-      "concept SaleLine is event from table('sale_lines') {",
+      "concept SaleLine is event from duckdb.table('sale_lines') {",
       "  identity line_id :: string",
       "  field:",
       "    customer_id :: string",
@@ -350,6 +350,29 @@ describe("compiler diagnostics", () => {
     });
     expect(result.diagnostics.filter((item) => item.code === "RAW_FIELD_IN_AGGREGATE_ALIAS").map((item) => item.message)).toEqual(expect.arrayContaining([
       expect.stringMatching(/mixed_total references raw row field customer_id/)
+    ]));
+  });
+
+  it("reports unknown query and nested view references on the use site", async () => {
+    const result = await compileOntoql(source([
+      "package bad.views",
+      "concept Sale is event from duckdb.table('sales') {",
+      "  identity sale_id :: string",
+      "}",
+      "query: direct is Sale -> missing_view",
+      "query: nested is Sale -> {",
+      "  nest:",
+      "    also_missing",
+      "}"
+    ]));
+
+    expectDiagnostic(result, "UNKNOWN_VIEW", {
+      message: /Query direct targets unknown view missing_view on Sale/,
+      line: 5,
+      column: 1
+    });
+    expect(result.diagnostics.filter((item) => item.code === "UNKNOWN_VIEW").map((item) => item.message)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Nest references unknown view also_missing on Sale/)
     ]));
   });
 });

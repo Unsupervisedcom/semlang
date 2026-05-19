@@ -82,7 +82,7 @@ lens: watchlist_credit_review is {
 
   type: CreditActionBand is string {
     scale_type: ordinal
-    allowed_values: ['monitor', 'explain', 'escalate']
+    enum: ['monitor', 'explain', 'escalate']
   }
 
   refine: CreditFacility extend {
