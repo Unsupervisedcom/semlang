@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "prettier --check . && eslint . && npm test",
     "fix": "eslint . --fix && prettier --write .",
-    "prepare": "husky",
+    "prepare": "git config core.hooksPath .husky || true",
     "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --exclude test/integration.test.ts",

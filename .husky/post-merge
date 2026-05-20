@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 if git rev-parse --verify ORIG_HEAD >/dev/null 2>&1 &&
-  git diff --name-only ORIG_HEAD HEAD -- package-lock.json | grep -q '^package-lock.json$'; then
-  echo "package-lock.json changed; running npm install"
-  npm install
+  git diff --name-only ORIG_HEAD HEAD -- package-lock.json docs-site/package-lock.json |
+    grep -Eq '^(package-lock.json|docs-site/package-lock.json)$'; then
+  .husky/npm-install-if-needed
 fi

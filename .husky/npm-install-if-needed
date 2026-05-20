@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+
+set -eu
+
+install_if_needed() {
+  name="$1"
+  dir="$2"
+  lockfile="$dir/package-lock.json"
+  installed_lockfile="$dir/node_modules/.package-lock.json"
+
+  if [ ! -f "$lockfile" ]; then
+    return 0
+  fi
+
+  if [ -f "$installed_lockfile" ] && [ ! "$lockfile" -nt "$installed_lockfile" ]; then
+    return 0
+  fi
+
+  if [ "$dir" = "." ]; then
+    echo "$name npm dependencies missing or stale; running npm install"
+    npm install
+  else
+    echo "$name npm dependencies missing or stale; running npm install --prefix $dir"
+    npm --prefix "$dir" install
+  fi
+}
+
+install_if_needed "Root" "."
+install_if_needed "Docs site" "docs-site"

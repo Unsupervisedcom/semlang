@@ -4,10 +4,11 @@ old_ref="$1"
 new_ref="$2"
 
 if [ "$old_ref" = "0000000000000000000000000000000000000000" ]; then
+  .husky/npm-install-if-needed
   exit 0
 fi
 
-if git diff --name-only "$old_ref" "$new_ref" -- package-lock.json | grep -q '^package-lock.json$'; then
-  echo "package-lock.json changed; running npm install"
-  npm install
+if git diff --name-only "$old_ref" "$new_ref" -- package-lock.json docs-site/package-lock.json |
+  grep -Eq '^(package-lock.json|docs-site/package-lock.json)$'; then
+  .husky/npm-install-if-needed
 fi
