@@ -1,4 +1,4 @@
-// OntoQL sketch for the retail omnichannel margin and returns example,
+// SemLang sketch for the retail omnichannel margin and returns example,
 // extended with query-time lenses.
 //
 // This file intentionally imports the base package instead of repeating it.
@@ -7,7 +7,7 @@
 //   - `lens: name is { ... }` declares a reusable overlay.
 //   - `lens: child is parent, other_parent extend { ... }` composes overlays
 //     and then applies one more extension block.
-//   - A lens body can contain normal OntoQL declarations, such as new types,
+//   - A lens body can contain normal SemLang declarations, such as new types,
 //     concepts, roles, joins, dimensions, measures, views, and queries.
 //   - `refine: X extend { ... }` modifies the visible definition of an
 //     existing concept named X while the lens is active. This intentionally
@@ -27,7 +27,7 @@
 
 package retail.omnichannel_margin_returns.with_lens
 
-include "./example.ontoql"
+include "./example.semlang"
 
 // ---------------------------------------------------------------------------
 // Lens: Western Region
@@ -304,7 +304,7 @@ query: western_pii_customer_service_returns is ReturnLine with western_region, w
 // Compiler Ideas Implied By Lens Syntax
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could compile a lens application in this order:
+// A first SemLang implementation could compile a lens application in this order:
 //
 //   1. Load the imported package graph.
 //   2. Copy the visible declarations into a query-local model environment.

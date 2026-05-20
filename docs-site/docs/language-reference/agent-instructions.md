@@ -3,19 +3,19 @@ title: Agent Instructions
 sidebar_position: 8
 ---
 
-This is a concise guide for agents that need to read or write OntoQL.
+This is a concise guide for agents that need to read or write SemLang.
 
-OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy's mental model for sources, joins, dimensions, measures, views, and queries, then add the OntoQL differences below.
+SemLang is best understood as Malloy with a semantic ontology layer. Keep Malloy's mental model for sources, joins, dimensions, measures, views, and queries, then add the SemLang differences below.
 
 ## Start From Malloy
 
-- A Malloy `source` becomes an OntoQL `concept`.
+- A Malloy `source` becomes a SemLang `concept`.
 - A Malloy table stays close by: `concept Sale is event from duckdb.table('transactions')`.
 - Malloy-style `dimension:`, `measure:`, `view:`, `where:`, `group_by:`, `aggregate:`, and `query: ... -> { ... }` remain the default shape.
 - Queries target concepts, not physical source names: `query: q is SaleLine -> { ... }`.
-- OntoQL should compile to Malloy. Do not invent syntax that cannot lower clearly.
+- SemLang should compile to Malloy. Do not invent syntax that cannot lower clearly.
 
-## What OntoQL Adds
+## What SemLang Adds
 
 - `type:` declarations give primitive values semantic meaning, such as `Dollars`, `CustomerId`, or `BusinessDate`.
 - `concept X is kind/event/situation/relator/phase ...` names what a row means, not just where it is stored.
@@ -28,7 +28,7 @@ OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy'
 
 ## Authoring Rules
 
-- Prefer the smallest OntoQL construct that carries new meaning.
+- Prefer the smallest SemLang construct that carries new meaning.
 - Use a role only when the role is reusable and meaningful in business language.
 - If a lens only narrows data, write `where:` directly rather than declaring a role for the same predicate.
 - Keep grains separate. Do not flatten events, situations, relators, and snapshots into one concept just to make a query shorter.
@@ -45,6 +45,14 @@ OntoQL is best understood as Malloy with a semantic ontology layer. Keep Malloy'
 - Compiler functions may reference requirement IDs where the implementation mapping is non-obvious, but tests are the required source of traceability.
 - Update the relevant requirement file before or alongside changing compiler behavior.
 
+## Global MCP Install
+
+- Use the live source-backed MCP command when configuring agents: `semlang-mcp`.
+- To install it globally, run `npm install` and `npm link` from `/Users/noah/Documents/semlang2`.
+- Project MCP configs should use `{ "command": "semlang-mcp", "args": [] }` under an `mcpServers.semlang` entry.
+- The command resolves SemLang server code from the linked checkout, while model paths passed to `set_ontology_source` resolve from the agent project's working directory.
+- Restart an already-running MCP session after changing server code; newly-started sessions pick up the latest source directly.
+
 ## Common Translations
 
 Malloy:
@@ -58,9 +66,9 @@ source: line_items is duckdb.table('retail_line_items') extend {
 }
 ```
 
-OntoQL:
+SemLang:
 
-```ontoql
+```semlang
 concept SaleLine is situation from duckdb.table('retail_line_items') {
   identity line_item_id :: SaleLineId
   join_one sale: Sale on transaction_id
@@ -75,7 +83,7 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 
 Lens filter:
 
-```ontoql
+```semlang
 lens: western_region is {
   refine: Store extend {
     where: region = 'West'
@@ -89,4 +97,4 @@ lens: western_region is {
 
 ## When Unsure
 
-Choose the Malloy-shaped expression first, then add OntoQL semantics only where they clarify identity, concept type, role meaning, time, validation, or query-time context.
+Choose the Malloy-shaped expression first, then add SemLang semantics only where they clarify identity, concept type, role meaning, time, validation, or query-time context.

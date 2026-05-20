@@ -1,11 +1,11 @@
 {
-  "name": "semlang2",
+  "name": "semlang",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "ontoql": "./bin/ontoql.js",
-    "ontoql-mcp": "./bin/ontoql-mcp.js"
+    "semlang": "./bin/semlang.js",
+    "semlang-mcp": "./bin/semlang-mcp.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

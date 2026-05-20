@@ -1,4 +1,4 @@
-// OntoQL sketch for the SaaS product usage and revenue example, extended with
+// SemLang sketch for the SaaS product usage and revenue example, extended with
 // query-time lenses.
 //
 // The base file names the shared business concepts. This file shows how teams
@@ -8,7 +8,7 @@
 
 package saas.product_usage_revenue.with_lens
 
-include "./example.ontoql"
+include "./example.semlang"
 
 // ---------------------------------------------------------------------------
 // Lens: Enterprise Revenue

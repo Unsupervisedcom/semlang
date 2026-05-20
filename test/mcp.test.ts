@@ -1,14 +1,26 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createOntoqlMcp } from "../src/index.js";
+import { createSemLangMcp } from "../src/index.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 
-function examplePath(domain: string, fileName = "example.ontoql"): string {
-  return path.join(root, "examples", domain, fileName);
+async function tempExamplePath(domain: string, fileName = "example.semlang"): Promise<string> {
+  const sourceDir = path.join(root, "examples", domain);
+  const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), `semlang-mcp-${domain}-`));
+  for (const name of ["example.semlang", "example_with_lens.semlang", "schema.sql", "sample_data.sql"]) {
+    const source = path.join(sourceDir, name);
+    try {
+      await fs.copyFile(source, path.join(targetDir, name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return path.join(targetDir, fileName);
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -63,12 +75,12 @@ function rowWith(rows: unknown, expected: Record<string, unknown>): Record<strin
   return row!;
 }
 
-describe("OntoQL MCP example narratives", () => {
+describe("SemLang MCP example narratives", () => {
   it("walks the retail base ontology from search to generated Malloy", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("retail-omnichannel-margin-and-returns")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns")
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -128,13 +140,64 @@ describe("OntoQL MCP example narratives", () => {
       net_after_settled_refunds: "0.00",
       settled_return_rate: 1
     });
+
+    // 06.01.004 / 06.10.003: Action-aware agents should see available actions
+    // in concept details before invoking a write against the temp-mounted data.
+    const returnConcept = await mcp.tools.ontology_describe_concept({ concept: "ReturnLine" });
+    expectOk(returnConcept);
+    expect(names(asObject(returnConcept.concept).actions)).toContain("settle_return");
+
+    const settleAction = await mcp.tools.ontology_describe_action({ action: "settle_return" });
+    expectOk(settleAction);
+    expect(asObject(settleAction.action)).toMatchObject({
+      concept: "ReturnLine",
+      name: "settle_return",
+      subject: { mode: "single" }
+    });
+
+    const settled = await mcp.tools.action_invoke({
+      action: "settle_return",
+      subject: { return_line_id: "RET_50002_1" },
+      params: {
+        approved_refund_amount: 121.25,
+        approved_restocking_fee_amount: 4.5
+      }
+    });
+    expect(settled).toMatchObject({
+      ok: true,
+      engine: "duckdb",
+      action: "settle_return",
+      concept: "ReturnLine",
+      changedRowCount: 1
+    });
+    expect(text(settled.sql)).toContain("UPDATE \"return_lines\" AS root");
+    expect(records(settled.rows)[0]).toMatchObject({
+      return_line_id: "RET_50002_1",
+      return_status: "settled",
+      refund_amount: "121.25",
+      restocking_fee_amount: "4.50"
+    });
+
+    // The second query observes the same MCP DuckDB session after mutation,
+    // proving query.run no longer rebuilds a fresh in-memory database per call.
+    const rerun = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
+    expectQuery(rerun, "monthly_margin_and_returns", "SaleLine");
+    const rerunExecution = asObject(rerun.execution);
+    expect(rowWith(rerunExecution.rows, {
+      sold_month: "2025-02-01 00:00:00",
+      region: "Digital",
+      category_name: "Performance Footwear"
+    })).toMatchObject({
+      settled_refund_amount: "121.25",
+      net_after_settled_refunds: "148.75"
+    });
   });
 
   it("resolves a retail business entity and runs the customer-count query against DuckDB", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("retail-omnichannel-margin-and-returns")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns")
     });
     expectOk(source);
 
@@ -165,10 +228,10 @@ describe("OntoQL MCP example narratives", () => {
   });
 
   it("walks the retail lens ontology through suggestion, PII requirements, and lens-local Malloy", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("retail-omnichannel-margin-and-returns", "example_with_lens.ontoql")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns", "example_with_lens.semlang")
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -263,10 +326,10 @@ describe("OntoQL MCP example narratives", () => {
   });
 
   it("uses SaaS source, search, metric explanation, array paths, and validation", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("saas-product-usage-and-revenue")
+      path: await tempExamplePath("saas-product-usage-and-revenue")
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([
@@ -322,13 +385,61 @@ describe("OntoQL MCP example narratives", () => {
     // FeatureUsageDay grain.
     const validated = await mcp.tools.query_validate({ query: "entitlement_aware_usage" });
     expectQuery(validated, "entitlement_aware_usage", "FeatureUsageDay");
+
+    // 06.07.004 / 06.10.003: subject:new actions should describe their insert
+    // mappings and create rows in the temp-mounted DuckDB database.
+    const supportConcept = await mcp.tools.ontology_describe_concept({ concept: "SupportCase" });
+    expectOk(supportConcept);
+    expect(names(asObject(supportConcept.concept).actions)).toContain("open_case");
+
+    const openCaseAction = await mcp.tools.ontology_describe_action({
+      concept: "SupportCase",
+      name: "open_case"
+    });
+    expectOk(openCaseAction);
+    expect(asObject(openCaseAction.action)).toMatchObject({
+      concept: "SupportCase",
+      name: "open_case",
+      subject: { mode: "new" }
+    });
+
+    const opened = await mcp.tools.action_invoke({
+      concept: "SupportCase",
+      action: "open_case",
+      subject: { support_case_id: "CASE_MCP_OPEN_1" },
+      params: {
+        account_id: "ACCT_ACME",
+        workspace_id: "WS_ACME_PROD",
+        subscription_id: "SUB_ACME_MAIN",
+        priority: "urgent",
+        channel: "chat",
+        category: "workflow_error"
+      }
+    });
+    expect(opened).toMatchObject({
+      ok: true,
+      engine: "duckdb",
+      action: "open_case",
+      concept: "SupportCase",
+      changedRowCount: 1
+    });
+    expect(text(opened.sql)).toContain("INSERT INTO \"support_cases\"");
+    expect(records(opened.rows)[0]).toMatchObject({
+      support_case_id: "CASE_MCP_OPEN_1",
+      account_id: "ACCT_ACME",
+      priority: "urgent",
+      case_status: "open",
+      channel: "chat",
+      category: "workflow_error",
+      sla_paused_minutes: 0
+    });
   });
 
   it("uses banking source, search, lens planning, and regulatory watchlist validation", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.ontoql")
+      path: await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang")
     });
     expectOk(source);
     expect(names(asObject(source.context).lenses)).toEqual(expect.arrayContaining([
@@ -375,10 +486,10 @@ describe("OntoQL MCP example narratives", () => {
   });
 
   it("uses healthcare source, search, temporal axes, paths, and discharge audit validation", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("healthcare-patient-journey-and-quality-measures")
+      path: await tempExamplePath("healthcare-patient-journey-and-quality-measures")
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([
@@ -423,10 +534,10 @@ describe("OntoQL MCP example narratives", () => {
   });
 
   it("uses manufacturing source, search, concept description, array paths, and supplier quality validation", async () => {
-    const mcp = createOntoqlMcp();
+    const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: examplePath("manufacturing-supply-chain-traceability-and-quality")
+      path: await tempExamplePath("manufacturing-supply-chain-traceability-and-quality")
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([

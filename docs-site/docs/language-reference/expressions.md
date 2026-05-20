@@ -3,13 +3,13 @@ title: Expressions
 sidebar_position: 5
 ---
 
-OntoQL expressions intentionally stay close to Malloy expressions. The compiler preserves row-level and aggregate expressions where possible, while adding semantic lowering for role tests, temporal joins, lenses, and query aliases.
+SemLang expressions intentionally stay close to Malloy expressions. The compiler preserves row-level and aggregate expressions where possible, while adding semantic lowering for role tests, temporal joins, lenses, and query aliases.
 
 ## Typed Names
 
 Field-like declarations use `name :: Type`:
 
-```ontoql
+```semlang
 customer_id :: CustomerId
 closed_date :: BusinessDate?
 ```
@@ -20,7 +20,7 @@ The trailing `?` marks a nullable value. Typed names appear in identities, field
 
 Dimensions and measures use `name is expression`:
 
-```ontoql
+```semlang
 dimension:
   margin_amount is net_sales_amount - merchandise_cost_amount
 
@@ -34,7 +34,7 @@ Definitions can wrap onto continuation lines when the expression is long.
 
 Roles are tested with `is RoleName`:
 
-```ontoql
+```semlang
 role LoyaltyCustomer when loyalty_member_id is not null
 
 dimension:
@@ -47,7 +47,7 @@ During lowering, the role test is replaced by the role predicate. If the test us
 
 Join conditions follow the `on` keyword:
 
-```ontoql
+```semlang
 join_one store: Store on store_id
 join_many returns: ReturnLine on line_item_id = original_line_item_id
 ```
@@ -56,7 +56,7 @@ If the condition is a single field name, lowering treats it as equality between 
 
 Temporal joins can add `at expression`:
 
-```ontoql
+```semlang
 join_one product_at_sale: ProductSKUVersion
   on sku_id = product_at_sale.sku_id
   at sold_at
@@ -68,13 +68,13 @@ The `at` expression only applies when the target concept has a `valid_time` peri
 
 Concepts, lenses, views, and queries can use `where:` filters:
 
-```ontoql
+```semlang
 where: region = 'West'
 ```
 
 Filters can also be written as a section:
 
-```ontoql
+```semlang
 where:
   region = 'West'
   and opened_date is not null
@@ -86,7 +86,7 @@ Lens filters compose by conjunction when multiple lenses or refinements apply.
 
 `select:`, `group_by:`, `aggregate:`, `calculate:`, and `order_by:` sections contain expressions. Aggregate entries may define query-local aliases:
 
-```ontoql
+```semlang
 aggregate:
   identified_customers is count(distinct customer_id)
   max_possible_unique_customers is identified_customers + unrecognized_cash_sales

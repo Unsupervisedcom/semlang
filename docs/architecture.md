@@ -1,15 +1,15 @@
-# OntoQL Compiler Architecture
+# SemLang Compiler Architecture
 
-This document explains the current OntoQL compiler strategy for future implementers. The compiler is intentionally conservative: it accepts the subset of OntoQL described in `docs/language.md`, builds a semantic model, and emits deterministic Malloy text. When a construct cannot be parsed, resolved, validated, expanded through lenses, or emitted predictably, the compiler should report diagnostics instead of guessing.
+This document explains the current SemLang compiler strategy for future implementers. The compiler is intentionally conservative: it accepts the subset of SemLang described in `docs/language.md`, builds a semantic model, and emits deterministic Malloy text. When a construct cannot be parsed, resolved, validated, expanded through lenses, or emitted predictably, the compiler should report diagnostics instead of guessing.
 
 ## Public Entry Points
 
 The public API is exported from `src/index.ts`:
 
-- `compileOntoql(source, options)`: parse, resolve, validate, and emit Malloy from an in-memory source string.
+- `compileSemLang(source, options)`: parse, resolve, validate, and emit Malloy from an in-memory source string.
 - `compileFile(filePath, options)`: read a file, install the default file-based package loader, and compile it.
-- `parseOntoql(source, options)`: produce an `OntoqlAst` plus parse diagnostics.
-- `resolveOntoql(ast, options)`: load includes, merge declarations, validate semantics, and produce a `SemanticModel`.
+- `parseSemLang(source, options)`: produce an `SemLangAst` plus parse diagnostics.
+- `resolveSemLang(ast, options)`: load includes, merge declarations, validate semantics, and produce a `SemanticModel`.
 - `emitMalloy(model, options)`: lower a resolved model to Malloy text.
 - `emitJsonSchema(model, options)`: project semantic types and concept row shapes to JSON Schema draft 2020-12.
 - `applyQueryLenses(model, query, diagnostics)`: clone a model and apply the lenses named by a query.
@@ -17,7 +17,7 @@ The public API is exported from `src/index.ts`:
 
 The main public artifacts are:
 
-- `OntoqlAst`: the syntactic tree returned by the parser. It preserves source locations and declaration structure.
+- `SemLangAst`: the syntactic tree returned by the parser. It preserves source locations and declaration structure.
 - `SemanticModel`: the resolved package graph. It indexes types, concepts, lenses, and queries by their compiler names.
 - `ResolvedConcept`: a concept declaration plus compiler metadata such as `sourceName` and `roleBaseNames`.
 - `CompileResult`: the aggregate result containing any available `ast`, `model`, emitted `malloy`, emitted `jsonSchema`, and all diagnostics.
@@ -27,9 +27,9 @@ Callers should treat diagnostics as part of the API contract. If `ast`, `model`,
 
 ## Pipeline Overview
 
-`compileOntoql` currently runs the pipeline in this order:
+`compileSemLang` currently runs the pipeline in this order:
 
-1. Parse source text into an `OntoqlAst`.
+1. Parse source text into an `SemLangAst`.
 2. Resolve includes and merge AST declarations into a `SemanticModel`.
 3. Validate the semantic model, including query-specific lens overlays.
 4. Emit Malloy from the validated semantic model.
@@ -52,7 +52,7 @@ The parser should stay syntax-focused. It should not need global knowledge of kn
 
 ## Resolve Stage
 
-Resolution lives in `src/resolver.ts`. `resolveOntoql` first loads the include graph through the configured `PackageLoader`. Includes are resolved before the including file, and include cycles are reported as `INCLUDE_CYCLE`.
+Resolution lives in `src/resolver.ts`. `resolveSemLang` first loads the include graph through the configured `PackageLoader`. Includes are resolved before the including file, and include cycles are reported as `INCLUDE_CYCLE`.
 
 After loading, `mergeAst` builds a `SemanticModel`:
 
@@ -92,6 +92,7 @@ Current lens behavior:
 - Each `refine: Concept extend { ... }` block appends its members to the cloned target concept.
 - Lens `where:` refinements become additional concept filters.
 - Multiple lens filters compose by conjunction during emission because each filter emits as a separate Malloy `where:`.
+- Lens filters apply across the query-local concept graph. A query rooted at `Customer` can join to a lens-expanded `SaleLine` source, and measures such as `sale_lines.sum(net_sales_amount)` aggregate over the filtered sale-line source rather than the base source.
 - The base model remains available for other queries and for non-lensed emission.
 
 Emission also uses lens expansion. For lensed queries, the emitter generates query-local sources with names like `source_name__query_name` so the lens-expanded concept graph can coexist with the base sources in the same Malloy output.
@@ -107,7 +108,7 @@ Important lowering rules:
 - Joins become Malloy joins, including role-target predicates and valid-time containment for temporal joins.
 - Roles become boolean dimensions named with an `is_...` prefix and role tests are lowered into predicates.
 - Concept `where:` entries become Malloy source filters.
-- Dimensions, measures, views, and queries preserve the OntoQL declaration shape where possible.
+- Dimensions, measures, views, and queries preserve the SemLang declaration shape where possible.
 - Currency metadata may emit a Malloy annotation when the compiler can infer it from referenced fields.
 
 The emitter assumes it receives a validated model. It may still append diagnostics for lens expansion failures discovered while emitting lensed queries, but semantic failures should normally have been found before emission.
@@ -125,7 +126,7 @@ Diagnostics should be precise, stable, and stage-local:
 The current stage boundaries are:
 
 - Parse errors prevent `ast` from being returned.
-- Resolution or validation errors prevent `model` and Malloy output from being returned by `compileOntoql`.
+- Resolution or validation errors prevent `model` and Malloy output from being returned by `compileSemLang`.
 - Emission diagnostics are accumulated into `CompileResult.diagnostics` alongside earlier diagnostics.
 
 Warnings are supported by the type system but are not heavily used yet. Before adding warnings, decide whether callers should treat them as advisory metadata or as policy signals.
@@ -145,7 +146,7 @@ Use focused compiler tests for:
 
 Use fixture tests for:
 
-- Compiling every `example*.ontoql` file in each example domain.
+- Compiling every `example*.semlang` file in each example domain.
 - Ensuring real-world examples produce no diagnostics and emit non-empty Malloy.
 
 Use integration tests for:

@@ -4,13 +4,13 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHOULD", "SHOULD NOT", and "MAY" 
 
 ## Scope
 
-These requirements govern OntoQL/Semlang package declarations, include loading, top-level declaration shape, and source expression handling.
+These requirements govern SemLang package declarations, include loading, top-level declaration shape, and source expression handling.
 
 ## 02.01 File Shape
 
-An OntoQL file has a package-first shape and then a list of declarations that participate in one semantic model. The compiler should keep this shape strict so invalid files fail early with useful diagnostics.
+A SemLang file has a package-first shape and then a list of declarations that participate in one semantic model. The compiler should keep this shape strict so invalid files fail early with useful diagnostics.
 
-- 02.01.001: Every OntoQL file MUST declare exactly one package.
+- 02.01.001: Every SemLang file MUST declare exactly one package.
 - 02.01.002: The package declaration MUST be the first meaningful declaration in the file.
 - 02.01.003: Only comments and blank lines MAY appear before the package declaration.
 - 02.01.004: A file MAY declare includes after the package declaration.
@@ -52,6 +52,6 @@ Named sources can be declared from a root source plus a query body. These source
 - 02.04.001: A named source MAY be declared from another source plus a query body using `source: name is Root -> { ... }`.
 - 02.04.002: When a source-query root resolves to a concept, the compiler MUST validate the query body against that concept.
 - 02.04.003: When a source-query root resolves to a named source, SQL source, table source, or prior query result rather than a concept, the compiler MUST treat the query body as Malloy-shaped pass-through unless it has enough structural schema information to validate fields precisely.
-- 02.04.004: A source query rooted in a non-concept source MUST reject OntoQL-only expression constructs that require concept context, such as role tests or semantic join-path validation, unless a later requirement defines structural validation for that source kind.
+- 02.04.004: A source query rooted in a non-concept source MUST reject SemLang-only expression constructs that require concept context, such as role tests or semantic join-path validation, unless a later requirement defines structural validation for that source kind.
 - 02.04.005: When a concept is backed by a query result, the compiler MUST emit the query before emitting the concept source that extends it.
 - 02.04.006: Source-query bodies MUST support the same query-body clauses as concept-local views and queries where those clauses are otherwise valid.

@@ -1,4 +1,4 @@
-// OntoQL sketch for the banking credit risk and customer exposure example,
+// SemLang sketch for the banking credit risk and customer exposure example,
 // extended with query-time lenses.
 //
 // The base package names durable banking concepts. This file shows how agents
@@ -14,7 +14,7 @@
 
 package banking.credit_risk_customer_exposure.with_lens
 
-include "./example.ontoql"
+include "./example.semlang"
 
 // ---------------------------------------------------------------------------
 // Lens: Regulatory Base Reporting
@@ -506,9 +506,9 @@ query: cre_model_validation_watchlist is LoanExposureSnapshot with commercial_re
 // Compiler Ideas Implied By Lens Syntax
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could compile a lens application in this order:
+// A first SemLang implementation could compile a lens application in this order:
 //
-//   1. Load the imported package graph from example.ontoql.
+//   1. Load the imported package graph from example.semlang.
 //   2. Copy visible declarations into a query-local model environment.
 //   3. Apply each requested lens in order.
 //   4. Merge each `refine: X extend { ... }` block into the existing concept X.

@@ -1,4 +1,4 @@
-// OntoQL sketch for the healthcare patient journey and quality measures
+// SemLang sketch for the healthcare patient journey and quality measures
 // example, extended with query-time lenses.
 //
 // The base file defines the shared semantic model. This file shows how a team
@@ -19,7 +19,7 @@
 
 package healthcare.patient_journey_quality_measures.with_lens
 
-include "./example.ontoql"
+include "./example.semlang"
 
 // ---------------------------------------------------------------------------
 // Lens: Denver Market
@@ -451,9 +451,9 @@ query: denver_readmission_measure_reconciliation is QualityMeasurePopulation wit
 // Compiler Ideas Implied By Lens Syntax
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could compile a lens application in this order:
+// A first SemLang implementation could compile a lens application in this order:
 //
-//   1. Load the imported package graph from `./example.ontoql`.
+//   1. Load the imported package graph from `./example.semlang`.
 //   2. Copy the visible declarations into a query-local semantic environment.
 //   3. Apply the requested lenses in order.
 //   4. Merge each `refine: X extend { ... }` body into existing concept X.

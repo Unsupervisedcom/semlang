@@ -1,6 +1,6 @@
-# OntoQL Actions Requirements
+# SemLang Actions Requirements
 
-This document defines the first implementation slice for OntoQL actions. The language reference in `docs-site/docs/language-reference/actions.md` is the user-facing contract; this file is the implementation checklist.
+This document defines the first implementation slice for SemLang actions. The language reference in `docs-site/docs/language-reference/actions.md` is the user-facing contract; this file is the implementation checklist.
 
 ## Goals
 
@@ -23,7 +23,7 @@ This document defines the first implementation slice for OntoQL actions. The lan
 
 Actions are nested inside concepts:
 
-```ontoql
+```semlang
 concept SupplierLot is kind from duckdb.table('supplier_lots') {
   action quarantine {
     subject: single
@@ -50,7 +50,7 @@ Supported `subject` values:
 
 The parser should preserve optional subject-body metadata for later use:
 
-```ontoql
+```semlang
 subject: collection {
   max: 500
   atomic: true
@@ -59,7 +59,7 @@ subject: collection {
 
 Fields can be marked `writeable`:
 
-```ontoql
+```semlang
 field:
   status :: SupplierLotStatus writeable
   quarantine_reason :: QuarantineReason? writeable
@@ -67,7 +67,7 @@ field:
 
 Fields can provide custom write mappings:
 
-```ontoql
+```semlang
 field:
   normalized_email :: EmailAddress writeable {
     write: column email_normalized = lower(value)
@@ -76,7 +76,7 @@ field:
 
 Field write mappings can be multiline:
 
-```ontoql
+```semlang
 field:
   display_name :: string writeable {
     write:
@@ -87,7 +87,7 @@ field:
 
 Raw SQL assignment fragments are allowed in write mappings:
 
-```ontoql
+```semlang
 field:
   email_search :: string writeable {
     write: sql "email_search_vector = to_tsvector('english', {value})"
@@ -96,7 +96,7 @@ field:
 
 Dimensions can be marked writeable only when they include a write mapping:
 
-```ontoql
+```semlang
 dimension:
   full_name is concat(first_name, ' ', last_name) writeable {
     write:

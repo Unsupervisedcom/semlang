@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileOntoql, parseOntoql } from "../src/index.js";
+import { compileSemLang, parseSemLang } from "../src/index.js";
 import type { Diagnostic } from "../src/types.js";
 
 // Requirement coverage: diagnostic structure, missing/duplicate/unresolved
@@ -36,20 +36,20 @@ function expectDiagnostic(
 
 describe("compiler diagnostics", () => {
   it("reports parse errors with understandable messages and source positions", () => {
-    const invalidConcept = parseOntoql(source([
+    const invalidConcept = parseSemLang(source([
       "package bad.parse",
       "concept Broken kind {"
-    ]), { filePath: "/work/bad_parse.ontoql" });
+    ]), { filePath: "/work/bad_parse.semlang" });
 
     expectDiagnostic(invalidConcept, "INVALID_CONCEPT_DECL", {
       message: /Invalid concept declaration/,
-      file: "/work/bad_parse.ontoql",
+      file: "/work/bad_parse.semlang",
       line: 2,
       column: 1
     });
     expect(invalidConcept.ast).toBeUndefined();
 
-    const invalidQuery = parseOntoql(source([
+    const invalidQuery = parseSemLang(source([
       "package bad.query",
       "query: broken is Order {"
     ]));
@@ -60,7 +60,7 @@ describe("compiler diagnostics", () => {
       column: 1
     });
 
-    const unclosedBlock = parseOntoql(source([
+    const unclosedBlock = parseSemLang(source([
       "package bad.unclosed",
       "concept Broken is kind from duckdb.table('broken') {",
       "  identity id :: string"
@@ -74,22 +74,22 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports a missing package declaration at the start of the file", () => {
-    const result = parseOntoql(source([
+    const result = parseSemLang(source([
       "concept Customer is kind from duckdb.table('customers') {",
       "  identity customer_id :: string",
       "}"
-    ]), { filePath: "/work/no_package.ontoql" });
+    ]), { filePath: "/work/no_package.semlang" });
 
     expectDiagnostic(result, "MISSING_PACKAGE", {
       message: /must declare a package/,
-      file: "/work/no_package.ontoql",
+      file: "/work/no_package.semlang",
       line: 1,
       column: 1
     });
   });
 
   it("reports unresolved symbols where they are introduced", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.unresolved",
       "type: Id is string {",
       "}",
@@ -130,7 +130,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports duplicate declarations on the duplicate line", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.duplicates",
       "type: Id is string {",
       "}",
@@ -185,7 +185,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports globally ambiguous role names", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.roles",
       "concept Customer is kind from duckdb.table('customers') {",
       "  identity customer_id :: string",
@@ -205,7 +205,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports bad lenses with the query or lens line that caused the failure", async () => {
-    const unknownLens = await compileOntoql(source([
+    const unknownLens = await compileSemLang(source([
       "package bad.lens",
       "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
@@ -222,7 +222,7 @@ describe("compiler diagnostics", () => {
       column: 1
     });
 
-    const unknownRefinement = await compileOntoql(source([
+    const unknownRefinement = await compileSemLang(source([
       "package bad.refinement",
       "lens: broken is {",
       "  refine: MissingConcept extend {",
@@ -238,7 +238,7 @@ describe("compiler diagnostics", () => {
       column: 3
     });
 
-    const invalidLensMember = await compileOntoql(source([
+    const invalidLensMember = await compileSemLang(source([
       "package bad.lens_member",
       "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
@@ -261,7 +261,7 @@ describe("compiler diagnostics", () => {
       column: 7
     });
 
-    const cycle = await compileOntoql(source([
+    const cycle = await compileSemLang(source([
       "package bad.lens_cycle",
       "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
@@ -284,10 +284,10 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports include cycles at the include that closes the cycle", async () => {
-    const filePath = "/work/self.ontoql";
-    const result = await compileOntoql(source([
+    const filePath = "/work/self.semlang";
+    const result = await compileSemLang(source([
       "package bad.cycle",
-      "include \"./self.ontoql\""
+      "include \"./self.semlang\""
     ]), {
       filePath,
       packageLoader: {
@@ -296,7 +296,7 @@ describe("compiler diagnostics", () => {
             filePath,
             source: source([
               "package bad.cycle",
-              "include \"./self.ontoql\""
+              "include \"./self.semlang\""
             ])
           };
         }
@@ -304,7 +304,7 @@ describe("compiler diagnostics", () => {
     });
 
     expectDiagnostic(result, "INCLUDE_CYCLE", {
-      message: /Include cycle detected at .*self\.ontoql/,
+      message: /Include cycle detected at .*self\.semlang/,
       file: filePath,
       line: 2,
       column: 1
@@ -312,7 +312,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports temporal join misuse on the join declaration", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.temporal",
       "concept Product is kind from duckdb.table('products') {",
       "  identity product_id :: string",
@@ -334,7 +334,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports aggregate aliases that expose raw row fields", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.aggregate",
       "concept SaleLine is event from duckdb.table('sale_lines') {",
       "  identity line_id :: string",
@@ -361,7 +361,7 @@ describe("compiler diagnostics", () => {
   });
 
   it("reports unknown query and nested view references on the use site", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package bad.views",
       "concept Sale is event from duckdb.table('sales') {",
       "  identity sale_id :: string",

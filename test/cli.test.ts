@@ -10,11 +10,11 @@ const root = path.resolve(import.meta.dirname, "..");
 
 describe("CLI", () => {
   it("emits Malloy to a file", async () => {
-    const out = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "ontoql-cli-")), "model.malloy");
+    const out = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "semlang-cli-")), "model.malloy");
     await execFileAsync("node", [
       "dist/src/cli.js",
       "compile",
-      "examples/retail-omnichannel-margin-and-returns/example.ontoql",
+      "examples/retail-omnichannel-margin-and-returns/example.semlang",
       "--out",
       out
     ], { cwd: root });
@@ -23,10 +23,10 @@ describe("CLI", () => {
   });
 
   it("emits AST and model JSON", async () => {
-    const ast = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "ast"], { cwd: root });
+    const ast = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.semlang", "--emit", "ast"], { cwd: root });
     expect(JSON.parse(ast.stdout).packageName).toBe("retail.omnichannel_margin_returns");
 
-    const model = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "model"], { cwd: root });
+    const model = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.semlang", "--emit", "model"], { cwd: root });
     expect(JSON.parse(model.stdout).concepts.Sale.source).toMatchObject({
       kind: "table",
       connection: "duckdb",
@@ -35,18 +35,18 @@ describe("CLI", () => {
   });
 
   it("01.02.013 emits JSON Schema", async () => {
-    const schema = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.ontoql", "--emit", "json-schema"], { cwd: root });
+    const schema = await execFileAsync("node", ["dist/src/cli.js", "compile", "examples/retail-omnichannel-margin-and-returns/example.semlang", "--emit", "json-schema"], { cwd: root });
     const parsed = JSON.parse(schema.stdout);
-    expect(parsed.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/ontoql/1": true });
+    expect(parsed.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/semlang/1": true });
     expect(parsed.$defs["type.ReturnStatus"].enum).toEqual(["authorized", "received", "accepted", "rejected", "settled"]);
-    expect(parsed.$defs["concept.Store"]["x-ontoql-stereotype"]).toBe("kind");
+    expect(parsed.$defs["concept.Store"]["x-semlang-stereotype"]).toBe("kind");
   });
 
   it("rejects invalid enum-like options", async () => {
     await expect(execFileAsync("node", [
       "dist/src/cli.js",
       "compile",
-      "examples/retail-omnichannel-margin-and-returns/example.ontoql",
+      "examples/retail-omnichannel-margin-and-returns/example.semlang",
       "--emit",
       "wat"
     ], { cwd: root })).rejects.toThrow(/Allowed choices are ast, model, malloy, json-schema/);
@@ -54,7 +54,7 @@ describe("CLI", () => {
     await expect(execFileAsync("node", [
       "dist/src/cli.js",
       "compile",
-      "examples/retail-omnichannel-margin-and-returns/example.ontoql",
+      "examples/retail-omnichannel-margin-and-returns/example.semlang",
       "--unknown-option"
     ], { cwd: root })).rejects.toThrow(/unknown option/);
   });

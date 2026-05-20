@@ -8,7 +8,7 @@ These requirements govern expression preservation and validation, dimensions, me
 
 ## 04.01 Expressions and Typed Names
 
-OntoQL expressions stay close to Malloy expressions. The compiler validates semantic references while preserving accepted expression text where possible.
+SemLang expressions stay close to Malloy expressions. The compiler validates semantic references while preserving accepted expression text where possible.
 
 - 04.01.001: Field-like typed names MUST use `name :: Type`.
 - 04.01.002: Typed names MAY use a trailing `?` to mark nullability.
@@ -94,6 +94,8 @@ Lenses are query-time overlays. They refine a copied query model without changin
 - 04.06.009: When a query applies lenses and targets a named view, the compiler MUST apply lenses before resolving the named view.
 - 04.06.010: Lens refinements MAY add views that are visible to view resolution for the lens-applied query model.
 - 04.06.011: If a lens refinement defines a view with the same name as an existing view on the refined concept, the compiler MUST either define deterministic replacement semantics or report a duplicate view diagnostic.
+- 04.06.012: When a query applies lenses, emitted query-local sources MUST use the lens-expanded concept graph for both the query root and joined concepts.
+- 04.06.013: Measures on a lensed query root that aggregate through joins MUST resolve those joins to lens-expanded sources, so filters on non-root grains are applied before the root-grain aggregation.
 
 ## 04.07 Refinements and Lens-Local Types
 
@@ -106,3 +108,4 @@ Refinements merge semantic members into existing concepts for a lens-applied que
 - 04.07.005: Multiple lens `where` refinements applying to the same concept MUST compose by conjunction.
 - 04.07.006: Lens-local types MAY be declared in a lens.
 - 04.07.007: Lens-local types MUST be available in the query model created for lens application.
+- 04.07.008: A lens `where` refinement on a non-root concept MUST be preserved as a filter on that concept in the lens-expanded query model.

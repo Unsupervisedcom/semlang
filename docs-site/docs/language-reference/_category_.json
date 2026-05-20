@@ -3,7 +3,7 @@
   "position": 1,
   "link": {
     "type": "generated-index",
-    "title": "OntoQL Language Reference",
-    "description": "Reference pages for authoring OntoQL packages, concepts, expressions, lenses, diagnostics, and Malloy lowering."
+    "title": "SemLang Language Reference",
+    "description": "Reference pages for authoring SemLang packages, concepts, expressions, lenses, diagnostics, and Malloy lowering."
   }
 }

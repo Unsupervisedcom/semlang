@@ -2,12 +2,12 @@ import type { Config } from "@docusaurus/types";
 import type { Preset } from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "OntoQL",
+  title: "SemLang",
   tagline: "Semantic analytics language reference",
   url: "http://localhost",
   baseUrl: "/",
-  organizationName: "ontoql",
-  projectName: "ontoql",
+  organizationName: "semlang",
+  projectName: "semlang",
   onBrokenLinks: "throw",
   markdown: {
     hooks: {
@@ -36,19 +36,25 @@ const config: Config = {
   ],
   themeConfig: {
     navbar: {
-      title: "OntoQL",
+      title: "SemLang",
       items: [
         {
           type: "docSidebar",
           sidebarId: "languageReference",
           position: "left",
           label: "Language Reference"
+        },
+        {
+          type: "doc",
+          docId: "mcp-server/index",
+          position: "left",
+          label: "MCP Server"
         }
       ]
     },
     footer: {
       style: "dark",
-      copyright: `Copyright © ${new Date().getFullYear()} OntoQL`
+      copyright: `Copyright © ${new Date().getFullYear()} SemLang`
     },
     prism: {
       additionalLanguages: ["sql"]

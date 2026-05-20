@@ -9,7 +9,7 @@ We need a name for a declarative language for making functional ontologies for a
 - Compiles to Malloy for execution
 - Targets agent-driven reasoning about data
 
-Currently called **OntoQL** (working name).
+Currently called **SemLang** (working name).
 
 ### Naming Criteria
 1. Unused or very fringe in the industry

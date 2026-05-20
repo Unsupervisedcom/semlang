@@ -2,7 +2,7 @@
 
 This package models a compact retail analytics scenario focused on sales, line items, returns, product history, stores, recognized customers, loyalty point balances, promotions, and inventory snapshots. It is designed to demonstrate common retail questions without flattening different grains into one table.
 
-The model separates `transactions` from `retail_line_items`: sales/customer/store questions use one row per checkout or order, while merchandise, margin, promotions, and returns use one row per sold SKU line. Product attributes are joined using valid-time history, nullable `transactions.customer_id` distinguishes recognized shoppers from unrecognized cash purchases, loyalty point balances add daily loyalty-member state, and inventory is modeled separately as daily SKU/store snapshots. The `customers` table also carries direct PII columns, but the base OntoQL example intentionally exposes only hashes and consent metadata; the lens example shows how a privileged query-time lens can reveal those fields.
+The model separates `transactions` from `retail_line_items`: sales/customer/store questions use one row per checkout or order, while merchandise, margin, promotions, and returns use one row per sold SKU line. Product attributes are joined using valid-time history, nullable `transactions.customer_id` distinguishes recognized shoppers from unrecognized cash purchases, loyalty point balances add daily loyalty-member state, and inventory is modeled separately as daily SKU/store snapshots. The `customers` table also carries direct PII columns, but the base SemLang example intentionally exposes only hashes and consent metadata; the lens example shows how a privileged query-time lens can reveal those fields.
 
 ```mermaid
 erDiagram

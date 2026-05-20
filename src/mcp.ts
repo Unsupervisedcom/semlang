@@ -1,12 +1,15 @@
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { applyQueryLenses, compileFile, compileOntoql, emitMalloy, filePackageLoader } from "./index.js";
+import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
 import type {
+  ActionDecl,
+  ActionEditDecl,
   CompileResult,
   Diagnostic,
   JoinDecl,
@@ -19,29 +22,36 @@ import type {
 } from "./types.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-export type OntoqlMcpTool = (args?: Record<string, unknown>) => Promise<Record<string, JsonValue>>;
+export type SemLangMcpTool = (args?: Record<string, unknown>) => Promise<Record<string, JsonValue>>;
 
 const execFileAsync = promisify(execFile);
 
-export interface OntoqlMcpContext {
+export interface SemLangMcpContext {
   compileResult?: CompileResult;
   model?: SemanticModel;
   malloy?: string;
   sourceText?: string;
   filePath?: string;
   sourceKind?: "file" | "files" | "inline";
+  duckDb?: ExampleDuckDbContext;
 }
 
-export interface OntoqlMcpApi {
-  tools: Record<string, OntoqlMcpTool>;
+export interface SemLangMcpApi {
+  tools: Record<string, SemLangMcpTool>;
   toolDescriptions: Record<string, string>;
-  getContext(): OntoqlMcpContext;
+  getContext(): SemLangMcpContext;
 }
 
 interface ToolSpec {
   name: string;
   description: string;
-  handler: OntoqlMcpTool;
+  handler: SemLangMcpTool;
+}
+
+interface ExampleDuckDbContext {
+  sourceDir: string;
+  dbPath: string;
+  schemaPath: string;
 }
 
 type LensModelResult =
@@ -54,8 +64,8 @@ type TemporaryQueryResult =
 
 const maxSearchResults = 20;
 
-export function createOntoqlMcp(): OntoqlMcpApi {
-  const context: OntoqlMcpContext = {};
+export function createSemLangMcp(): SemLangMcpApi {
+  const context: SemLangMcpContext = {};
 
   function requireModel(): SemanticModel {
     if (!context.model) throw new Error("No ontology source has been set. Call set_ontology_source first.");
@@ -71,7 +81,7 @@ export function createOntoqlMcp(): OntoqlMcpApi {
     let result: CompileResult;
     let sourceText: string | undefined;
     let filePath: string | undefined;
-    let sourceKind: OntoqlMcpContext["sourceKind"];
+    let sourceKind: SemLangMcpContext["sourceKind"];
 
     if (paths.length > 0) {
       const absolutePaths = paths.map((item) => path.resolve(item));
@@ -81,19 +91,19 @@ export function createOntoqlMcp(): OntoqlMcpApi {
         result = await compileFile(filePath);
         sourceKind = "file";
       } else {
-        filePath = path.join(process.cwd(), "__ontoql_mcp_context__.ontoql");
+        filePath = path.join(process.cwd(), "__semlang_mcp_context__.semlang");
         sourceText = [
-          "package ontoql.mcp.context",
+          "package semlang.mcp.context",
           ...absolutePaths.map((item) => `include ${JSON.stringify(item)}`),
           inlineSource ?? ""
         ].filter(Boolean).join("\n");
-        result = await compileOntoql(sourceText, { filePath, packageLoader: filePackageLoader() });
+        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader() });
         sourceKind = absolutePaths.length > 0 ? "files" : "inline";
       }
     } else if (inlineSource) {
-      filePath = explicitFilePath ? path.resolve(explicitFilePath) : path.join(process.cwd(), "__ontoql_mcp_inline__.ontoql");
+      filePath = explicitFilePath ? path.resolve(explicitFilePath) : path.join(process.cwd(), "__semlang_mcp_inline__.semlang");
       sourceText = inlineSource;
-      result = await compileOntoql(sourceText, { filePath, packageLoader: filePackageLoader() });
+      result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader() });
       sourceKind = "inline";
     } else {
       return { ok: false, error: "Provide path/paths or source/sources." };
@@ -106,6 +116,7 @@ export function createOntoqlMcp(): OntoqlMcpApi {
       context.sourceText = sourceText;
       context.filePath = filePath;
       context.sourceKind = sourceKind;
+      context.duckDb = undefined;
     }
 
     return {
@@ -140,6 +151,14 @@ export function createOntoqlMcp(): OntoqlMcpApi {
     const concept = conceptByName(modelResult.model, stringValue(args.concept ?? args.name));
     if (!concept) return resolved(notFound("concept", args.concept ?? args.name, modelResult.model));
     return resolved({ ok: true, lenses, concept: jsonSafe(describeConceptPlain(modelResult.model, concept)) });
+  }
+
+  function describeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const model = requireModel();
+    const actionName = stringValue(args.action ?? args.name);
+    const resolvedAction = resolveAction(model, stringValue(args.concept), actionName);
+    if (!resolvedAction.ok) return resolved(resolvedAction);
+    return resolved({ ok: true, action: jsonSafe(describeActionPlain(resolvedAction.concept, resolvedAction.action)) });
   }
 
   function describeRole(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -285,6 +304,56 @@ export function createOntoqlMcp(): OntoqlMcpApi {
     return { ...validation, execution: jsonSafe(execution) };
   }
 
+  async function invokeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const model = requireModel();
+    const actionName = stringValue(args.action ?? args.name);
+    const resolvedAction = resolveAction(model, stringValue(args.concept), actionName);
+    if (!resolvedAction.ok) return jsonSafe(resolvedAction) as Record<string, JsonValue>;
+    const filePath = context.filePath ?? (model.files ?? [])[0];
+    if (!filePath) return { ok: false, error: "No ontology file path is available for local DuckDB execution." };
+    const executionDb = await ensureExampleDuckDb(context, filePath);
+    if (!executionDb) {
+      return { ok: false, skipped: true, reason: "No schema.sql and sample_data.sql files were found next to the ontology source." };
+    }
+    const built = buildActionSql(model, resolvedAction.concept, resolvedAction.action, args);
+    if (!built.ok) {
+      return {
+        ok: false,
+        engine: "duckdb",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        diagnostics: jsonSafe(built.diagnostics)
+      };
+    }
+    try {
+      const rows = await executeDuckDbJson(executionDb.dbPath, built.sql);
+      const changedRowCount = rows.length;
+      return {
+        ok: changedRowCount > 0,
+        engine: "duckdb",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        sql: built.sql,
+        changedRowCount,
+        rows: jsonSafe(rows),
+        diagnostics: jsonSafe(changedRowCount > 0
+          ? built.diagnostics
+          : [...built.diagnostics, "Action matched no rows; the subject may not exist or a guard may have failed."]),
+        verificationQuery: built.verificationQuery ?? null
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        engine: "duckdb",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        sql: built.sql,
+        diagnostics: jsonSafe(built.diagnostics),
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
   async function validateOrRunQuery(args: Record<string, unknown>): Promise<Record<string, JsonValue>> {
     const model = requireModel();
     const name = stringValue(args.query ?? args.name);
@@ -305,7 +374,7 @@ export function createOntoqlMcp(): OntoqlMcpApi {
 
     const queryDecl = buildTemporaryQuery(model, args);
     if (queryDecl.ok !== true) return jsonSafe(queryDecl) as Record<string, JsonValue>;
-    const compiled = await compileOntoql(`${context.sourceText ?? ""}\n\n${queryDecl.queryText}`, {
+    const compiled = await compileSemLang(`${context.sourceText ?? ""}\n\n${queryDecl.queryText}`, {
       filePath: context.filePath,
       packageLoader: filePackageLoader()
     });
@@ -370,10 +439,11 @@ export function createOntoqlMcp(): OntoqlMcpApi {
   }
 
   const specs: ToolSpec[] = [
-    { name: "set_ontology_source", description: "Compile and store an OntoQL ontology from path/paths or inline source/sources.", handler: compileSource },
+    { name: "set_ontology_source", description: "Compile and store a SemLang ontology from path/paths or inline source/sources.", handler: compileSource },
     { name: "semantic.search_terms", description: "Search concepts, fields, metrics, queries, and lenses by semantic terms.", handler: semanticSearchTerms },
     { name: "catalog.resolve_entity", description: "Resolve a name to matching concepts, roles, members, lenses, sources, types, or queries.", handler: resolveEntity },
     { name: "ontology.describe_concept", description: "Describe a concept and its members, optionally after applying lenses.", handler: describeConcept },
+    { name: "ontology.describe_action", description: "Describe an action, resolving by concept or unique action name.", handler: describeAction },
     { name: "ontology.describe_role", description: "Describe one role by name and optional concept.", handler: describeRole },
     { name: "ontology.describe_roles", description: "List roles across the ontology or on one concept.", handler: describeRoles },
     { name: "ontology.explain_metric", description: "Explain measures/metrics, expressions, and expression dependencies.", handler: explainMetric },
@@ -386,6 +456,7 @@ export function createOntoqlMcp(): OntoqlMcpApi {
     { name: "lens.plan", description: "Plan lens application for a question or requested lens list.", handler: lensPlan },
     { name: "query.validate", description: "Validate a named query or temporary root/body query against the current ontology.", handler: validateQuery },
     { name: "query.run", description: "Generate Malloy and execute the query against local DuckDB example data when available.", handler: runQuery },
+    { name: "action.invoke", description: "Invoke a supported action against local DuckDB example data.", handler: invokeAction },
     { name: "reasoning.derive", description: "Derive candidate concepts, metrics, lenses, and path hints for a question.", handler: reasoningDerive }
   ];
 
@@ -409,8 +480,8 @@ export function createOntoqlMcp(): OntoqlMcpApi {
   };
 }
 
-export function createOntoqlMcpServer(api: OntoqlMcpApi = createOntoqlMcp()): McpServer {
-  const server = new McpServer({ name: "ontoql-mcp", version: "0.1.0" });
+export function createSemLangMcpServer(api: SemLangMcpApi = createSemLangMcp()): McpServer {
+  const server = new McpServer({ name: "semlang-mcp", version: "0.1.0" });
   const inputSchema = z.object({}).passthrough();
   for (const [name, handler] of Object.entries(api.tools)) {
     server.registerTool(name, {
@@ -427,8 +498,8 @@ export function createOntoqlMcpServer(api: OntoqlMcpApi = createOntoqlMcp()): Mc
   return server;
 }
 
-export async function runOntoqlMcpStdioServer(): Promise<void> {
-  const server = createOntoqlMcpServer();
+export async function runSemLangMcpStdioServer(): Promise<void> {
+  const server = createSemLangMcpServer();
   await server.connect(new StdioServerTransport());
 }
 
@@ -439,30 +510,26 @@ interface SqlBuildContext {
   joinClauses: string[];
 }
 
-async function executeQuery(context: OntoqlMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): Promise<Record<string, unknown>> {
+async function executeQuery(context: SemLangMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): Promise<Record<string, unknown>> {
   if (validation.ok !== true) return { ok: false, skipped: true, reason: "Query validation failed." };
   const executionContext = currentExecutionContext(context, args, validation);
   if (!executionContext) return { ok: false, skipped: true, reason: "Only named queries from the current ontology can be executed." };
   if (executionContext.query.lenses.length > 0) {
     return { ok: false, skipped: true, reason: "DuckDB execution for lens-expanded queries is not implemented yet." };
   }
-  const data = await exampleDuckDbScripts(executionContext.filePath);
+  const data = await ensureExampleDuckDb(context, executionContext.filePath);
   if (!data) {
     return { ok: false, skipped: true, reason: "No schema.sql and sample_data.sql files were found next to the ontology source." };
   }
   const sql = buildQuerySql(executionContext.model, executionContext.query);
   if (!sql.ok) return { ok: false, skipped: true, diagnostics: sql.diagnostics };
-  const command = `${data.schema}\n${data.sampleData}\n${sql.sql}`;
   try {
-    const { stdout } = await execFileAsync("duckdb", ["-json", "-c", command], {
-      cwd: path.dirname(data.schemaPath),
-      maxBuffer: 10 * 1024 * 1024
-    });
+    const rows = await executeDuckDbJson(data.dbPath, sql.sql);
     return {
       ok: true,
       engine: "duckdb",
       sql: sql.sql,
-      rows: JSON.parse(stdout.trim() || "[]")
+      rows
     };
   } catch (error) {
     return {
@@ -474,7 +541,7 @@ async function executeQuery(context: OntoqlMcpContext, args: Record<string, unkn
   }
 }
 
-function currentExecutionContext(context: OntoqlMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): { model: SemanticModel; query: QueryDecl; filePath: string } | undefined {
+function currentExecutionContext(context: SemLangMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): { model: SemanticModel; query: QueryDecl; filePath: string } | undefined {
   const source = validation.query;
   const model = context.model;
   const name = isRecord(source) ? stringValue(source.name) : stringValue(args.query ?? args.name);
@@ -498,6 +565,36 @@ async function exampleDuckDbScripts(filePath: string): Promise<{ schema: string;
   } catch {
     return undefined;
   }
+}
+
+async function ensureExampleDuckDb(context: SemLangMcpContext, filePath: string): Promise<ExampleDuckDbContext | undefined> {
+  const data = await exampleDuckDbScripts(filePath);
+  if (!data) return undefined;
+  const sourceDir = path.dirname(data.schemaPath);
+  if (context.duckDb?.sourceDir === sourceDir) {
+    try {
+      await fs.access(context.duckDb.dbPath);
+      return context.duckDb;
+    } catch {
+      context.duckDb = undefined;
+    }
+  }
+  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-mcp-duckdb-"));
+  const dbPath = path.join(dbDir, "example.duckdb");
+  await execFileAsync("duckdb", [dbPath, "-c", `${data.schema}\n${data.sampleData}`], {
+    cwd: sourceDir,
+    maxBuffer: 10 * 1024 * 1024
+  });
+  context.duckDb = { sourceDir, dbPath, schemaPath: data.schemaPath };
+  return context.duckDb;
+}
+
+async function executeDuckDbJson(dbPath: string, sql: string): Promise<Array<Record<string, unknown>>> {
+  const { stdout } = await execFileAsync("duckdb", ["-json", dbPath, "-c", sql], {
+    cwd: path.dirname(dbPath),
+    maxBuffer: 10 * 1024 * 1024
+  });
+  return JSON.parse(stdout.trim() || "[]") as Array<Record<string, unknown>>;
 }
 
 function buildQuerySql(model: SemanticModel, query: QueryDecl): { ok: true; sql: string } | { ok: false; diagnostics: string[] } {
@@ -537,6 +634,246 @@ function buildQuerySql(model: SemanticModel, query: QueryDecl): { ok: true; sql:
     query.body.limit ? `LIMIT ${query.body.limit.value}` : undefined
   ].filter(Boolean);
   return { ok: true, sql: `${lines.join("\n")};` };
+}
+
+type ActionResolution =
+  | { ok: true; concept: ResolvedConcept; action: ActionDecl }
+  | { ok: false; error: string; candidates?: Array<Record<string, unknown>>; context?: unknown };
+type ActionTargetColumn = { kind: "default" | "column" | "sql"; column: string };
+
+function resolveAction(model: SemanticModel, conceptName: string | undefined, actionName: string | undefined): ActionResolution {
+  if (!actionName) {
+    return {
+      ok: false,
+      error: "Provide action or name.",
+      candidates: actionCandidates(model)
+    };
+  }
+  if (conceptName) {
+    const concept = model.concepts.get(conceptName);
+    if (!concept) return { ok: false, error: `No concept found for ${conceptName}.`, context: modelSummary(model) };
+    const action = concept.actions.find((candidate) => candidate.name === actionName);
+    if (!action) {
+      return {
+        ok: false,
+        error: `No action ${actionName} found on concept ${conceptName}.`,
+        candidates: concept.actions.map((candidate) => ({ concept: concept.name, action: candidate.name }))
+      };
+    }
+    return { ok: true, concept, action };
+  }
+  const matches = [...model.concepts.values()].flatMap((concept) =>
+    concept.actions
+      .filter((action) => action.name === actionName)
+      .map((action) => ({ concept, action }))
+  );
+  if (matches.length === 1) return { ok: true, concept: matches[0]!.concept, action: matches[0]!.action };
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      error: `Action ${actionName} is ambiguous; provide concept.`,
+      candidates: matches.map((match) => ({ concept: match.concept.name, action: match.action.name, subject: match.action.subject?.mode ?? null }))
+    };
+  }
+  return { ok: false, error: `No action found for ${actionName}.`, candidates: actionCandidates(model) };
+}
+
+function actionCandidates(model: SemanticModel): Array<Record<string, unknown>> {
+  return [...model.concepts.values()].flatMap((concept) =>
+    concept.actions.map((action) => ({ concept: concept.name, action: action.name, subject: action.subject?.mode ?? null }))
+  );
+}
+
+function buildActionSql(
+  model: SemanticModel,
+  concept: ResolvedConcept,
+  action: ActionDecl,
+  args: Record<string, unknown>
+): { ok: true; sql: string; diagnostics: string[]; verificationQuery?: string } | { ok: false; diagnostics: string[] } {
+  const diagnostics: string[] = [];
+  if (concept.source.kind !== "table") {
+    return { ok: false, diagnostics: [`Action ${action.name} cannot run locally because ${concept.name} is not backed by a DuckDB table source.`] };
+  }
+  const mode = action.subject?.mode;
+  if (mode !== "single" && mode !== "new") {
+    return { ok: false, diagnostics: [`Action invocation currently supports subject:single and subject:new; ${action.name} declares ${mode ?? "no subject"}.`] };
+  }
+  const params = actionParameterValues(action, args, diagnostics);
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
+  const ctx: SqlBuildContext = { model, root: concept, joins: new Map([["", "root"]]), joinClauses: [] };
+
+  if (mode === "single") {
+    const subjectWhere = subjectWhereSql(concept, args, diagnostics);
+    const guardSql = action.guards.map((guard) => actionExpressionSql(ctx, concept, guard.predicate, params, diagnostics));
+    if (diagnostics.length > 0) return { ok: false, diagnostics };
+    const assignments = action.edits.flatMap((edit) => edit.kind === "set" ? actionSetAssignments(ctx, concept, edit, params, diagnostics) : []);
+    const unsupported = action.edits.filter((edit) => edit.kind !== "set").map((edit) => edit.kind);
+    if (unsupported.length > 0) diagnostics.push(`Skipped unsupported edit kinds for subject:single: ${unsupported.join(", ")}.`);
+    if (assignments.length === 0) return { ok: false, diagnostics: [...diagnostics, `Action ${action.name} has no set edits that can be lowered to SQL.`] };
+    if (diagnostics.length > 0) return { ok: false, diagnostics };
+    const where = [subjectWhere, ...guardSql.map((guard) => `(${guard})`)].filter(Boolean).join(" AND ");
+    const sql = [
+      `UPDATE ${quoteIdent(concept.source.path)} AS root`,
+      `SET ${assignments.join(", ")}`,
+      `WHERE ${where}`,
+      "RETURNING *;"
+    ].join("\n");
+    return { ok: true, sql, diagnostics, verificationQuery: `SELECT * FROM ${quoteIdent(concept.source.path)} AS root WHERE ${subjectWhere};` };
+  }
+
+  const insert = action.edits.find((edit): edit is Extract<ActionEditDecl, { kind: "insert" }> => edit.kind === "insert");
+  if (!insert) return { ok: false, diagnostics: [`Action ${action.name} has no insert edit for subject:new.`] };
+  const values = new Map<string, string>();
+  for (const identity of concept.identities) {
+    const identityValue = subjectValue(identity.name, args) ?? generatedIdentityValue(concept, action, identity.name);
+    values.set(identity.name, sqlLiteral(identityValue));
+  }
+  for (const assignment of insert.assignments) {
+    for (const target of actionTargetColumns(concept, assignment.target, diagnostics)) {
+      const sqlValue = actionExpressionSql(ctx, concept, assignment.expression, params, diagnostics);
+      if (target.kind === "sql") {
+        diagnostics.push(`Skipped raw SQL write mapping for ${assignment.target}; action.invoke only lowers default and column mappings.`);
+        continue;
+      }
+      values.set(target.column, sqlValue);
+    }
+  }
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
+  const columns = [...values.keys()];
+  const sql = [
+    `INSERT INTO ${quoteIdent(concept.source.path)} (${columns.map(quoteIdent).join(", ")})`,
+    `VALUES (${columns.map((column) => values.get(column)).join(", ")})`,
+    "RETURNING *;"
+  ].join("\n");
+  const identity = concept.identities[0];
+  const verificationQuery = identity && values.has(identity.name)
+    ? `SELECT * FROM ${quoteIdent(concept.source.path)} WHERE ${quoteIdent(identity.name)} = ${values.get(identity.name)};`
+    : undefined;
+  return { ok: true, sql, diagnostics, verificationQuery };
+}
+
+function actionParameterValues(action: ActionDecl, args: Record<string, unknown>, diagnostics: string[]): Map<string, unknown> {
+  const supplied = isRecord(args.params) ? args.params : {};
+  const params = new Map<string, unknown>();
+  for (const param of action.params) {
+    const value = supplied[param.name] ?? args[param.name];
+    if (value !== undefined) {
+      params.set(param.name, value);
+      continue;
+    }
+    if (param.defaultExpression !== undefined) {
+      params.set(param.name, literalExpressionValue(param.defaultExpression));
+      continue;
+    }
+    if (!param.nullable) diagnostics.push(`Missing required action parameter ${param.name}.`);
+  }
+  return params;
+}
+
+function actionSetAssignments(
+  ctx: SqlBuildContext,
+  concept: ResolvedConcept,
+  edit: Extract<ActionEditDecl, { kind: "set" }>,
+  params: Map<string, unknown>,
+  diagnostics: string[]
+): string[] {
+  return actionTargetColumns(concept, edit.target, diagnostics).flatMap((target) => {
+    if (target.kind === "sql") {
+      diagnostics.push(`Skipped raw SQL write mapping for ${edit.target}; action.invoke only lowers default and column mappings.`);
+      return [];
+    }
+    return `${quoteIdent(target.column)} = ${actionExpressionSql(ctx, concept, edit.expression, params, diagnostics)}`;
+  });
+}
+
+function actionTargetColumns(concept: ResolvedConcept, target: string, diagnostics: string[]): ActionTargetColumn[] {
+  const member = concept.fields.find((candidate) => candidate.name === target)
+    ?? concept.dimensions.find((candidate) => candidate.name === target);
+  if (!member) {
+    diagnostics.push(`Action target ${target} is not a field or writeable dimension on ${concept.name}.`);
+    return [];
+  }
+  const mappings = member.writeMappings.length > 0 ? member.writeMappings : [{ kind: "default" as const, location: member.location }];
+  return mappings.flatMap<ActionTargetColumn>((mapping) => {
+    if (mapping.kind === "default") return [{ kind: "default", column: target }];
+    if (mapping.kind === "column") return [{ kind: "column", column: mapping.column }];
+    return [{ kind: "sql", column: "" }];
+  });
+}
+
+function actionExpressionSql(
+  ctx: SqlBuildContext,
+  concept: ResolvedConcept,
+  expression: string,
+  params: Map<string, unknown>,
+  diagnostics: string[]
+): string {
+  const trimmed = normalizeActionExpression(expression);
+  if (params.has(trimmed)) return sqlLiteral(params.get(trimmed));
+  if (/^current_(time|timestamp)$/i.test(trimmed)) return "CURRENT_TIMESTAMP";
+  if (/^current_date$/i.test(trimmed)) return "CURRENT_DATE";
+  if (/^true$/i.test(trimmed)) return "TRUE";
+  if (/^false$/i.test(trimmed)) return "FALSE";
+  if (/^null$/i.test(trimmed)) return "NULL";
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return trimmed;
+  if (/^'.*'$/.test(trimmed)) return trimmed;
+  return sqlExpression(ctx, concept, "", replaceParameterReferences(trimmed, params), diagnostics);
+}
+
+function normalizeActionExpression(expression: string): string {
+  return expression
+    .replace(/\bthis\./g, "")
+    .replace(/\bin\s*\[/gi, "in (")
+    .replace(/\]/g, ")")
+    .trim();
+}
+
+function replaceParameterReferences(expression: string, params: Map<string, unknown>): string {
+  const replacements = new Map([...params.entries()].map(([key, value]) => [key, sqlLiteral(value)]));
+  return replaceOutsideStrings(expression, replacements);
+}
+
+function subjectWhereSql(concept: ResolvedConcept, args: Record<string, unknown>, diagnostics: string[]): string {
+  const rawWhere = stringValue(args.where);
+  if (rawWhere) return normalizeActionExpression(rawWhere);
+  const subject = isRecord(args.subject) ? args.subject : {};
+  const identity = concept.identities[0];
+  if (identity && (subject[identity.name] !== undefined || args[identity.name] !== undefined || args.id !== undefined)) {
+    return `root.${quoteIdent(identity.name)} = ${sqlLiteral(subject[identity.name] ?? args[identity.name] ?? args.id)}`;
+  }
+  const entries = Object.entries(subject);
+  if (entries.length > 0) {
+    return entries.map(([key, value]) => `root.${quoteIdent(key)} = ${sqlLiteral(value)}`).join(" AND ");
+  }
+  diagnostics.push(`Provide subject, id, where, or ${identity?.name ?? "an identity value"} for subject:single action invocation.`);
+  return "FALSE";
+}
+
+function subjectValue(name: string, args: Record<string, unknown>): unknown {
+  const subject = isRecord(args.subject) ? args.subject : {};
+  return subject[name] ?? args[name] ?? (name === "id" ? args.id : undefined);
+}
+
+function generatedIdentityValue(concept: ResolvedConcept, action: ActionDecl, identityName: string): string {
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+  return `MCP_${concept.name}_${action.name}_${identityName}_${suffix}`.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 120);
+}
+
+function literalExpressionValue(expression: string): unknown {
+  const trimmed = expression.trim();
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
+  if (quoted) return quoted[2]!;
+  if (/^true$/i.test(trimmed)) return true;
+  if (/^false$/i.test(trimmed)) return false;
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
+}
+
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function sqlAggregateItem(
@@ -818,9 +1155,66 @@ function describeConceptPlain(model: SemanticModel, concept: ResolvedConcept) {
     views: concept.views.map((view) => ({ name: view.name, body: view.body, location: view.location })),
     validations: concept.validations,
     temporal: concept.temporal,
+    actions: concept.actions.map((action) => describeActionPlain(concept, action)),
     where: concept.where,
     roleBaseNames: [...concept.roleBaseNames]
   };
+}
+
+function describeActionPlain(concept: ResolvedConcept, action: ActionDecl) {
+  return {
+    concept: concept.name,
+    name: action.name,
+    description: action.description ?? null,
+    subject: action.subject
+      ? {
+          mode: action.subject.mode,
+          metadata: action.subject.metadata,
+          location: action.subject.location
+        }
+      : null,
+    params: action.params,
+    guards: action.guards,
+    edits: action.edits.map((edit) => {
+      if (edit.kind === "set") {
+        return {
+          ...edit,
+          writeTargets: describeActionTargetWriteMappings(concept, edit.target)
+        };
+      }
+      return {
+        ...edit,
+        assignments: edit.assignments.map((assignment) => ({
+          ...assignment,
+          writeTargets: describeActionTargetWriteMappings(concept, assignment.target)
+        }))
+      };
+    }),
+    writeTargets: [...new Set(action.edits.flatMap((edit) =>
+      edit.kind === "set" ? [edit.target] : edit.assignments.map((assignment) => assignment.target)
+    ))].map((target) => ({
+      target,
+      mappings: describeActionTargetWriteMappings(concept, target)
+    })),
+    logs: action.logBlocks,
+    effects: action.effectBlocks,
+    agent: action.agentBlock ?? null,
+    agentMetadata: action.agentMetadata,
+    location: action.location
+  };
+}
+
+function describeActionTargetWriteMappings(concept: ResolvedConcept, target: string) {
+  const field = concept.fields.find((candidate) => candidate.name === target);
+  const dimension = concept.dimensions.find((candidate) => candidate.name === target);
+  const member = field ?? dimension;
+  if (!member) return [];
+  return (member.writeMappings.length > 0 ? member.writeMappings : [{ kind: "default" as const, location: member.location }]).map((mapping) => ({
+    ...mapping,
+    member: target,
+    memberKind: field ? "field" : "dimension",
+    writeable: member.writeable
+  }));
 }
 
 function describeLensPlain(lens: LensDecl) {
@@ -1035,7 +1429,8 @@ function memberSearchItems(concept: ResolvedConcept) {
     ...concept.measures.map((value) => ({ kind: "measure", name: value.name, text: value.expression, value })),
     ...concept.validations.map((value) => ({ kind: "validation", name: value.name, text: `${value.description ?? ""} ${value.predicate ?? ""}`, value })),
     ...concept.temporal.map((value) => ({ kind: "temporal_axis", name: value.axis, text: value.expression, value })),
-    ...concept.views.map((value) => ({ kind: "view", name: value.name, text: queryBodySearchText(value.body), value }))
+    ...concept.views.map((value) => ({ kind: "view", name: value.name, text: queryBodySearchText(value.body), value })),
+    ...concept.actions.map((value) => ({ kind: "action", name: value.name, text: actionSearchText(value), value }))
   ];
 }
 
@@ -1050,7 +1445,24 @@ function conceptMembersSearchText(members: ResolvedConcept | LensDecl["refinemen
     members.validations.map((item) => `${item.name} ${item.description ?? ""} ${item.predicate ?? ""}`).join(" "),
     members.temporal.map((item) => `${item.axis} ${item.expression}`).join(" "),
     members.where.map((item) => item.expression).join(" "),
-    members.views.map((item) => `${item.name} ${queryBodySearchText(item.body)}`).join(" ")
+    members.views.map((item) => `${item.name} ${queryBodySearchText(item.body)}`).join(" "),
+    members.actions.map(actionSearchText).join(" ")
+  ].join(" ");
+}
+
+function actionSearchText(action: ActionDecl): string {
+  return [
+    action.name,
+    action.description ?? "",
+    action.subject?.mode ?? "",
+    action.params.map((param) => `${param.name} ${param.typeName} ${param.defaultExpression ?? ""}`).join(" "),
+    action.guards.map((guard) => `${guard.predicate} ${guard.elseMessage ?? ""}`).join(" "),
+    action.edits.map((edit) => edit.kind === "set"
+      ? `${edit.target} ${edit.expression}`
+      : edit.assignments.map((assignment) => `${assignment.target} ${assignment.expression}`).join(" ")).join(" "),
+    action.logBlocks.flatMap((block) => block.lines).join(" "),
+    action.effectBlocks.flatMap((block) => block.lines).join(" "),
+    action.agentMetadata.map((entry) => `${entry.key} ${entry.value}`).join(" ")
   ].join(" ");
 }
 
@@ -1183,7 +1595,8 @@ function conceptSummary(concept: ResolvedConcept) {
     roles: concept.roles.map((item) => item.name),
     dimensions: concept.dimensions.map((item) => item.name),
     measures: concept.measures.map((item) => item.name),
-    views: concept.views.map((item) => item.name)
+    views: concept.views.map((item) => item.name),
+    actions: concept.actions.map((item) => item.name)
   };
 }
 

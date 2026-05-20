@@ -1,4 +1,4 @@
-// OntoQL sketch for the SaaS product usage and revenue example.
+// SemLang sketch for the SaaS product usage and revenue example.
 //
 // This model keeps the finance, product, entitlement, support, incident, and
 // renewal grains separate. A useful agent should discover those grains instead
@@ -1314,3 +1314,24 @@ query: churned_account_pre_churn_activity is FeatureUsageDay -> {
     feature_events
     units_consumed
 }
+
+// MCP action narrative:
+//   mcp.ontology.describe_concept({ concept: "SupportCase" })
+//   -> includes the open_case action for support workflow creation.
+//   mcp.ontology.describe_action({ concept: "SupportCase", action: "open_case" })
+//   -> subject: new, params, insert edit assignments, write mappings, and log metadata.
+//   mcp.action.invoke({
+//     concept: "SupportCase",
+//     action: "open_case",
+//     subject: { support_case_id: "CASE_MCP_OPEN_1" },
+//     params: {
+//       account_id: "ACCT_ACME",
+//       workspace_id: "WS_ACME_PROD",
+//       subscription_id: "SUB_ACME_MAIN",
+//       priority: "urgent",
+//       channel: "chat",
+//       category: "workflow_error"
+//     }
+//   })
+//   -> inserts into the temp-mounted DuckDB support_cases table and returns the
+//      created row for inspection.

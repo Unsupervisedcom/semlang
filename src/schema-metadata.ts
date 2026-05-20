@@ -42,7 +42,7 @@ export const jsonSchemaMetadataKeywords = new Set([
   "contains"
 ]);
 
-export const ontoqlTypeMetadataKeywords = new Set([
+export const semlangTypeMetadataKeywords = new Set([
   "scale_type",
   "identifies",
   "identifies_role",

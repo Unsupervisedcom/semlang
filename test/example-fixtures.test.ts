@@ -13,18 +13,18 @@ const domains = [
   "saas-product-usage-and-revenue"
 ] as const;
 
-async function ontoqlExamplesForDomain(domain: string): Promise<string[]> {
+async function semlangExamplesForDomain(domain: string): Promise<string[]> {
   const domainDir = path.join(root, "examples", domain);
   const entries = await fs.readdir(domainDir);
   return entries
-    .filter((entry) => /^example.*\.ontoql$/.test(entry))
+    .filter((entry) => /^example.*\.semlang$/.test(entry))
     .sort()
     .map((entry) => path.join(domainDir, entry));
 }
 
-describe("OntoQL example fixtures", () => {
+describe("SemLang example fixtures", () => {
   it.each(domains)("compiles all %s examples", async (domain) => {
-    const examples = await ontoqlExamplesForDomain(domain);
+    const examples = await semlangExamplesForDomain(domain);
     expect(examples.length).toBeGreaterThan(0);
 
     const results = await Promise.all(examples.map(async (example) => ({

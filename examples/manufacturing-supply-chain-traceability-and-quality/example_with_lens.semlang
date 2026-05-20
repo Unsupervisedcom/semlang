@@ -1,4 +1,4 @@
-// OntoQL sketch for the manufacturing traceability and quality example,
+// SemLang sketch for the manufacturing traceability and quality example,
 // extended with query-time lenses.
 //
 // Lenses are useful here because quality and traceability questions often come
@@ -9,14 +9,14 @@
 //   - A supplier-quality engineer wants additional provenance fields that are
 //     not needed in the base analytical model.
 //
-// Each lens below overlays the base model imported from example.ontoql. The
+// Each lens below overlays the base model imported from example.semlang. The
 // base concepts keep the enterprise vocabulary stable; lenses add temporary
 // filters, fields, roles, dimensions, measures, and views for a particular
 // workspace.
 
 package manufacturing.supply_chain_traceability_quality.with_lens
 
-include "./example.ontoql"
+include "./example.semlang"
 
 // ---------------------------------------------------------------------------
 // Lens: Denver Plant

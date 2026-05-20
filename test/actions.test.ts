@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileOntoql, parseOntoql } from "../src/index.js";
+import { compileSemLang, parseSemLang } from "../src/index.js";
 
 // Requirement coverage: concept-local actions, subject modes, parameters,
 // guards, writeable members, write mappings, edits, logs/effects/agent metadata,
@@ -73,9 +73,9 @@ function actionFixture(extraConceptLines: string[] = []): string {
   ]);
 }
 
-describe("OntoQL actions", () => {
+describe("SemLang actions", () => {
   it("parses concept-local actions with subject, params, guards, and edits", () => {
-    const result = parseOntoql(actionFixture());
+    const result = parseSemLang(actionFixture());
 
     expect(result.diagnostics).toEqual([]);
     const concept = result.ast?.concepts[0];
@@ -116,7 +116,7 @@ describe("OntoQL actions", () => {
   });
 
   it("parses writeable fields, dimensions, and write mappings", () => {
-    const result = parseOntoql(actionFixture());
+    const result = parseSemLang(actionFixture());
 
     expect(result.diagnostics).toEqual([]);
     const concept = result.ast?.concepts[0];
@@ -140,7 +140,7 @@ describe("OntoQL actions", () => {
   });
 
   it("validates action declarations and write mappings", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package actions.bad",
       "",
       "concept BadLot is kind from duckdb.table('bad_lots') {",
@@ -194,7 +194,7 @@ describe("OntoQL actions", () => {
   });
 
   it("accepts insert assignments only for subject:new", async () => {
-    const result = await compileOntoql(source([
+    const result = await compileSemLang(source([
       "package actions.insert",
       "",
       "concept RecallCampaign is kind from duckdb.table('recall_campaigns') {",
@@ -226,7 +226,7 @@ describe("OntoQL actions", () => {
   });
 
   it("preserves collection subject metadata", () => {
-    const result = parseOntoql(source([
+    const result = parseSemLang(source([
       "package actions.collection",
       "",
       "concept SupplierLot is kind from duckdb.table('supplier_lots') {",
@@ -255,7 +255,7 @@ describe("OntoQL actions", () => {
   });
 
   it("keeps Malloy output focused on read declarations", async () => {
-    const result = await compileOntoql(actionFixture([
+    const result = await compileSemLang(actionFixture([
       "  measure:",
       "    rows is count()"
     ]));

@@ -1,4 +1,4 @@
-// OntoQL sketch for the banking credit risk and customer exposure example.
+// SemLang sketch for the banking credit risk and customer exposure example.
 //
 // This file intentionally stays close to the data grains in schema.sql:
 //
@@ -683,7 +683,7 @@ concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
 
 concept RiskRating is situation from duckdb.table('risk_ratings') {
   // Ratings can be scoped to a customer, facility, or loan. The SQL enforces a
-  // single populated target. OntoQL makes that rule visible and executable.
+  // single populated target. SemLang makes that rule visible and executable.
   identity risk_rating_id :: string
   valid_time: period(effective_from, effective_to)
   observation_time: assigned_at
@@ -1158,7 +1158,7 @@ query: collateral_coverage_as_of_exposure is LoanExposureSnapshot -> {
   //   -> LoanExposureSnapshot -> active_collateral_links -> collateral_asset
   //   -> CollateralValuation at LoanExposureSnapshot.as_of_date
   //
-  // The current OntoQL sketch declares the active collateral links on the
+  // The current SemLang sketch declares the active collateral links on the
   // exposure concept. A future compiler could push the same `at as_of_date`
   // into the valuation path for allocated net collateral value as of exposure.
   where:
@@ -1269,7 +1269,7 @@ query: problem_rating_lineage is RiskRating -> {
 // Compiler Ideas Implied By This Banking Sketch
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could compile this file into Malloy sources and
+// A first SemLang implementation could compile this file into Malloy sources and
 // validation queries with a few domain-aware expansions:
 //
 //   - `valid_time: period(start, end)` creates a time-range abstraction.

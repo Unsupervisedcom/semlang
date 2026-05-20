@@ -1,31 +1,31 @@
 ---
-title: OntoQL Language Reference
+title: SemLang Language Reference
 sidebar_position: 1
 ---
 
-OntoQL is a semantic modeling language that stays close to Malloy so OntoQL models can compile into Malloy for query execution. It adds an ontology layer beside the analytical model: business concepts, roles, relators, situations, temporal axes, lenses, and validation predicates live in the same file as dimensions, measures, views, and queries.
+SemLang is a semantic modeling language that stays close to Malloy so SemLang models can compile into Malloy for query execution. It adds an ontology layer beside the analytical model: business concepts, roles, relators, situations, temporal axes, lenses, and validation predicates live in the same file as dimensions, measures, views, and queries.
 
-Version 1 is intentionally conservative. Every accepted construct must either lower to deterministic Malloy or produce diagnostics. The language shape is defined by the retail OntoQL examples and by recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples.
+Version 1 is intentionally conservative. Every accepted construct must either lower to deterministic Malloy or produce diagnostics. The language shape is defined by the retail SemLang examples and by recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples.
 
 ## File Shape
 
-An OntoQL file starts with exactly one package declaration:
+A SemLang file starts with exactly one package declaration:
 
-```ontoql
+```semlang
 package retail.omnichannel_margin_returns
 ```
 
-Files may include other OntoQL files by relative path:
+Files may include other SemLang files by relative path:
 
-```ontoql
-include "./example.ontoql"
+```semlang
+include "./example.semlang"
 ```
 
 Includes are loaded before the including file is resolved. Include cycles are invalid.
 
 After the package and any includes, a file can declare semantic types, named sources, concepts, lenses, and queries:
 
-```ontoql
+```semlang
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
@@ -57,5 +57,5 @@ query: monthly_margin is SaleLine -> {
 - [Lenses](./lenses.md) explains query-time semantic overlays.
 - [Actions](./actions.md) describes concept-local write operations, subjects, guards, writeable fields, write mappings, logs, side effects, and action manifest lowering.
 - [Diagnostics and Lowering](./diagnostics-lowering.md) summarizes compiler errors and Malloy emission.
-- [Schema Vocabulary](./schema-vocabulary.md) describes JSON Schema export and OntoQL extension keywords.
+- [Schema Vocabulary](./schema-vocabulary.md) describes JSON Schema export and SemLang extension keywords.
 - [Supported Malloy Features](./supported_malloy_features.md) tracks Malloy compatibility row by row.

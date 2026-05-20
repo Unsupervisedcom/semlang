@@ -1,4 +1,4 @@
-import { jsonSchemaMetadataKeywords, ontoqlTypeMetadataKeywords, parseMetadataLiteral } from "./schema-metadata.js";
+import { jsonSchemaMetadataKeywords, semlangTypeMetadataKeywords, parseMetadataLiteral } from "./schema-metadata.js";
 import type {
   DefinitionDecl,
   Diagnostic,
@@ -13,10 +13,10 @@ import type {
 } from "./types.js";
 
 const draft2020Schema = "https://json-schema.org/draft/2020-12/schema";
-export const ontoqlVocabularyUri = "https://semlang.dev/vocab/ontoql/1";
+export const semlangVocabularyUri = "https://semlang.dev/vocab/semlang/1";
 
 // 01.02.001: the public exporter emits a draft 2020-12 JSON Schema
-// document plus the Semlang/OntoQL vocabulary for semantic extensions.
+// document plus the SemLang vocabulary for semantic extensions.
 export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOptions = {}): JsonSchemaEmitResult {
   const diagnostics: Diagnostic[] = [];
   const defs: Record<string, unknown> = {};
@@ -47,13 +47,13 @@ export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOpti
     $schema: draft2020Schema,
     $id: options.id,
     $vocabulary: {
-      [ontoqlVocabularyUri]: true
+      [semlangVocabularyUri]: true
     },
     title: options.title ?? `${model.packageName} schema`,
     type: "object",
     $defs: defs,
-    "x-ontoql-package": model.packageName,
-    "x-ontoql-files": model.files
+    "x-semlang-package": model.packageName,
+    "x-semlang-files": model.files
   };
   if (!options.id) delete schema.$id;
   return { schema, diagnostics };
@@ -67,16 +67,16 @@ function emitTypeSchema(type: TypeDecl): Record<string, unknown> {
     const value = parseMetadataLiteral(entry.value);
     if (jsonSchemaMetadataKeywords.has(entry.key)) {
       schema[entry.key] = value;
-    } else if (ontoqlTypeMetadataKeywords.has(entry.key)) {
-      schema[`x-ontoql-${camelToKebab(entry.key)}`] = value;
+    } else if (semlangTypeMetadataKeywords.has(entry.key)) {
+      schema[`x-semlang-${camelToKebab(entry.key)}`] = value;
     } else {
-      schema[`x-ontoql-metadata-${camelToKebab(entry.key)}`] = value;
+      schema[`x-semlang-metadata-${camelToKebab(entry.key)}`] = value;
     }
   }
 
   if (type.base === "date" && !("format" in schema)) schema.format = "date";
   if (type.base === "timestamp" && !("format" in schema)) schema.format = "date-time";
-  if (type.base === "currency") schema["x-ontoql-primitive"] = "currency";
+  if (type.base === "currency") schema["x-semlang-primitive"] = "currency";
   return schema;
 }
 
@@ -98,15 +98,15 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
     additionalProperties: true,
     properties,
     required,
-    "x-ontoql-concept": concept.name,
-    "x-ontoql-stereotype": concept.stereotype,
-    "x-ontoql-source": concept.source.expression,
-    "x-ontoql-identity": concept.identities.map((identity) => identity.name)
+    "x-semlang-concept": concept.name,
+    "x-semlang-stereotype": concept.stereotype,
+    "x-semlang-source": concept.source.expression,
+    "x-semlang-identity": concept.identities.map((identity) => identity.name)
   };
 
   if (concept.description) schema.description = stripQuoted(concept.description);
-  if (concept.phaseParent) schema["x-ontoql-phase-parent"] = concept.phaseParent;
-  if (concept.joins.length > 0) schema["x-ontoql-joins"] = concept.joins.map((join) => ({
+  if (concept.phaseParent) schema["x-semlang-phase-parent"] = concept.phaseParent;
+  if (concept.joins.length > 0) schema["x-semlang-joins"] = concept.joins.map((join) => ({
     kind: join.kind,
     name: join.name,
     optional: join.optional,
@@ -115,22 +115,22 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
     with: join.with,
     at: join.at
   }));
-  if (concept.roles.length > 0) schema["x-ontoql-roles"] = concept.roles.map((role) => ({
+  if (concept.roles.length > 0) schema["x-semlang-roles"] = concept.roles.map((role) => ({
     name: role.name,
     predicate: role.predicate
   }));
-  if (concept.temporal.length > 0) schema["x-ontoql-temporal"] = concept.temporal.map((axis) => ({
+  if (concept.temporal.length > 0) schema["x-semlang-temporal"] = concept.temporal.map((axis) => ({
     axis: axis.axis,
     expression: axis.expression
   }));
-  if (concept.where.length > 0) schema["x-ontoql-where"] = concept.where.map((where) => where.expression);
-  if (concept.validations.length > 0) schema["x-ontoql-validations"] = concept.validations.map((validation) => ({
+  if (concept.where.length > 0) schema["x-semlang-where"] = concept.where.map((where) => where.expression);
+  if (concept.validations.length > 0) schema["x-semlang-validations"] = concept.validations.map((validation) => ({
     name: validation.name,
     description: validation.description ? stripQuoted(validation.description) : undefined,
     predicate: validation.predicate
   }));
-  if (concept.dimensions.length > 0) schema["x-ontoql-dimensions"] = concept.dimensions.map((definition) => emitDefinition(model, definition));
-  if (concept.measures.length > 0) schema["x-ontoql-measures"] = concept.measures.map((definition) => emitDefinition(model, definition));
+  if (concept.dimensions.length > 0) schema["x-semlang-dimensions"] = concept.dimensions.map((definition) => emitDefinition(model, definition));
+  if (concept.measures.length > 0) schema["x-semlang-measures"] = concept.measures.map((definition) => emitDefinition(model, definition));
 
   return schema;
 }
@@ -140,12 +140,12 @@ function emitFieldSchema(model: SemanticModel, field: FieldDecl | IdentityField,
   if (field.nullable) {
     return {
       anyOf: [schema, { type: "null" }],
-      ...(options.identity ? { "x-ontoql-identity": true } : {}),
-      ...(options.unique ? { "x-ontoql-unique": true } : {})
+      ...(options.identity ? { "x-semlang-identity": true } : {}),
+      ...(options.unique ? { "x-semlang-unique": true } : {})
     };
   }
-  if (options.identity) schema["x-ontoql-identity"] = true;
-  if (options.unique) schema["x-ontoql-unique"] = true;
+  if (options.identity) schema["x-semlang-identity"] = true;
+  if (options.unique) schema["x-semlang-unique"] = true;
   return schema;
 }
 

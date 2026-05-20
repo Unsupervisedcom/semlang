@@ -23,7 +23,7 @@ export interface PackageLoader {
 }
 
 export interface ParseResult {
-  ast?: OntoqlAst;
+  ast?: SemLangAst;
   diagnostics: Diagnostic[];
 }
 
@@ -33,7 +33,7 @@ export interface ResolveResult {
 }
 
 export interface CompileResult {
-  ast?: OntoqlAst;
+  ast?: SemLangAst;
   model?: SemanticModel;
   malloy?: string;
   jsonSchema?: JsonSchemaDocument;
@@ -53,8 +53,8 @@ export interface JsonSchemaEmitResult {
   diagnostics: Diagnostic[];
 }
 
-export interface OntoqlAst {
-  kind: "OntoqlAst";
+export interface SemLangAst {
+  kind: "SemLangAst";
   packageName: string;
   filePath?: string;
   includes: IncludeDecl[];

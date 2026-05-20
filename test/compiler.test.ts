@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { compileFile, compileOntoql, parseOntoql } from "../src/index.js";
+import { compileFile, compileSemLang, parseSemLang } from "../src/index.js";
 
 // Requirement coverage: type parsing, type validation, JSON Schema export,
 // file/source forms, concept members, analytics/lenses, and read lowering.
@@ -28,20 +28,20 @@ import { compileFile, compileOntoql, parseOntoql } from "../src/index.js";
 // 04.04.003, 04.04.004, 04.04.005, 04.04.006, 04.04.007, 04.04.008, 04.04.009, 04.04.010
 // 04.04.011, 04.05.001, 04.05.002, 04.05.003, 04.05.004, 04.05.005, 04.05.006, 04.05.007
 // 04.06.001, 04.06.002, 04.06.003, 04.06.004, 04.06.005, 04.06.006, 04.06.007, 04.06.008
-// 04.06.009, 04.06.010, 04.06.011, 04.07.001, 04.07.002, 04.07.003, 04.07.004, 04.07.005
-// 04.07.006, 04.07.007
+// 04.06.009, 04.06.010, 04.06.011, 04.06.012, 04.06.013, 04.07.001, 04.07.002, 04.07.003
+// 04.07.004, 04.07.005, 04.07.006, 04.07.007, 04.07.008
 // 05.03.001, 05.03.002, 05.03.003, 05.03.004, 05.03.005, 05.03.006, 05.03.007, 05.03.008
 // 05.04.001, 05.04.002, 05.04.003, 05.04.004, 05.04.005, 05.05.001, 05.05.002, 05.05.003
 // 05.05.004, 05.05.005, 05.05.006, 05.06.001, 05.06.002, 05.06.003
 
 const root = path.resolve(import.meta.dirname, "..");
-const retailBase = path.join(root, "examples/retail-omnichannel-margin-and-returns/example.ontoql");
-const retailLens = path.join(root, "examples/retail-omnichannel-margin-and-returns/example_with_lens.ontoql");
+const retailBase = path.join(root, "examples/retail-omnichannel-margin-and-returns/example.semlang");
+const retailLens = path.join(root, "examples/retail-omnichannel-margin-and-returns/example_with_lens.semlang");
 
-describe("OntoQL parser", () => {
+describe("SemLang parser", () => {
   it("parses the base retail fixture", async () => {
     const source = await fs.readFile(retailBase, "utf8");
-    const result = parseOntoql(source, { filePath: retailBase });
+    const result = parseSemLang(source, { filePath: retailBase });
     expect(result.diagnostics).toEqual([]);
     expect(result.ast?.packageName).toBe("retail.omnichannel_margin_returns");
     expect(result.ast?.types).toHaveLength(22);
@@ -62,7 +62,7 @@ describe("OntoQL parser", () => {
   });
 
   it("reports line and column parse diagnostics", () => {
-    const result = parseOntoql("package bad\nconcept Nope kind\n");
+    const result = parseSemLang("package bad\nconcept Nope kind\n");
     expect(result.ast).toBeUndefined();
     expect(result.diagnostics[0]).toMatchObject({
       code: "INVALID_CONCEPT_DECL",
@@ -71,8 +71,8 @@ describe("OntoQL parser", () => {
   });
 });
 
-describe("OntoQL compiler", () => {
-  it("compiles base retail OntoQL to Malloy", async () => {
+describe("SemLang compiler", () => {
+  it("compiles base retail SemLang to Malloy", async () => {
     const result = await compileFile(retailBase);
     expect(result.diagnostics).toEqual([]);
     expect(result.model?.concepts.size).toBe(11);
@@ -92,6 +92,73 @@ describe("OntoQL compiler", () => {
     expect(result.malloy).toContain("query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->");
   });
 
+  it("applies deep lens filters to joined grains before aggregating on the query root", async () => {
+    const result = await compileSemLang(`
+package lens.deep_filters
+
+concept ProductSKU is kind from duckdb.table('products') {
+  identity product_id :: string
+  field:
+    brand :: string
+}
+
+concept SaleLine is event from duckdb.table('sale_lines') {
+  identity line_id :: string
+  field:
+    customer_id :: string
+    product_id :: string
+    net_sales_amount :: number
+  join_one product: ProductSKU on product_id
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  field:
+    age :: number
+  join_many sale_lines: SaleLine on customer_id
+  measure:
+    apple_product_spend is sale_lines.sum(net_sales_amount)
+}
+
+lens: apple_products is {
+  refine: ProductSKU extend {
+    where: brand = 'Apple'
+  }
+
+  refine: SaleLine extend {
+    where: product.brand = 'Apple'
+  }
+}
+
+lens: young_adult_customers is {
+  refine: Customer extend {
+    where: age >= 18 and age <= 25
+  }
+}
+
+query: young_adult_apple_value is Customer with apple_products, young_adult_customers -> {
+  group_by:
+    customer_id
+  aggregate:
+    apple_product_spend
+}
+`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.model?.concepts.get("Customer")?.where).toHaveLength(0);
+    expect(result.malloy).toContain("source: sale_lines__young_adult_apple_value is duckdb.table('sale_lines') extend");
+    expect(result.malloy).toContain("join_one: product is products__young_adult_apple_value");
+    expect(result.malloy).toContain("where: product.brand = 'Apple'");
+    expect(result.malloy).toContain("source: products__young_adult_apple_value is duckdb.table('products') extend");
+    expect(result.malloy).toContain("where: brand = 'Apple'");
+    expect(result.malloy).toContain("source: customers__young_adult_apple_value is duckdb.table('customers') extend");
+    expect(result.malloy).toContain("join_many: sale_lines is sale_lines__young_adult_apple_value");
+    expect(result.malloy).toContain("where: age >= 18 and age <= 25");
+    expect(result.malloy).toContain("apple_product_spend is sale_lines.sum(net_sales_amount)");
+    expect(result.malloy).toContain("query: young_adult_apple_value is customers__young_adult_apple_value ->");
+    expect(result.malloy).toContain("aggregate:\n    apple_product_spend");
+  });
+
   it("preserves explicit DuckDB table sources", async () => {
     const result = await compileFile(retailBase);
     expect(result.diagnostics).toEqual([]);
@@ -99,7 +166,7 @@ describe("OntoQL compiler", () => {
   });
 
   it("supports Malloy-like table, SQL, named source, and query source references", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package source.forms
 
 type: Id is string {
@@ -168,7 +235,7 @@ concept SaleStatus is situation from sales_by_status {
   });
 
   it("supports query/view compatibility clauses for having, project, nest, index, and view references", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package query.compat
 
 concept Sale is event from duckdb.table('sales') {
@@ -228,7 +295,7 @@ query: compatibility is Sale -> {
   });
 
   it("requires source methods to use named Malloy connections", () => {
-    const result = parseOntoql(`
+    const result = parseSemLang(`
 package bad.source
 
 concept Sale is event from table('sales') {
@@ -244,7 +311,7 @@ concept Sale is event from table('sales') {
   });
 
   it("supports Malloy join_cross and foreign-key with joins", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package malloy.joins
 
 type: Id is string {
@@ -280,7 +347,7 @@ concept Sale is event from duckdb.table('sales') {
   });
 
   it("validates richer Malloy filters, functions, and relation-aware aggregate methods", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package malloy.expressions
 
 type: Id is string {
@@ -332,7 +399,7 @@ query: filtered_sales is Sale -> {
   });
 
   it("diagnoses invalid foreign-key with joins when identity metadata is available", async () => {
-    const missingIdentity = await compileOntoql(`
+    const missingIdentity = await compileSemLang(`
 package bad.join_with_identity
 
 concept Customer is kind from duckdb.table('customers') {
@@ -349,7 +416,7 @@ concept Sale is event from duckdb.table('sales') {
 `);
     expect(missingIdentity.diagnostics.map((diagnostic) => diagnostic.code)).toContain("JOIN_WITH_REQUIRES_IDENTITY");
 
-    const missingForeignKey = await compileOntoql(`
+    const missingForeignKey = await compileSemLang(`
 package bad.join_with_fk
 
 concept Customer is kind from duckdb.table('customers') {
@@ -365,7 +432,7 @@ concept Sale is event from duckdb.table('sales') {
   });
 
   it("diagnoses semantic errors", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package bad.semantic
 
 concept Sale is event from duckdb.table('sales') {
@@ -390,7 +457,7 @@ query: q is Sale -> {
   });
 
   it("01.02.001 exports semantic types and concepts as JSON Schema", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package schema.export
 
 type: CustomerId is string {
@@ -420,38 +487,38 @@ concept Customer is kind from duckdb.table('customers') {
     expect(result.diagnostics).toEqual([]);
     const schema = result.jsonSchema!;
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(schema.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/ontoql/1": true });
+    expect(schema.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/semlang/1": true });
     const defs = schema.$defs as Record<string, any>;
     expect(defs["type.CustomerStatus"]).toMatchObject({
       type: "string",
       enum: ["active", "paused", "closed"],
-      "x-ontoql-scale-type": "nominal"
+      "x-semlang-scale-type": "nominal"
     });
     expect(defs["type.Dollars"]).toMatchObject({
       type: "number",
       minimum: 0,
-      "x-ontoql-primitive": "currency",
-      "x-ontoql-currency": "USD",
-      "x-ontoql-render-format": "currency(\"USD\", 2)"
+      "x-semlang-primitive": "currency",
+      "x-semlang-currency": "USD",
+      "x-semlang-render-format": "currency(\"USD\", 2)"
     });
     expect(defs["concept.Customer"]).toMatchObject({
       type: "object",
       required: ["customer_id", "email", "status", "lifetime_value"],
-      "x-ontoql-stereotype": "kind",
-      "x-ontoql-identity": ["customer_id"]
+      "x-semlang-stereotype": "kind",
+      "x-semlang-identity": ["customer_id"]
     });
     expect(defs["concept.Customer"].properties.customer_id).toMatchObject({
       $ref: "#/$defs/type.CustomerId",
-      "x-ontoql-identity": true
+      "x-semlang-identity": true
     });
     expect(defs["concept.Customer"].properties.email).toMatchObject({
       anyOf: [{ type: "string" }, { type: "null" }],
-      "x-ontoql-unique": true
+      "x-semlang-unique": true
     });
   });
 
   it("01.01.005 diagnoses legacy and malformed type metadata", async () => {
-    const result = await compileOntoql(`
+    const result = await compileSemLang(`
 package bad.type_metadata
 
 type: Status is string {
@@ -474,7 +541,7 @@ concept A is kind from duckdb.table('a') {
   });
 
   it("diagnoses duplicate symbols, roles, lenses, temporal misuse, and include cycles", async () => {
-    const duplicate = await compileOntoql(`
+    const duplicate = await compileSemLang(`
 package bad.duplicates
 type: Id is string {
 }
@@ -503,7 +570,7 @@ query: q is A with missing_lens -> {
       "UNKNOWN_LENS"
     ]));
 
-    const unknownRole = await compileOntoql(`
+    const unknownRole = await compileSemLang(`
 package bad.role
 type: Id is string {
 }
@@ -518,7 +585,7 @@ query: q is A -> {
 `);
     expect(unknownRole.diagnostics.map((diagnostic) => diagnostic.code)).toContain("UNKNOWN_ROLE");
 
-    const temporal = await compileOntoql(`
+    const temporal = await compileSemLang(`
 package bad.temporal
 type: Id is string {
 }
@@ -532,14 +599,14 @@ concept B is kind from duckdb.table('b') {
 `);
     expect(temporal.diagnostics.map((diagnostic) => diagnostic.code)).toContain("INVALID_TEMPORAL_JOIN");
 
-    const parsed = parseOntoql(`package cycle\ninclude "./self.ontoql"\n`, { filePath: "/tmp/self.ontoql" });
+    const parsed = parseSemLang(`package cycle\ninclude "./self.semlang"\n`, { filePath: "/tmp/self.semlang" });
     expect(parsed.ast).toBeDefined();
     const cycle = parsed.ast
-      ? await compileOntoql(`package cycle\ninclude "./self.ontoql"\n`, {
-          filePath: "/tmp/self.ontoql",
+      ? await compileSemLang(`package cycle\ninclude "./self.semlang"\n`, {
+          filePath: "/tmp/self.semlang",
           packageLoader: {
             load() {
-              return { filePath: "/tmp/self.ontoql", source: `package cycle\ninclude "./self.ontoql"\n` };
+              return { filePath: "/tmp/self.semlang", source: `package cycle\ninclude "./self.semlang"\n` };
             }
           }
         })

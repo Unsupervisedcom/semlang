@@ -3,11 +3,11 @@ title: Diagnostics and Lowering
 sidebar_position: 7
 ---
 
-OntoQL's compiler has two obligations: accepted constructs must lower deterministically to Malloy, and invalid constructs must produce diagnostics with useful locations.
+SemLang's compiler has two obligations: accepted constructs must lower deterministically to Malloy, and invalid constructs must produce diagnostics with useful locations.
 
 ## Malloy Lowering
 
-OntoQL emits the Malloy source expression written in the declaration:
+SemLang emits the Malloy source expression written in the declaration:
 
 ```malloy
 source: retail_line_items is duckdb.table('retail_line_items') extend {
@@ -15,7 +15,7 @@ source: retail_line_items is duckdb.table('retail_line_items') extend {
 }
 ```
 
-Source declarations must use real Malloy source syntax, including named connections such as `duckdb.table('retail_line_items')` or `duckdb.sql("""select ...""")`. Unqualified `table('...')` is diagnosed because it would hide a connection decision in the OntoQL compiler. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
+Source declarations must use real Malloy source syntax, including named connections such as `duckdb.table('retail_line_items')` or `duckdb.sql("""select ...""")`. Unqualified `table('...')` is diagnosed because it would hide a connection decision in the SemLang compiler. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
 
 Semantic-only constructs lower as follows:
 
@@ -33,7 +33,7 @@ Semantic-only constructs lower as follows:
 
 Queries target concepts:
 
-```ontoql
+```semlang
 query: monthly_margin is SaleLine -> {
   group_by:
     sold_month
@@ -65,7 +65,7 @@ V1 diagnostics cover:
 
 Validations are preserved in the semantic model:
 
-```ontoql
+```semlang
 validation:
   closed_after_opened is {
     description: "A store cannot close before it opens."

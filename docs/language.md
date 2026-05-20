@@ -1,21 +1,21 @@
-# OntoQL V1 Language Specification
+# SemLang V1 Language Specification
 
-OntoQL is a semantic modeling language that stays close to Malloy so it can be compiled into Malloy for query execution. It adds an ontology layer inspired by gUFO and OntoUML: business concepts, roles, relators, situations, temporal axes, and validation predicates live beside the analytical model instead of in a separate diagram.
+SemLang is a semantic modeling language that stays close to Malloy so it can be compiled into Malloy for query execution. It adds an ontology layer inspired by gUFO and OntoUML: business concepts, roles, relators, situations, temporal axes, and validation predicates live beside the analytical model instead of in a separate diagram.
 
-V1 is defined by the retail OntoQL examples in `examples/retail-omnichannel-margin-and-returns` and by the recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples. The compiler is intentionally conservative: every accepted construct must lower to deterministic Malloy or produce diagnostics.
+V1 is defined by the retail SemLang examples in `examples/retail-omnichannel-margin-and-returns` and by the recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples. The compiler is intentionally conservative: every accepted construct must lower to deterministic Malloy or produce diagnostics.
 
 ## Packages and Includes
 
-An OntoQL file starts with one package declaration:
+A SemLang file starts with one package declaration:
 
-```ontoql
+```semlang
 package retail.omnichannel_margin_returns
 ```
 
-Files may include other OntoQL files by relative path:
+Files may include other SemLang files by relative path:
 
-```ontoql
-include "./example.ontoql"
+```semlang
+include "./example.semlang"
 ```
 
 Includes are loaded before the including file is resolved. Include cycles are invalid.
@@ -24,7 +24,7 @@ Includes are loaded before the including file is resolved. Include cycles are in
 
 Semantic types are named value domains over primitive Malloy-compatible values:
 
-```ontoql
+```semlang
 type: Dollars is currency {
   scale_type: ratio
   currency: "USD"
@@ -32,11 +32,11 @@ type: Dollars is currency {
 }
 ```
 
-V1 primitive bases are `string`, `number`, `date`, `timestamp`, `currency`, and `boolean`. Type bodies are metadata maps. Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`. OntoQL-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
+V1 primitive bases are `string`, `number`, `date`, `timestamp`, `currency`, and `boolean`. Type bodies are metadata maps. Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`. SemLang-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
 
 Field annotations use Malloy-like `::` syntax. A trailing `?` marks nullable values:
 
-```ontoql
+```semlang
 customer_id :: CustomerId?
 ```
 
@@ -44,7 +44,7 @@ customer_id :: CustomerId?
 
 A concept declares an ontological classifier and the Malloy source expression that backs it:
 
-```ontoql
+```semlang
 concept SaleLine is situation from duckdb.table('retail_line_items') {
   identity line_item_id :: SaleLineId
 }
@@ -52,7 +52,7 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 
 The `from` clause follows Malloy source semantics. It can reference a table or view through a named connection, a SQL source, a named source, a concept source, or a query result:
 
-```ontoql
+```semlang
 source: recent_sales is duckdb.sql("""select * from sales where sold_at >= '2026-01-01'""")
 
 concept RecentSale is event from recent_sales {
@@ -71,7 +71,7 @@ concept SaleStatus is situation from sales_by_status {
 }
 ```
 
-Use explicit connection names such as `duckdb.table('sales')`; unqualified `table('sales')` is not valid OntoQL source syntax.
+Use explicit connection names such as `duckdb.table('sales')`; unqualified `table('sales')` is not valid SemLang source syntax.
 
 V1 concept stereotypes are:
 
@@ -87,7 +87,7 @@ V1 concept stereotypes are:
 
 `field:` blocks declare source-backed fields:
 
-```ontoql
+```semlang
 field:
   store_id :: StoreId
   closed_date :: BusinessDate?
@@ -95,7 +95,7 @@ field:
 
 `join_one` and `join_many` declare Malloy joins and semantic participation:
 
-```ontoql
+```semlang
 join_one customer?: Customer on customer_id
 join_many returns: ReturnLine on line_item_id = original_line_item_id
 join_one store: Store with store_id
@@ -107,7 +107,7 @@ The `?` marker means participation is optional. It is semantic metadata; Malloy 
 
 Temporal axes give business time description:
 
-```ontoql
+```semlang
 occurrence_time: sold_at
 valid_time: period(valid_from, valid_to)
 observation_time: snapshot_date
@@ -115,7 +115,7 @@ observation_time: snapshot_date
 
 A temporal join may use `at expression` when the target has `valid_time`:
 
-```ontoql
+```semlang
 join_one product_at_sale: ProductSKUVersion
   on sku_id = product_at_sale.sku_id
   at sale.sold_at
@@ -127,13 +127,13 @@ If the target valid time is `period(start, end)`, this lowers to `expression >= 
 
 Roles are named predicates over a concept:
 
-```ontoql
+```semlang
 role LoyaltyCustomer when loyalty_member_id is not null
 ```
 
 Roles are usable in expressions:
 
-```ontoql
+```semlang
 customer is LoyaltyCustomer
 ```
 
@@ -141,9 +141,9 @@ During Malloy emission, role tests lower to their predicates with the correct pa
 
 ## Dimensions, Measures, Views, and Queries
 
-OntoQL preserves Malloy's declaration shape:
+SemLang preserves Malloy's declaration shape:
 
-```ontoql
+```semlang
 dimension:
   margin_amount is net_sales_amount - merchandise_cost_amount
 
@@ -161,7 +161,7 @@ view: sales_by_region_category is {
 
 Queries target concepts rather than physical sources:
 
-```ontoql
+```semlang
 query: monthly_margin_and_returns is SaleLine -> {
   where: net_sales_amount is not null
   group_by:
@@ -181,7 +181,7 @@ query: monthly_margin_and_returns is SaleLine -> {
 
 `aggregate:` entries may be named query-local aliases:
 
-```ontoql
+```semlang
 max_possible_unique_customers is identified_customers + unrecognized_cash_sales
 ```
 
@@ -193,7 +193,7 @@ Query and view bodies support the Malloy clauses `where:`, `select:`/`project:`,
 
 Validations are executable predicates whose false rows represent data-quality errors:
 
-```ontoql
+```semlang
 validation:
   closed_after_opened is {
     description: "A store cannot close before it opens."
@@ -207,7 +207,7 @@ V1 preserves validations in the semantic model. They are not emitted into analyt
 
 A lens is a query-time semantic overlay:
 
-```ontoql
+```semlang
 lens: western_region is {
   refine: Store extend {
     where: region = 'West'
@@ -217,7 +217,7 @@ lens: western_region is {
 
 Lenses can compose:
 
-```ontoql
+```semlang
 lens: western_margin_operations is western_region, margin_operations extend {
   refine: SaleLine extend { ... }
 }
@@ -225,11 +225,70 @@ lens: western_margin_operations is western_region, margin_operations extend {
 
 A query applies lenses with `with`:
 
-```ontoql
+```semlang
 query: western_margin is SaleLine with western_region -> { ... }
 ```
 
 V1 lens application copies the semantic model for the query, applies lenses left-to-right, merges `refine: X extend { ... }` members into concept `X`, and treats `where:` refinements as source filters. Multiple filters compose by conjunction.
+
+Lens filters are not limited to the query root. They apply to the query-local
+concept graph before the query body is lowered, so a root-grain query can
+aggregate through a filtered joined grain.
+
+```semlang
+concept ProductSKU is kind from duckdb.table('products') {
+  identity product_id :: string
+  field:
+    brand :: string
+}
+
+concept SaleLine is event from duckdb.table('sale_lines') {
+  identity line_id :: string
+  field:
+    customer_id :: string
+    product_id :: string
+    net_sales_amount :: number
+  join_one product: ProductSKU on product_id
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  field:
+    age :: number
+  join_many sale_lines: SaleLine on customer_id
+  measure:
+    apple_product_spend is sale_lines.sum(net_sales_amount)
+}
+
+lens: apple_products is {
+  refine: ProductSKU extend {
+    where: brand = 'Apple'
+  }
+
+  refine: SaleLine extend {
+    where: product.brand = 'Apple'
+  }
+}
+
+lens: young_adult_customers is {
+  refine: Customer extend {
+    where: age >= 18 and age <= 25
+  }
+}
+
+query: young_adult_apple_value is Customer with apple_products, young_adult_customers -> {
+  group_by:
+    customer_id
+  aggregate:
+    apple_product_spend
+}
+```
+
+This query is rooted at `Customer`, but `apple_product_spend` aggregates through
+`sale_lines`. With the lenses applied, the generated customer source joins the
+query-local `SaleLine` source, and that `SaleLine` source carries the Apple
+filter. The young-adult filter applies at the customer source at the same time.
+The base model remains unchanged for other queries.
 
 ## Malloy Lowering
 
@@ -248,7 +307,7 @@ Semantic-only constructs lower as follows:
 - Field declarations -> source columns are assumed to exist; only derived fields emit.
 - Role -> predicate substitution for `is Role`.
 - Temporal `at` -> period containment predicate.
-- Lens `where` -> source/query `where` clauses.
+- Lens `where` -> query-local source filters on the refined concepts.
 - Semantic type formatting -> Malloy annotations where supported.
 
 ## Diagnostics

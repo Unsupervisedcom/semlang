@@ -1,4 +1,4 @@
-import { lexOntoql } from "./lexer.js";
+import { lexSemLang } from "./lexer.js";
 import {
   collectBraceBlock,
   countNetBraces,
@@ -27,7 +27,7 @@ import {
   type JoinDecl,
   type LensDecl,
   type MetadataEntry,
-  type OntoqlAst,
+  type SemLangAst,
   type ParseResult,
   type QueryBodyDecl,
   type QueryDecl,
@@ -46,9 +46,9 @@ import {
 
 const primitiveTypes = new Set(["string", "number", "date", "timestamp", "currency", "boolean"]);
 
-export function parseOntoql(source: string, options: CompileOptions = {}): ParseResult {
+export function parseSemLang(source: string, options: CompileOptions = {}): ParseResult {
   const diagnostics: Diagnostic[] = [];
-  const lexResult = lexOntoql(source);
+  const lexResult = lexSemLang(source);
   for (const error of lexResult.errors) {
     diagnostics.push({
       severity: "error",
@@ -61,8 +61,8 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
   const lines = toLines(source);
   let packageName = "";
   let packageLoc: SourceLocation | undefined;
-  const ast: OntoqlAst = {
-    kind: "OntoqlAst",
+  const ast: SemLangAst = {
+    kind: "SemLangAst",
     packageName,
     filePath: options.filePath,
     includes: [],
@@ -156,7 +156,7 @@ export function parseOntoql(source: string, options: CompileOptions = {}): Parse
     diagnostics.push({
       severity: "error",
       code: "MISSING_PACKAGE",
-      message: "OntoQL files must declare a package.",
+      message: "SemLang files must declare a package.",
       location: { file: options.filePath, line: 1, column: 1 }
     });
   }

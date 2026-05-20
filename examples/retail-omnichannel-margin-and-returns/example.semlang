@@ -1,4 +1,4 @@
-// OntoQL sketch for the retail omnichannel margin and returns example.
+// SemLang sketch for the retail omnichannel margin and returns example.
 //
 // This version uses the preferred compact syntax:
 //
@@ -16,7 +16,7 @@
 //     query target is a semantic concept instead of a physical source name.
 //   - `maps` is reserved for non-obvious cases; the common case maps by name.
 //
-// The point is still the same: OntoQL names business concepts like an ontology,
+// The point is still the same: SemLang names business concepts like an ontology,
 // while retaining Malloy-like sources, joins, measures, and queries.
 
 package retail.omnichannel_margin_returns
@@ -26,7 +26,7 @@ package retail.omnichannel_margin_returns
 // ---------------------------------------------------------------------------
 //
 // These are not separate ontology concepts with their own rows. They are
-// Malloy-like named types over primitive value domains. OntoQL adds semantic
+// Malloy-like named types over primitive value domains. SemLang adds semantic
 // metadata such as `identifies`, `enum`, and `scale_type`.
 //
 // `scale_type` follows the measurement-scale vocabulary:
@@ -803,7 +803,7 @@ query: same_store_category_health is SaleLine -> {
 // Compiler Ideas Implied By This Compact Syntax
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could expand this compact file into verbose
+// A first SemLang implementation could expand this compact file into verbose
 // concept declarations plus Malloy source definitions:
 //
 //   - `concept X is kind from duckdb.table('x')` creates both the concept and source.
@@ -818,7 +818,7 @@ query: same_store_category_health is SaleLine -> {
 //     `thing is R`.
 //   - `validation: name is { predicate: ... }` compiles the predicate into an
 //     executable data-quality check; false rows are errors.
-//   - `render_format: currency("USD", 2)` is OntoQL metadata; a Malloy emitter can
+//   - `render_format: currency("USD", 2)` is SemLang metadata; a Malloy emitter can
 //     translate it to the target dialect's annotation syntax.
 //   - `join_one customer?: Customer on customer_id` creates an optional
 //     participant and a Malloy join.
@@ -828,3 +828,19 @@ query: same_store_category_health is SaleLine -> {
 //     The expression can reference visible measures, aggregate functions, and
 //     earlier aggregate aliases. Raw fields are only legal inside aggregate
 //     functions, keeping row-grain and aggregate-grain expressions separate.
+//
+// MCP action narrative:
+//   mcp.ontology.describe_concept({ concept: "ReturnLine" })
+//   -> includes the settle_return action and its writeable fields.
+//   mcp.ontology.describe_action({ action: "settle_return" })
+//   -> subject: single, params, guard, set edits, write mappings, and log metadata.
+//   mcp.action.invoke({
+//     action: "settle_return",
+//     subject: { return_line_id: "RET_50002_1" },
+//     params: {
+//       approved_refund_amount: 121.25,
+//       approved_restocking_fee_amount: 4.50
+//     }
+//   })
+//   -> updates the temp-mounted DuckDB copy, then mcp.query.run can verify that
+//      settled_refund_amount reflects the newly settled return.

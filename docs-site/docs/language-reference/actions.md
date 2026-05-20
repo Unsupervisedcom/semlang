@@ -5,13 +5,13 @@ sidebar_position: 6
 
 Actions describe permitted write operations on ontology objects. They are concept-local because every action has a subject: an existing object, a new object of the owning concept, or a collection of owning-concept objects.
 
-OntoQL still lowers analytical reads to Malloy. Actions lower to a separate action manifest for a runtime adapter, API gateway, MCP server, or app surface that can validate parameters, evaluate guards, perform writes, and record an action log.
+SemLang still lowers analytical reads to Malloy. Actions lower to a separate action manifest for a runtime adapter, API gateway, MCP server, or app surface that can validate parameters, evaluate guards, perform writes, and record an action log.
 
 ## Concept-Local Actions
 
 Declare actions inside the concept they act on:
 
-```ontoql
+```semlang
 concept SupplierLot is kind from duckdb.table('supplier_lots') {
   identity supplier_lot_id :: SupplierLotId
 
@@ -49,7 +49,7 @@ The implicit `this` binding is the subject object for `subject: single` and each
 
 An action must declare one subject mode:
 
-```ontoql
+```semlang
 subject: single
 subject: new
 subject: collection
@@ -59,7 +59,7 @@ subject: collection
 
 Collection subjects can add execution semantics:
 
-```ontoql
+```semlang
 subject: collection {
   max: 500
   atomic: true
@@ -72,7 +72,7 @@ subject: collection {
 
 Action parameters use the same semantic types as fields:
 
-```ontoql
+```semlang
 type: QuarantineReason is string {
   minLength: 10
   maxLength: 500
@@ -99,7 +99,7 @@ The action manifest exports parameter schemas using the JSON Schema metadata dec
 
 Guards are submission criteria. They must be true before the edit plan can run:
 
-```ontoql
+```semlang
 guard:
   this.status in ['received', 'released']
     else "Only received or released lots can be quarantined."
@@ -114,14 +114,14 @@ Guards can reference `this`, parameters, fields, dimensions, joins, roles, and u
 
 Only declarations marked `writeable` can be assigned by an action.
 
-```ontoql
+```semlang
 field:
   status :: SupplierLotStatus writeable
 ```
 
 For a source-backed field, `writeable` implies the default write implementation:
 
-```ontoql
+```semlang
 write: column status = value
 ```
 
@@ -129,7 +129,7 @@ where `status` is both the semantic field name and the physical column name. The
 
 Derived dimensions are not writeable unless they declare an explicit write mapping:
 
-```ontoql
+```semlang
 dimension:
   full_name is concat(first_name, ' ', last_name) writeable {
     write:
@@ -146,7 +146,7 @@ Use field-local write mappings when the semantic field does not write to a same-
 
 Portable mappings use `column` assignments:
 
-```ontoql
+```semlang
 field:
   normalized_email :: EmailAddress writeable {
     write: column email_normalized = lower(value)
@@ -155,7 +155,7 @@ field:
 
 Mappings may fan out to several assignments:
 
-```ontoql
+```semlang
 field:
   display_name :: string writeable {
     write:
@@ -166,7 +166,7 @@ field:
 
 Dialect-specific mappings can use raw SQL assignment fragments:
 
-```ontoql
+```semlang
 field:
   email_search :: string writeable {
     write: sql "email_search_vector = to_tsvector('english', {value})"
@@ -179,7 +179,7 @@ Raw SQL write mappings are assignment fragments, not full statements. The runtim
 
 The `edit:` block declares the semantic change plan:
 
-```ontoql
+```semlang
 edit:
   set status = 'quarantined'
   set quarantine_reason = reason
@@ -188,7 +188,7 @@ edit:
 
 For `subject: single`, `set field = expression` assigns a writeable member on `this`. For `subject: new`, use `insert`:
 
-```ontoql
+```semlang
 concept RecallCampaign is kind from duckdb.table('recall_campaigns') {
   action create {
     subject: new
@@ -215,7 +215,7 @@ Future action versions can add `create`, `delete`, `link`, and `unlink` edits fo
 
 Side effects are declared separately from writes:
 
-```ontoql
+```semlang
 effect after_commit:
   notify this.supplier.account_owner {
     when: notify_supplier
@@ -227,7 +227,7 @@ effect after_commit:
 
 Action logs describe the audit object emitted by the runtime:
 
-```ontoql
+```semlang
 log as SupplierLotActionLog {
   summary: "Quarantined ${this.supplier_lot_id}"
   include: reason, current_user.id
@@ -242,7 +242,7 @@ V1 supports raw SQL only in field or dimension write mappings, where the SQL is 
 
 A future action version may support whole-action raw SQL execution as an explicit escape hatch:
 
-```ontoql
+```semlang
 action quarantine {
   subject: single
 
@@ -267,7 +267,7 @@ When this is added, raw execution blocks must declare their semantic write scope
 
 Actions can opt into agent/tool surfaces:
 
-```ontoql
+```semlang
 agent:
   expose: true
   risk: high
@@ -282,7 +282,7 @@ Agent metadata is not authorization. It tells tool surfaces how to present the a
 Actions do not lower to Malloy. The compiler emits Malloy for reads and an action manifest for writes:
 
 ```text
-OntoQL
+SemLang
   -> semantic model
   -> Malloy read model
   -> action manifest

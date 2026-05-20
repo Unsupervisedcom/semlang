@@ -5,13 +5,13 @@ import { compileFile } from "./index.js";
 const program = new Command();
 
 program
-  .name("ontoql")
-  .description("Compile OntoQL semantic models into Malloy.")
+  .name("semlang")
+  .description("Compile SemLang semantic models into Malloy.")
   .version("0.1.0");
 
 program
   .command("compile")
-  .argument("<file>", "OntoQL file to compile")
+  .argument("<file>", "SemLang file to compile")
   .option("--out <file>", "Output file")
   .addOption(new Option("--emit <kind>", "Artifact to emit").choices(["ast", "model", "malloy", "json-schema"]).default("malloy"))
   .action(async (file: string, options: { out?: string; emit: "ast" | "model" | "malloy" | "json-schema" }) => {

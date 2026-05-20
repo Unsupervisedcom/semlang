@@ -1,5 +1,5 @@
 import path from "node:path";
-import { parseOntoql } from "./parser.js";
+import { parseSemLang } from "./parser.js";
 import { validateTypeMetadataEntry } from "./schema-metadata.js";
 import {
   emptyMembers,
@@ -12,7 +12,7 @@ import {
   type FieldDecl,
   type JoinDecl,
   type LensDecl,
-  type OntoqlAst,
+  type SemLangAst,
   type PackageLoader,
   type QueryDecl,
   type ResolveResult,
@@ -45,7 +45,7 @@ const scalarFunctions = new Set([
 const scalarProperties = new Set(["date", "month", "week", "quarter", "year", "day"]);
 const actionSubjectModes = new Set(["single", "new", "collection"]);
 
-export async function resolveOntoql(ast: OntoqlAst, options: CompileOptions = {}): Promise<ResolveResult> {
+export async function resolveSemLang(ast: SemLangAst, options: CompileOptions = {}): Promise<ResolveResult> {
   const diagnostics: Diagnostic[] = [];
   const loaded = await loadAstGraph(ast, options.packageLoader, diagnostics, new Set());
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -70,26 +70,26 @@ export async function resolveOntoql(ast: OntoqlAst, options: CompileOptions = {}
 }
 
 async function loadAstGraph(
-  ast: OntoqlAst,
+  ast: SemLangAst,
   loader: PackageLoader | undefined,
   diagnostics: Diagnostic[],
   seen: Set<string>,
   entryLocation: Diagnostic["location"] = ast.location
-): Promise<OntoqlAst[]> {
+): Promise<SemLangAst[]> {
   const key = ast.filePath ? path.resolve(ast.filePath) : ast.packageName;
   if (seen.has(key)) {
     diagnostics.push({ severity: "error", code: "INCLUDE_CYCLE", message: `Include cycle detected at ${key}.`, location: entryLocation });
     return [];
   }
   seen.add(key);
-  const loaded: OntoqlAst[] = [];
+  const loaded: SemLangAst[] = [];
   for (const include of ast.includes) {
     if (!loader) {
       diagnostics.push({ severity: "error", code: "MISSING_PACKAGE_LOADER", message: `Cannot load include ${include.path} without a package loader.`, location: include.location });
       continue;
     }
     const result = await loader.load(include.path, ast.filePath);
-    const parsed = parseOntoql(result.source, { filePath: result.filePath });
+    const parsed = parseSemLang(result.source, { filePath: result.filePath });
     diagnostics.push(...parsed.diagnostics);
     if (parsed.ast) loaded.push(...await loadAstGraph(parsed.ast, loader, diagnostics, seen, include.location));
   }
@@ -98,7 +98,7 @@ async function loadAstGraph(
   return loaded;
 }
 
-function mergeAst(model: SemanticModel, ast: OntoqlAst, diagnostics: Diagnostic[]) {
+function mergeAst(model: SemanticModel, ast: SemLangAst, diagnostics: Diagnostic[]) {
   for (const source of ast.sources) {
     addUnique(model.sources, source.name, source, diagnostics, "DUPLICATE_SOURCE", `Duplicate source ${source.name}.`, source.location);
   }

@@ -1,4 +1,4 @@
-// OntoQL sketch for the healthcare patient journey and quality measures
+// SemLang sketch for the healthcare patient journey and quality measures
 // example.
 //
 // This model is intentionally compact but opinionated about grain:
@@ -1017,7 +1017,7 @@ query: discharge_diagnosis_denominator_audit is InpatientStay -> {
 // Compiler Ideas Implied By This Compact Syntax
 // ---------------------------------------------------------------------------
 //
-// A first OntoQL implementation could expand this file into verbose concept
+// A first SemLang implementation could expand this file into verbose concept
 // declarations plus Malloy source definitions:
 //
 //   - `concept X is kind/event/situation/relator from duckdb.table('x')` creates both

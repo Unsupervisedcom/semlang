@@ -9,8 +9,8 @@ export const SymbolToken = createToken({ name: "SymbolToken", pattern: /::|->|[{
 export const OtherToken = createToken({ name: "OtherToken", pattern: /[^\s{}():,?.=+\-*/<>]+/ });
 
 const tokens = [WhiteSpace, LineComment, StringLiteral, NumberLiteral, Identifier, SymbolToken, OtherToken];
-export const ontoqlLexer = new Lexer(tokens, { ensureOptimizations: false });
+export const semlangLexer = new Lexer(tokens, { ensureOptimizations: false });
 
-export function lexOntoql(source: string) {
-  return ontoqlLexer.tokenize(source);
+export function lexSemLang(source: string) {
+  return semlangLexer.tokenize(source);
 }

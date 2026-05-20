@@ -1,4 +1,4 @@
-// OntoQL sketch for the manufacturing supply chain traceability and quality
+// SemLang sketch for the manufacturing supply chain traceability and quality
 // example.
 //
 // This model keeps the same analytical center as model.malloy: a serialized
@@ -1222,3 +1222,16 @@ query: lot_genealogy_recall_candidates is SupplierLotGenealogy -> {
     genealogy_edges
     transferred_quantity
 }
+
+// MCP action narrative:
+//   mcp.ontology.describe_concept({ concept: "SupplierLot" })
+//   -> includes the quarantine action and lot_status write target.
+//   mcp.ontology.describe_action({ concept: "SupplierLot", action: "quarantine" })
+//   -> subject: single, reason/notify_supplier params, guard, set edit, effect, and log metadata.
+//   mcp.action.invoke({
+//     concept: "SupplierLot",
+//     action: "quarantine",
+//     subject: { supplier_lot_id: "LOT_CTRL_A100" },
+//     params: { reason: "containment review", notify_supplier: false }
+//   })
+//   -> updates only the temp-mounted DuckDB copy before exposure queries are run.
