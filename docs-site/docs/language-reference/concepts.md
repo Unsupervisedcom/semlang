@@ -71,7 +71,7 @@ Composite identities are comma-separated:
 identity store_id :: StoreId, snapshot_date :: BusinessDate
 ```
 
-When a concept lowers to Malloy, a single identity becomes `primary_key: field`. Composite identities lower to a deterministic concatenation such as `concat(field1, '|', field2)`.
+When a concept lowers to Malloy, a single identity becomes `primary_key: field`. Composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
 
 ## Fields
 

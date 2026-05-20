@@ -91,7 +91,7 @@ V1 concept stereotypes are:
 - `relator`: relationship object such as a promotion allocation.
 - `phase of Parent`: temporal/specialized state of a parent concept.
 
-`identity` declares one or more source-backed key fields. Composite identities are comma-separated. Malloy emission maps a single identity to `primary_key: field`; composite identities lower to `primary_key: concat(field1, '|', field2, ...)`.
+`identity` declares one or more source-backed key fields. Composite identities are comma-separated. Malloy emission maps a single identity to `primary_key: field`; composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
 
 ## Fields, Joins, and Temporal Axes
 

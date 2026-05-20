@@ -106,7 +106,7 @@ Emission also uses lens expansion. For lensed queries, the emitter generates que
 Important lowering rules:
 
 - Concepts become Malloy `source` declarations over Malloy source expressions such as `duckdb.table(...)`, `duckdb.sql("""...""")`, named source references, and query results.
-- Identities become `primary_key`; composite identities lower to `concat(...)`.
+- Identities become `primary_key`; composite identities lower through deterministic generated dimensions so `primary_key:` always points at a field name.
 - Joins become Malloy joins, including role-target predicates and valid-time containment for temporal joins.
 - Roles become boolean dimensions named with an `is_...` prefix and role tests are lowered into predicates.
 - Concept `where:` entries become Malloy source filters.

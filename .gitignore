@@ -5,6 +5,9 @@ docs-site/node_modules/
 docs-site/build/
 docs-site/.docusaurus/
 
+# Generated DeepWork schema.
+.deepwork/job.schema.json
+
 # Local DuckDB artifacts from Malloy/MCP validation runs.
 *.duckdb
 *.duckdb.wal

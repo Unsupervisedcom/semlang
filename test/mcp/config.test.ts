@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
+import { testDuckDbExternalAccessConfig } from "../duckdb-config.js";
 import {
   asObject,
   duckDbDatabasePath,
@@ -45,6 +46,7 @@ concept Order is event from warehouse.table('orders') {
               is: "duckdb",
               databasePath: duckDbDatabasePath(projectDir),
               workingDirectory: projectDir,
+              ...testDuckDbExternalAccessConfig(),
               extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
             },
           },

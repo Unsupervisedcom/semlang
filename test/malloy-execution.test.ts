@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { validateMalloyModel } from "../src/malloy-execution.js";
+import { compileSemLang } from "../src/index.js";
+import { executeMalloyQuery, validateMalloyModel } from "../src/malloy-execution.js";
+import { testDuckDbExternalAccessConfig } from "./duckdb-config.js";
 
 async function writeMalloyConfig(projectDir: string): Promise<string> {
   const configPath = path.join(projectDir, "malloy-config.json");
@@ -14,6 +16,7 @@ async function writeMalloyConfig(projectDir: string): Promise<string> {
           duckdb: {
             is: "duckdb",
             workingDirectory: projectDir,
+            ...testDuckDbExternalAccessConfig(),
             extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
           },
         },
@@ -26,6 +29,132 @@ async function writeMalloyConfig(projectDir: string): Promise<string> {
 }
 
 describe("Malloy SDK validation", () => {
+  it("accepts emitted Malloy for composite identity concepts", async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-composite-identity-"));
+    const malloyConfigPath = await writeMalloyConfig(projectDir);
+    const compiled = await compileSemLang(`
+package identity.composite
+
+concept AccountAttraction is relator from duckdb.sql("""
+  select 'A1' as memberdb_cust_id, 'T1' as attraction_id
+""") {
+  identity memberdb_cust_id :: string, attraction_id :: string
+}
+`);
+
+    expect(compiled.diagnostics).toEqual([]);
+    const malloy = compiled.malloy;
+    expect(malloy).toBeDefined();
+    expect(malloy).not.toContain("primary_key: concat(");
+    const diagnostics = await validateMalloyModel({
+      context: { projectDir, malloyConfigPath },
+      malloy: malloy!,
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("runs with joins against composite identity targets", async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-composite-join-"));
+    const malloyConfigPath = await writeMalloyConfig(projectDir);
+    const compiled = await compileSemLang(`
+package identity.composite_join
+
+concept AccountAttraction is relator from duckdb.sql("""
+  select 'A1' as memberdb_cust_id, 'T1' as attraction_id, 'The Show' as attraction_name
+""") {
+  identity memberdb_cust_id :: string, attraction_id :: string
+  field:
+    attraction_name :: string
+}
+
+concept MessageTracking is event from duckdb.sql("""
+  select 'M1' as message_id, 'A1' as memberdb_cust_id, 'T1' as attraction_id, timestamp '2026-05-20 12:00:00' as sent_at
+""") {
+  identity message_id :: string
+  field:
+    memberdb_cust_id :: string
+    attraction_id :: string
+  occurrence_time: sent_at
+  join_one account_attraction: AccountAttraction with concat(memberdb_cust_id, '|', attraction_id)
+}
+
+query: message_attractions is MessageTracking -> {
+  group_by:
+    message_id
+    attraction_name is account_attraction.attraction_name
+}
+`);
+
+    expect(compiled.diagnostics).toEqual([]);
+    const malloy = compiled.malloy;
+    expect(malloy).toBeDefined();
+    expect(malloy).toContain("join_one: account_attraction is");
+    expect(malloy).toContain("with concat(memberdb_cust_id, '|', attraction_id)");
+    const result = await executeMalloyQuery({
+      context: { projectDir, malloyConfigPath },
+      malloy: malloy!,
+      queryName: "message_attractions",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.rows).toEqual([{ message_id: "M1", attraction_name: "The Show" }]);
+  });
+
+  it("runs join_many relationships over composite key fields", async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-composite-has-many-"));
+    const malloyConfigPath = await writeMalloyConfig(projectDir);
+    const compiled = await compileSemLang(`
+package identity.composite_has_many
+
+concept MessageTracking is event from duckdb.sql("""
+  select 'M1' as message_id, 'A1' as memberdb_cust_id, 'T1' as attraction_id, timestamp '2026-05-20 12:00:00' as sent_at
+  union all
+  select 'M2' as message_id, 'A1' as memberdb_cust_id, 'T1' as attraction_id, timestamp '2026-05-20 12:05:00' as sent_at
+  union all
+  select 'M3' as message_id, 'A2' as memberdb_cust_id, 'T1' as attraction_id, timestamp '2026-05-20 12:10:00' as sent_at
+""") {
+  identity message_id :: string
+  field:
+    memberdb_cust_id :: string
+    attraction_id :: string
+  occurrence_time: sent_at
+}
+
+concept AccountAttraction is relator from duckdb.sql("""
+  select 'A1' as memberdb_cust_id, 'T1' as attraction_id, 'The Show' as attraction_name
+""") {
+  identity memberdb_cust_id :: string, attraction_id :: string
+  field:
+    attraction_name :: string
+  join_many messages: MessageTracking on memberdb_cust_id = messages.memberdb_cust_id and attraction_id = messages.attraction_id
+}
+
+query: account_attraction_messages is AccountAttraction -> {
+  group_by:
+    attraction_name
+  aggregate:
+    message_count is messages.count()
+}
+`);
+
+    expect(compiled.diagnostics).toEqual([]);
+    const malloy = compiled.malloy;
+    expect(malloy).toBeDefined();
+    expect(malloy).toContain("join_many: messages is");
+    expect(malloy).toContain(
+      "on memberdb_cust_id = messages.memberdb_cust_id and attraction_id = messages.attraction_id",
+    );
+    const result = await executeMalloyQuery({
+      context: { projectDir, malloyConfigPath },
+      malloy: malloy!,
+      queryName: "account_attraction_messages",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.rows).toEqual([{ attraction_name: "The Show", message_count: 2 }]);
+  });
+
   it("converts Malloy model problems into SemLang diagnostics", async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-malloy-validation-"));
     const malloyConfigPath = await writeMalloyConfig(projectDir);

@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { expect } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
+import { testDuckDbExternalAccessConfig } from "../duckdb-config.js";
 
 const root = path.resolve(import.meta.dirname, "../..");
 export const execFileAsync = promisify(execFile);
@@ -46,6 +47,7 @@ export function duckDbMalloyConfig(projectDir: string): Record<string, unknown> 
         is: "duckdb",
         databasePath: duckDbDatabasePath(projectDir),
         workingDirectory: projectDir,
+        ...testDuckDbExternalAccessConfig(),
         extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
       },
     },

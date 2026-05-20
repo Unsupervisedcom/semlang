@@ -89,6 +89,28 @@ describe("SemLang compiler", () => {
     expect(result.malloy).toContain("query: monthly_margin_and_returns is retail_line_items ->");
   });
 
+  it("lowers composite identities through generated key dimensions", async () => {
+    const result = await compileSemLang(`
+package identity.composite
+
+concept AccountAttraction is relator from duckdb.table('account_attractions') {
+  identity memberdb_cust_id :: string, attraction_id :: string
+  field:
+    __semlang_base_primary_key :: string
+    attraction_name :: string
+  dimension:
+    __semlang_primary_key is attraction_name
+}
+`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.malloy).not.toContain("primary_key: concat(");
+    expect(result.malloy).toContain("primary_key: __semlang_base_primary_key_2");
+    expect(result.malloy).toContain("__semlang_base_primary_key_2 is concat(memberdb_cust_id, '|', attraction_id)");
+    expect(result.malloy).toContain("primary_key: __semlang_primary_key_2");
+    expect(result.malloy).toContain("__semlang_primary_key_2 is concat(memberdb_cust_id, '|', attraction_id)");
+  });
+
   it("compiles lens queries through generated lens-local sources", async () => {
     const result = await compileFile(retailLens);
     expect(result.diagnostics).toEqual([]);

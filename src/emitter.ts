@@ -172,7 +172,10 @@ function emitConceptBaseSources(
     const baseName = baseSourceNames.get(concept.name);
     if (!baseName || emitted.has(baseName)) continue;
     emitted.add(baseName);
-    const primaryKeyName = concept.identities.length > 1 ? "__semlang_base_primary_key" : concept.identities[0]?.name;
+    const primaryKeyName =
+      concept.identities.length > 1
+        ? uniqueGeneratedFieldName(concept, "__semlang_base_primary_key")
+        : concept.identities[0]?.name;
     if (!primaryKeyName) {
       lines.push(`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)}`);
       continue;
