@@ -1,6 +1,6 @@
 // SemLang sketch for the banking credit risk and customer exposure example.
 //
-// This file intentionally stays close to the data grains in schema.sql:
+// This file intentionally stays close to the source data grains:
 //
 //   - LoanExposureSnapshot is the analytical center. It is one row per loan,
 //     as-of date, accounting basis, stress scenario, and model run.

@@ -22,10 +22,12 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 | `source` | string | Inline SemLang source. |
 | `sources` | string array | Multiple inline sources joined with blank lines. |
 | `basePath` | string | File path used for resolving includes when compiling inline source. |
+| `projectPath` | string | Malloy project root to associate with the MCP context. |
+| `configPath` | string | Explicit Malloy config file to associate with the MCP context. |
 
 ### Output
 
-Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, and query names.
+Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available.
 
 ### Example
 

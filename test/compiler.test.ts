@@ -109,7 +109,9 @@ concept SaleLine is event from duckdb.table('sale_lines') {
   field:
     customer_id :: string
     product_id :: string
+    sold_at :: timestamp
     net_sales_amount :: number
+  occurrence_time: sold_at
   join_one product: ProductSKU on product_id
 }
 
@@ -180,18 +182,22 @@ concept Sale is event from sale_rows {
   identity sale_id :: Id
   field:
     status :: string
+    sold_at :: timestamp
     amount :: number
+  occurrence_time: sold_at
   measure:
     total_amount is sum(amount)
 }
 
 concept SqlSale is event from duckdb.sql("""
-  select sale_id, status, amount from sales
+  select sale_id, status, sold_at, amount from sales
 """) {
   identity sale_id :: Id
   field:
     status :: string
+    sold_at :: timestamp
     amount :: number
+  occurrence_time: sold_at
 }
 
 query: sales_by_status is Sale -> {
@@ -219,12 +225,13 @@ concept SaleStatus is situation from sales_by_status {
   identity status :: string
   field:
     total_amount :: number
+  observation_time: status
 }
 `);
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("source: sale_rows is duckdb.table('sales')");
     expect(result.malloy).toContain("source: sale is sale_rows extend");
-    expect(result.malloy).toContain('source: sql_sale is duckdb.sql(""" select sale_id, status, amount from sales """) extend');
+    expect(result.malloy).toContain('source: sql_sale is duckdb.sql(""" select sale_id, status, sold_at, amount from sales """) extend');
     expect(result.malloy).toContain("query: sales_by_status is sale ->");
     expect(result.malloy).toContain("calculate:\n    status_rank is rank()");
     expect(result.malloy).toContain("order_by:\n    total_amount desc");
@@ -304,7 +311,9 @@ concept Sale is event from duckdb.table('sales') {
   field:
     customer_id :: string
     status :: string
+    sold_at :: timestamp
     amount :: number
+  occurrence_time: sold_at
   measure:
     total_amount is sum(amount)
   view: by_customer is {
@@ -388,6 +397,8 @@ concept StoreDay is situation from duckdb.table('store_days') {
   identity store_day_id :: Id
   field:
     store_id :: Id
+    business_date :: date
+  observation_time: business_date
 }
 
 concept Sale is event from duckdb.table('sales') {
@@ -395,7 +406,9 @@ concept Sale is event from duckdb.table('sales') {
   field:
     customer_id :: Id
     store_id :: Id
+    sold_at :: timestamp
     amount :: number
+  occurrence_time: sold_at
   join_one customer: Customer with customer_id
   join_cross store_day: StoreDay
   join_cross comparable_store_day: StoreDay on store_id = comparable_store_day.store_id
@@ -428,6 +441,7 @@ concept Sale is event from duckdb.table('sales') {
     email :: string
     order_date :: date
     amount :: number
+  occurrence_time: order_date
   join_one customer: Customer with customer_id
 }
 

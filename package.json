@@ -17,6 +17,8 @@
     "docs:build": "npm --prefix docs-site run build"
   },
   "dependencies": {
+    "@malloydata/db-duckdb": "^0.0.395",
+    "@malloydata/malloy": "^0.0.395",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chevrotain": "^11.0.3",
     "commander": "^12.1.0",

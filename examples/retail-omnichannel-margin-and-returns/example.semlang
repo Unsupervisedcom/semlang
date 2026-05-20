@@ -466,6 +466,7 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
   // One row per sold SKU line. Merchandise, margin, promotions, and returns
   // live at this grain, while customer/store/date context comes through Sale.
   identity line_item_id :: SaleLineId
+  observation_time: sale.sold_at
 
   join_one sale: Sale with transaction_id
 
@@ -842,5 +843,5 @@ query: same_store_category_health is SaleLine -> {
 //       approved_restocking_fee_amount: 4.50
 //     }
 //   })
-//   -> updates the temp-mounted DuckDB copy, then mcp.query.run can verify that
-//      settled_refund_amount reflects the newly settled return.
+//   -> updates the temp-mounted DuckDB copy and returns the changed row for
+//      inspection. Query execution is handled separately through Malloy.

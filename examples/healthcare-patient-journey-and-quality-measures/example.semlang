@@ -494,6 +494,7 @@ concept DiagnosisInterval is situation from duckdb.table('diagnosis_intervals') 
   // different source and valid-time semantics.
   identity diagnosis_interval_id :: DiagnosisIntervalId
   valid_time: period(clinical_valid_start, clinical_valid_end)
+  observation_time: recorded_at
   recorded_time: recorded_at
 
   join_one patient: Patient on patient_id

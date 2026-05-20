@@ -35,7 +35,8 @@ const sidebars: SidebarsConfig = {
         "mcp-server/ontology-tools",
         "mcp-server/lens-tools",
         "mcp-server/query-and-action-tools",
-        "mcp-server/reasoning-tools"
+        "mcp-server/reasoning-tools",
+        "mcp-server/malloy-connections"
       ]
     }
   ]

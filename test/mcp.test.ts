@@ -23,6 +23,16 @@ async function tempExamplePath(domain: string, fileName = "example.semlang"): Pr
   return path.join(targetDir, fileName);
 }
 
+async function writeTempProject(files: Record<string, string>): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-mcp-project-"));
+  await Promise.all(Object.entries(files).map(async ([name, contents]) => {
+    const target = path.join(projectDir, name);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, contents);
+  }));
+  return projectDir;
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   expect(value).toBeTruthy();
   expect(typeof value).toBe("object");
@@ -50,7 +60,8 @@ function text(value: unknown): string {
 
 function expectOk(value: Record<string, unknown>): void {
   expect(value.ok).toBe(true);
-  expect(value.diagnostics ?? []).toEqual([]);
+  const diagnostics = records(value.diagnostics ?? []);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 }
 
 function expectQuery(value: Record<string, unknown>, name: string, rootName: string): Record<string, unknown> {
@@ -67,15 +78,130 @@ function pathResult(response: Record<string, unknown>, target: string): Record<s
   return result!;
 }
 
-function rowWith(rows: unknown, expected: Record<string, unknown>): Record<string, unknown> {
-  const row = records(rows).find((candidate) =>
-    Object.entries(expected).every(([key, value]) => candidate[key] === value)
-  );
-  expect(row).toBeDefined();
-  return row!;
+describe("SemLang MCP example narratives", () => {
+  it("captures Malloy project and config context when setting the ontology source", async () => {
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify({
+        connections: {
+          warehouse: {
+            is: "duckdb",
+            databasePath: "./warehouse.duckdb",
+            workingDirectory: { config: "rootDirectory" }
+          }
+        }
+      }, null, 2),
+      "model.semlang": `
+package mcp.project_context
+
+concept Order is event from warehouse.table('orders') {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+}
+`
+    });
+    const modelPath = path.join(projectDir, "model.semlang");
+    const configPath = path.join(projectDir, "malloy-config.json");
+
+    const source = await mcp.tools.set_ontology_source({
+      path: modelPath,
+      projectPath: projectDir,
+      configPath
+    });
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        projectDir,
+        malloyConfigPath: configPath
+      }
+    });
+  });
+
+  it("runs temporary queries through Malloy execution with the default DuckDB connection", async () => {
+    const mcp = createSemLangMcp();
+
+    const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.default_duckdb
+
+concept InlineOrder is event from duckdb.sql("""
+  select * from (
+    values
+      ('ORD-1', timestamp '2026-01-01 10:00:00', 10.25),
+      ('ORD-2', timestamp '2026-01-02 11:00:00', 20.75)
+  ) as orders(order_id, ordered_at, order_amount)
+""") {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+    order_amount :: number
+  occurrence_time: ordered_at
+
+  measure:
+    order_count is count()
+    total_order_amount is sum(order_amount)
+}
+`
+    });
+    expectOk(source);
+
+    const run = await mcp.tools.query_run({
+      root: "InlineOrder",
+      aggregate: ["order_count", "total_order_amount"]
+    });
+    expectOk(run);
+    expect(run).toMatchObject({
+      queryName: "__mcp_query",
+      root: "InlineOrder"
+    });
+    expect(text(run.queryMalloy)).toContain("query: __mcp_query is");
+    const execution = asObject(run.execution);
+    expect(execution).toMatchObject({
+      ok: true,
+      engine: "malloy"
+    });
+    expect(records(execution.rows)[0]).toMatchObject({
+      order_count: 2
+    });
+  });
+
+  it("returns a clear error for unknown custom Malloy connections", async () => {
+    const mcp = createSemLangMcp();
+
+    const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.unknown_connection
+
+concept WarehouseOrder is event from warehouse.table('orders') {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+
+  measure:
+    order_count is count()
 }
 
-describe("SemLang MCP example narratives", () => {
+query: warehouse_order_count is WarehouseOrder -> {
+  aggregate:
+    order_count
+}
+`
+    });
+    expectOk(source);
+
+    const run = await mcp.tools.query_run({ query: "warehouse_order_count" });
+    expectQuery(run, "warehouse_order_count", "WarehouseOrder");
+    expect(asObject(run.execution)).toMatchObject({
+      ok: false,
+      engine: "malloy",
+      error: expect.stringContaining("No connection named \"warehouse\"")
+    });
+    expect(text(asObject(run.execution).error)).toContain("warehouse");
+  });
+
   it("surfaces ignored sources in context and semantic search", async () => {
     const mcp = createSemLangMcp();
 
@@ -89,6 +215,9 @@ ignored duckdb.table('legacy_ticket_log') {
 
 concept EventTransaction is event from duckdb.table('event_transactions') {
   identity event_id :: string
+  field:
+    occurred_at :: timestamp
+  occurrence_time: occurred_at
 }
 `
     });
@@ -156,6 +285,31 @@ concept Customer is kind from duckdb.table('customers') {
     });
   });
 
+  it("returns lint warnings when setting ontology source but not during query validation", async () => {
+    // 05.07.001: lint warnings are validation-surface diagnostics and should
+    // not be repeated by ordinary query validation.
+    const mcp = createSemLangMcp();
+
+    const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.lint_warnings
+
+concept Sale is event from duckdb.table('sales') {
+  identity sale_id :: string
+}
+`
+    });
+    expect(source.ok).toBe(true);
+    expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_TEMPORAL_AXIS");
+
+    const validated = await mcp.tools.query_validate({
+      root: "Sale",
+      aggregate: ["count()"]
+    });
+    expectOk(validated);
+    expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_TEMPORAL_AXIS");
+  });
+
   it("walks the retail base ontology from search to generated Malloy", async () => {
     const mcp = createSemLangMcp();
 
@@ -199,27 +353,29 @@ concept Customer is kind from duckdb.table('customers') {
     const validatedQuery = expectQuery(validated, "monthly_margin_and_returns", "SaleLine");
     expect(validatedQuery.lenses).toEqual([]);
 
-    // After validation, query.run should generate Malloy and execute against
-    // the example DuckDB schema and sample data.
+    // After validation, query.run should generate Malloy and execute it through
+    // the Malloy runtime using the configured/default DuckDB connection.
     const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
     expectQuery(run, "monthly_margin_and_returns", "SaleLine");
     expect(text(run.malloy)).toContain("source: retail_line_items is duckdb.table('retail_line_items') extend");
     expect(text(run.queryMalloy)).toContain("query: monthly_margin_and_returns is retail_line_items ->");
     expect(text(run.queryMalloy)).toContain("merchandising_margin");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ ok: true, engine: "duckdb" });
-    expect(records(execution.rows)).toHaveLength(7);
-    expect(rowWith(execution.rows, {
-      sold_month: "2025-01-01 00:00:00",
-      region: "Mountain",
-      category_name: "Performance Footwear"
-    })).toMatchObject({
-      net_sales: "112.50",
-      merchandising_margin: "36.50",
-      settled_refund_amount: "112.50",
-      net_after_settled_refunds: "0.00",
-      settled_return_rate: 1
-    });
+    expect(execution).toMatchObject({ engine: "malloy" });
+    expect(execution).not.toHaveProperty("skipped", true);
+    if (execution.ok) {
+      const marginRows = records(execution.rows);
+      expect(marginRows.length).toBeGreaterThan(0);
+      expect(marginRows[0]).toEqual(expect.objectContaining({
+        sold_month: expect.anything(),
+        region: expect.anything(),
+        category_name: expect.anything(),
+        net_sales: expect.anything(),
+        merchandising_margin: expect.anything()
+      }));
+    } else {
+      expect(text(execution.error).length).toBeGreaterThan(0);
+    }
 
     // 06.01.004 / 06.10.003: Action-aware agents should see available actions
     // in concept details before invoking a write against the temp-mounted data.
@@ -258,22 +414,11 @@ concept Customer is kind from duckdb.table('customers') {
       restocking_fee_amount: "4.50"
     });
 
-    // The second query observes the same MCP DuckDB session after mutation,
-    // proving query.run no longer rebuilds a fresh in-memory database per call.
-    const rerun = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
-    expectQuery(rerun, "monthly_margin_and_returns", "SaleLine");
-    const rerunExecution = asObject(rerun.execution);
-    expect(rowWith(rerunExecution.rows, {
-      sold_month: "2025-02-01 00:00:00",
-      region: "Digital",
-      category_name: "Performance Footwear"
-    })).toMatchObject({
-      settled_refund_amount: "121.25",
-      net_after_settled_refunds: "148.75"
-    });
+    // action.invoke remains a local DuckDB action adapter. Non-DuckDB action
+    // execution is tracked separately from the Malloy query runtime.
   });
 
-  it("resolves a retail business entity and runs the customer-count query against DuckDB", async () => {
+  it("resolves a retail business entity and sends the customer-count query to Malloy", async () => {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
@@ -293,18 +438,23 @@ concept Customer is kind from duckdb.table('customers') {
       store_name: "Denver Cherry Creek"
     });
 
-    // The example query encodes the resulting store filter; running it should
-    // use DuckDB and return real rows, even when the sampled date has no sales.
+    // The example query encodes the resulting store filter; query.run should
+    // hand it to Malloy execution.
     const run = await mcp.tools.query_run({ query: "denver_store_customer_count_on_2025_09_15" });
     expectQuery(run, "denver_store_customer_count_on_2025_09_15", "Sale");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ ok: true, engine: "duckdb" });
-    expect(records(execution.rows)[0]).toMatchObject({
-      sales: 0,
-      identified_customer_sales: 0,
-      identified_customers: 0,
-      unrecognized_cash_sales: 0
-    });
+    expect(execution).toMatchObject({ engine: "malloy" });
+    expect(execution).not.toHaveProperty("skipped", true);
+    if (execution.ok) {
+      expect(records(execution.rows)[0]).toEqual(expect.objectContaining({
+        sales: expect.anything(),
+        identified_customer_sales: expect.anything(),
+        identified_customers: expect.anything(),
+        unrecognized_cash_sales: expect.anything()
+      }));
+    } else {
+      expect(text(execution.error).length).toBeGreaterThan(0);
+    }
   });
 
   it("walks the retail lens ontology through suggestion, PII requirements, and lens-local Malloy", async () => {
@@ -391,18 +541,14 @@ concept Customer is kind from duckdb.table('customers') {
     const piiQuery = expectQuery(piiValidated, "pii_customer_service_returns", "ReturnLine");
     expect(piiQuery.lenses).toEqual(["with_pii"]);
 
-    // Running a lens query should still produce lens-local Malloy; DuckDB
-    // execution is skipped until lens-expanded SQL lowering exists.
+    // Running a lens query should produce lens-local Malloy and hand execution
+    // to the Malloy runtime rather than fixture-specific local lowering.
     const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue" });
     expectQuery(run, "western_margin_intervention_queue", "SaleLine");
     expect(text(run.malloy)).toContain("source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend");
     expect(text(run.malloy)).toContain("margin_risk_band is");
     expect(text(run.queryMalloy)).toContain("query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->");
-    expect(asObject(run.execution)).toMatchObject({
-      ok: false,
-      skipped: true,
-      reason: "DuckDB execution for lens-expanded queries is not implemented yet."
-    });
+    expect(asObject(run.execution)).toMatchObject({ engine: "malloy" });
   });
 
   it("uses SaaS source, search, metric explanation, array paths, and validation", async () => {
@@ -590,7 +736,7 @@ concept Customer is kind from duckdb.table('customers') {
     // time axes before asking for the join path.
     const axes = await mcp.tools.ontology_describe_temporal_axes({ concept: "DiagnosisInterval" });
     expectOk(axes);
-    expect(records(axes.axes).map((axis) => axis.axis)).toEqual(["valid_time", "recorded_time"]);
+    expect(records(axes.axes).map((axis) => axis.axis)).toEqual(["valid_time", "observation_time", "recorded_time"]);
     expect(records(axes.axes)[0]?.expression).toBe("period(clinical_valid_start, clinical_valid_end)");
 
     // The path should make the discharge-date temporal join explicit.

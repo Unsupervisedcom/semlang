@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
+import { executeMalloyQuery } from "./malloy-execution.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
   ActionDecl,
@@ -33,7 +34,10 @@ export interface SemLangMcpContext {
   malloy?: string;
   sourceText?: string;
   filePath?: string;
+  sourcePaths?: string[];
   sourceKind?: "file" | "files" | "inline";
+  projectDir?: string;
+  malloyConfigPath?: string;
   duckDb?: ExampleDuckDbContext;
 }
 
@@ -78,18 +82,22 @@ export function createSemLangMcp(): SemLangMcpApi {
     const inlineSources = stringList(args.sources ?? args.source);
     const inlineSource = inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined;
     const explicitFilePath = stringValue(args.basePath ?? args.filePath);
+    const explicitProjectDir = stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path);
+    const explicitMalloyConfigPath = stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path);
 
     let result: CompileResult;
     let sourceText: string | undefined;
     let filePath: string | undefined;
+    let sourcePaths: string[] = [];
     let sourceKind: SemLangMcpContext["sourceKind"];
 
     if (paths.length > 0) {
       const absolutePaths = paths.map((item) => path.resolve(item));
+      sourcePaths = absolutePaths;
       if (absolutePaths.length === 1 && !inlineSource) {
         filePath = absolutePaths[0];
         sourceText = await fs.readFile(filePath, "utf8");
-        result = await compileFile(filePath);
+        result = await compileFile(filePath, { lintWarnings: true });
         sourceKind = "file";
       } else {
         filePath = path.join(process.cwd(), "__semlang_mcp_context__.semlang");
@@ -98,13 +106,14 @@ export function createSemLangMcp(): SemLangMcpApi {
           ...absolutePaths.map((item) => `include ${JSON.stringify(item)}`),
           inlineSource ?? ""
         ].filter(Boolean).join("\n");
-        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader() });
+        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
         sourceKind = absolutePaths.length > 0 ? "files" : "inline";
       }
     } else if (inlineSource) {
       filePath = explicitFilePath ? path.resolve(explicitFilePath) : path.join(process.cwd(), "__semlang_mcp_inline__.semlang");
+      sourcePaths = explicitFilePath ? [filePath] : [];
       sourceText = inlineSource;
-      result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader() });
+      result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
       sourceKind = "inline";
     } else {
       return { ok: false, error: "Provide path/paths or source/sources." };
@@ -116,14 +125,23 @@ export function createSemLangMcp(): SemLangMcpApi {
       context.malloy = result.malloy;
       context.sourceText = sourceText;
       context.filePath = filePath;
+      context.sourcePaths = sourcePaths;
       context.sourceKind = sourceKind;
+      context.projectDir = resolveProjectDir(explicitProjectDir, explicitMalloyConfigPath, sourcePaths, result.model.files);
+      context.malloyConfigPath = explicitMalloyConfigPath ? path.resolve(explicitMalloyConfigPath) : undefined;
       context.duckDb = undefined;
     }
 
     return {
       ok: Boolean(result.model),
       diagnostics: jsonSafe(result.diagnostics),
-      context: result.model ? jsonSafe(modelSummary(result.model)) : null
+      context: result.model ? jsonSafe({
+        ...modelSummary(result.model),
+        execution: {
+          projectDir: context.projectDir ?? null,
+          malloyConfigPath: context.malloyConfigPath ?? null
+        }
+      }) : null
     };
   }
 
@@ -456,7 +474,7 @@ export function createSemLangMcp(): SemLangMcpApi {
     { name: "lens.required_fields", description: "Extract fields referenced by lens filters, definitions, joins, and validations.", handler: requiredFields },
     { name: "lens.plan", description: "Plan lens application for a question or requested lens list.", handler: lensPlan },
     { name: "query.validate", description: "Validate a named query or temporary root/body query against the current ontology.", handler: validateQuery },
-    { name: "query.run", description: "Generate Malloy and execute the query against local DuckDB example data when available.", handler: runQuery },
+    { name: "query.run", description: "Generate Malloy and execute the query with Malloy SDK connections.", handler: runQuery },
     { name: "action.invoke", description: "Invoke a supported action against local DuckDB example data.", handler: invokeAction },
     { name: "reasoning.derive", description: "Derive candidate concepts, metrics, lenses, and path hints for a question.", handler: reasoningDerive }
   ];
@@ -513,44 +531,35 @@ interface SqlBuildContext {
 
 async function executeQuery(context: SemLangMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): Promise<Record<string, unknown>> {
   if (validation.ok !== true) return { ok: false, skipped: true, reason: "Query validation failed." };
-  const executionContext = currentExecutionContext(context, args, validation);
-  if (!executionContext) return { ok: false, skipped: true, reason: "Only named queries from the current ontology can be executed." };
-  if (executionContext.query.lenses.length > 0) {
-    return { ok: false, skipped: true, reason: "DuckDB execution for lens-expanded queries is not implemented yet." };
-  }
-  const data = await ensureExampleDuckDb(context, executionContext.filePath);
-  if (!data) {
-    return { ok: false, skipped: true, reason: "No schema.sql and sample_data.sql files were found next to the ontology source." };
-  }
-  const sql = buildQuerySql(executionContext.model, executionContext.query);
-  if (!sql.ok) return { ok: false, skipped: true, diagnostics: sql.diagnostics };
-  try {
-    const rows = await executeDuckDbJson(data.dbPath, sql.sql);
-    return {
-      ok: true,
-      engine: "duckdb",
-      sql: sql.sql,
-      rows
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      engine: "duckdb",
-      sql: sql.sql,
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
+  const malloy = stringValue(validation.malloy);
+  const queryName = executionQueryName(args, validation);
+  if (!malloy || !queryName) return { ok: false, skipped: true, reason: "No generated Malloy query was available to execute." };
+  const projectDir = context.projectDir ?? inferProjectDir(context.sourcePaths ?? [], context.model?.files ?? [], context.malloyConfigPath);
+  return executeMalloyQuery({
+    malloy,
+    queryName,
+    rowLimit: numberValue(args.rowLimit ?? args.row_limit ?? args.maxRows ?? args.max_rows),
+    context: {
+      projectDir,
+      malloyConfigPath: context.malloyConfigPath,
+      modelFilePath: executionModelFilePath(context)
+    }
+  });
 }
 
-function currentExecutionContext(context: SemLangMcpContext, args: Record<string, unknown>, validation: Record<string, JsonValue>): { model: SemanticModel; query: QueryDecl; filePath: string } | undefined {
-  const source = validation.query;
-  const model = context.model;
-  const name = isRecord(source) ? stringValue(source.name) : stringValue(args.query ?? args.name);
-  const filePath = context.filePath;
-  if (!model || !name) return undefined;
-  const query = model.queries.find((candidate) => candidate.name === name);
-  const inferredFilePath = filePath ?? stringValue((model.files ?? [])[0]);
-  return query && inferredFilePath ? { model, query, filePath: inferredFilePath } : undefined;
+function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
+  const query = validation.query;
+  return stringValue(validation.queryName)
+    ?? (isRecord(query) ? stringValue(query.name) : undefined)
+    ?? stringValue(args.queryName ?? args.query_name)
+    ?? stringValue(args.name);
+}
+
+function executionModelFilePath(context: SemLangMcpContext): string | undefined {
+  if (context.filePath && !context.filePath.includes("__semlang_mcp_inline__") && !context.filePath.includes("__semlang_mcp_context__")) {
+    return context.filePath;
+  }
+  return context.sourcePaths?.[0] ?? context.model?.files[0];
 }
 
 async function exampleDuckDbScripts(filePath: string): Promise<{ schema: string; sampleData: string; schemaPath: string } | undefined> {
@@ -596,45 +605,6 @@ async function executeDuckDbJson(dbPath: string, sql: string): Promise<Array<Rec
     maxBuffer: 10 * 1024 * 1024
   });
   return JSON.parse(stdout.trim() || "[]") as Array<Record<string, unknown>>;
-}
-
-function buildQuerySql(model: SemanticModel, query: QueryDecl): { ok: true; sql: string } | { ok: false; diagnostics: string[] } {
-  const root = model.concepts.get(query.root);
-  if (!root) return { ok: false, diagnostics: [`Unknown query root ${query.root}.`] };
-  if (root.source.kind !== "table") return { ok: false, diagnostics: [`Root ${root.name} is not backed by a DuckDB table source.`] };
-  const ctx: SqlBuildContext = { model, root, joins: new Map([["", "root"]]), joinClauses: [] };
-  const diagnostics: string[] = [];
-  const select: string[] = [];
-  const groupExpressions = query.body.groupBy.map((item) => {
-    const expression = sqlExpression(ctx, root, "", item.expression, diagnostics);
-    const alias = item.alias ?? lastSegment(item.expression).replace(/[^A-Za-z0-9_]/g, "_");
-    select.push(`${expression} AS ${quoteIdent(alias)}`);
-    return expression;
-  });
-  const aggregateAliases = new Map<string, string>();
-  for (const item of query.body.aggregate) {
-    const compiled = sqlAggregateItem(ctx, root, item, aggregateAliases, diagnostics);
-    if (compiled) {
-      aggregateAliases.set(compiled.alias, compiled.expression);
-      select.push(`${compiled.expression} AS ${quoteIdent(compiled.alias)}`);
-    }
-  }
-  if (select.length === 0) select.push("COUNT(*) AS rows");
-  const where = query.body.where ? sqlExpression(ctx, root, "", query.body.where.expression, diagnostics) : undefined;
-  const having = query.body.having ? sqlExpression(ctx, root, "", query.body.having.expression, diagnostics, aggregateAliases) : undefined;
-  const orderBy = query.body.orderBy.map((item) => sqlOrderBy(ctx, root, item.expression, diagnostics, aggregateAliases));
-  if (diagnostics.length > 0) return { ok: false, diagnostics };
-  const lines = [
-    `SELECT ${select.join(", ")}`,
-    `FROM ${quoteIdent(root.source.path)} AS root`,
-    ...ctx.joinClauses,
-    where ? `WHERE ${where}` : undefined,
-    groupExpressions.length > 0 ? `GROUP BY ${groupExpressions.map((_item, index) => String(index + 1)).join(", ")}` : undefined,
-    having ? `HAVING ${having}` : undefined,
-    orderBy.length > 0 ? `ORDER BY ${orderBy.join(", ")}` : undefined,
-    query.body.limit ? `LIMIT ${query.body.limit.value}` : undefined
-  ].filter(Boolean);
-  return { ok: true, sql: `${lines.join("\n")};` };
 }
 
 type ActionResolution =
@@ -877,24 +847,6 @@ function sqlLiteral(value: unknown): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function sqlAggregateItem(
-  ctx: SqlBuildContext,
-  root: ResolvedConcept,
-  item: { expression: string; alias?: string },
-  aggregateAliases: Map<string, string>,
-  diagnostics: string[]
-): { alias: string; expression: string } | undefined {
-  if (item.alias) {
-    return { alias: item.alias, expression: sqlExpression(ctx, root, "", item.expression, diagnostics, aggregateAliases) };
-  }
-  const measure = root.measures.find((candidate) => candidate.name === item.expression);
-  if (measure) return { alias: measure.name, expression: sqlMeasureExpression(ctx, root, "", measure.expression, diagnostics, aggregateAliases) };
-  return {
-    alias: lastSegment(item.expression).replace(/[^A-Za-z0-9_]/g, "_"),
-    expression: sqlExpression(ctx, root, "", item.expression, diagnostics, aggregateAliases)
-  };
-}
-
 function sqlMeasureExpression(
   ctx: SqlBuildContext,
   concept: ResolvedConcept,
@@ -1050,12 +1002,6 @@ function sqlJoinOn(ctx: SqlBuildContext, source: ResolvedConcept, sourcePrefix: 
   }).join(" AND ");
 }
 
-function sqlOrderBy(ctx: SqlBuildContext, root: ResolvedConcept, expression: string, diagnostics: string[], aggregateAliases: Map<string, string>): string {
-  const match = /^(.+?)(\s+(?:asc|desc))?$/i.exec(expression);
-  if (!match) return sqlExpression(ctx, root, "", expression, diagnostics, aggregateAliases);
-  return `${sqlExpression(ctx, root, "", match[1]!.trim(), diagnostics, aggregateAliases)}${match[2] ?? ""}`;
-}
-
 function sqlFieldProperty(sql: string, property: string | undefined): string {
   if (!property) return sql;
   if (property === "date") return `CAST(${sql} AS DATE)`;
@@ -1144,6 +1090,39 @@ function modelSummary(model: SemanticModel) {
     lenses: [...model.lenses.keys()],
     queries: model.queries.map((query) => query.name)
   };
+}
+
+function resolveProjectDir(
+  explicitProjectDir: string | undefined,
+  malloyConfigPath: string | undefined,
+  sourcePaths: string[],
+  modelFiles: string[] = []
+): string {
+  if (explicitProjectDir) return path.resolve(explicitProjectDir);
+  return inferProjectDir(sourcePaths, modelFiles, malloyConfigPath);
+}
+
+function inferProjectDir(sourcePaths: string[] = [], modelFiles: string[] = [], malloyConfigPath?: string): string {
+  const candidates = [...sourcePaths, ...modelFiles]
+    .filter((item) => item && !item.includes("__semlang_mcp_inline__") && !item.includes("__semlang_mcp_context__"))
+    .map((item) => path.resolve(item));
+  if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
+  if (malloyConfigPath) return path.dirname(path.resolve(malloyConfigPath));
+  return process.cwd();
+}
+
+function commonDirectory(dirs: string[]): string {
+  if (dirs.length === 0) return process.cwd();
+  const [first, ...rest] = dirs.map((dir) => path.resolve(dir).split(path.sep).filter(Boolean));
+  if (!first) return process.cwd();
+  const common = [...first];
+  for (const dir of rest) {
+    let index = 0;
+    while (index < common.length && common[index] === dir[index]) index += 1;
+    common.length = index;
+  }
+  const root = path.parse(path.resolve(dirs[0]!)).root;
+  return path.join(root, ...common);
 }
 
 function describeConceptPlain(model: SemanticModel, concept: ResolvedConcept) {

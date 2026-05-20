@@ -5,7 +5,9 @@ sidebar_position: 1
 
 # MCP Server
 
-The SemLang MCP server gives agents tools for semantic discovery, ontology navigation, lens planning, query validation, local query execution, and supported action invocation.
+The SemLang MCP server gives agents tools for semantic discovery, ontology navigation, lens planning, query validation, Malloy-backed query execution, and supported local action invocation.
+
+SemLang models use Malloy-style named connections in source declarations. Configure those connections in Malloy project or global config using the same names referenced by `.semlang` files; see [Malloy Connections](./malloy-connections.md) for setup details.
 
 ## Live Source Install
 
@@ -56,7 +58,7 @@ Common tools include:
 - `ontology.find_paths` finds join paths between concepts.
 - `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, and `lens.plan` help agents select and apply semantic overlays.
 - `query.validate` checks named or temporary queries.
-- `query.run` emits Malloy and executes against nearby local DuckDB example data when available.
+- `query.run` emits Malloy and executes it with the Malloy SDK, using configured connections or the default local `duckdb` connection.
 - `action.invoke` runs supported local DuckDB action edits when the model declares actions.
 - `reasoning.derive` gathers concept, metric, lens, and path hints for an analytical question.
 
@@ -68,6 +70,7 @@ See the tool reference pages for request shapes and response notes:
 - [Lens Tools](./lens-tools.md)
 - [Query and Action Tools](./query-and-action-tools.md)
 - [Reasoning Tools](./reasoning-tools.md)
+- [Malloy Connections](./malloy-connections.md)
 
 ## Troubleshooting
 

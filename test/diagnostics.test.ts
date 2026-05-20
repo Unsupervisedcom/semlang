@@ -7,6 +7,7 @@ import type { Diagnostic } from "../src/types.js";
 // misuse, and aggregate alias diagnostics.
 // 05.01.001, 05.01.002, 05.01.003, 05.01.004, 05.01.005, 05.01.006, 05.01.007, 05.01.008
 // 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.01.014, 05.02.001, 05.02.002, 05.02.003
+// 05.07.001, 05.07.002, 05.07.003, 05.07.004, 05.07.005
 // 05.02.004, 05.02.005, 05.02.006
 
 function source(lines: string[]): string {
@@ -27,6 +28,21 @@ function expectDiagnostic(
   expect(diagnostic(result, code)).toMatchObject({
     code,
     severity: "error",
+    message: expect.stringMatching(expected.message),
+    location: expected.file
+      ? { file: expected.file, line: expected.line, column: expected.column }
+      : { line: expected.line, column: expected.column }
+  });
+}
+
+function expectWarning(
+  result: { diagnostics: Diagnostic[] },
+  code: string,
+  expected: { message: RegExp; line: number; column: number; file?: string }
+) {
+  expect(diagnostic(result, code)).toMatchObject({
+    code,
+    severity: "warning",
     message: expect.stringMatching(expected.message),
     location: expected.file
       ? { file: expected.file, line: expected.line, column: expected.column }
@@ -364,6 +380,147 @@ describe("compiler diagnostics", () => {
       line: 10,
       column: 3
     });
+  });
+
+  it("emits lint warnings only when requested", async () => {
+    const missingTemporalAxes = source([
+      "package warn.temporal_axes",
+      "concept Sale is event from duckdb.table('sales') {",
+      "  identity sale_id :: string",
+      "}",
+      "concept InventorySnapshot is situation from duckdb.table('inventory_snapshots') {",
+      "  identity snapshot_id :: string",
+      "}",
+      "concept Customer is kind from duckdb.table('customers') {",
+      "  identity customer_id :: string",
+      "}"
+    ]);
+
+    const compiled = await compileSemLang(missingTemporalAxes);
+    expect(compiled.diagnostics).toEqual([]);
+
+    const missing = await compileSemLang(missingTemporalAxes, { lintWarnings: true });
+
+    expectWarning(missing, "MISSING_TEMPORAL_AXIS", {
+      message: /Concept Sale is an event but does not declare occurrence_time/,
+      line: 2,
+      column: 1
+    });
+    expect(missing.diagnostics.filter((item) => item.code === "MISSING_TEMPORAL_AXIS").map((item) => item.message)).toEqual([
+      "Concept Sale is an event but does not declare occurrence_time.",
+      "Concept InventorySnapshot is a situation but does not declare observation_time."
+    ]);
+
+    const present = await compileSemLang(source([
+      "package good.temporal_axes",
+      "concept Sale is event from duckdb.table('sales') {",
+      "  identity sale_id :: string",
+      "  field:",
+      "    sold_at :: timestamp",
+      "  occurrence_time: sold_at",
+      "}",
+      "concept InventorySnapshot is situation from duckdb.table('inventory_snapshots') {",
+      "  identity snapshot_id :: string",
+      "  field:",
+      "    observed_at :: timestamp",
+      "  observation_time: observed_at",
+      "}"
+    ]), { lintWarnings: true });
+
+    expect(present.diagnostics).toEqual([]);
+  });
+
+  it("warns about likely missing joins from semantic identifier types", async () => {
+    const result = await compileSemLang(source([
+      "package warn.join_candidates",
+      "type: CustomerId is string {",
+      "  identifies: Customer",
+      "}",
+      "type: AccountId is string {",
+      "  identifies: Account",
+      "}",
+      "concept Customer is kind from duckdb.table('customers') {",
+      "  identity customer_id :: CustomerId",
+      "}",
+      "concept Account is kind from duckdb.table('accounts') {",
+      "  identity account_id :: AccountId",
+      "  field:",
+      "    customer_id :: CustomerId",
+      "}"
+    ]), { lintWarnings: true });
+
+    expectWarning(result, "MISSING_JOIN_CANDIDATE", {
+      message: /Account\.customer_id.*identifies Customer.*optional join to Customer/,
+      line: 14,
+      column: 5
+    });
+
+    const joined = await compileSemLang(source([
+      "package good.join_candidates",
+      "type: CustomerId is string {",
+      "  identifies: Customer",
+      "}",
+      "type: AccountId is string {",
+      "  identifies: Account",
+      "}",
+      "concept Customer is kind from duckdb.table('customers') {",
+      "  identity customer_id :: CustomerId",
+      "}",
+      "concept Account is kind from duckdb.table('accounts') {",
+      "  identity account_id :: AccountId",
+      "  field:",
+      "    customer_id :: CustomerId",
+      "  join_one customer?: Customer with customer_id",
+      "}"
+    ]), { lintWarnings: true });
+
+    expect(joined.diagnostics.filter((item) => item.code === "MISSING_JOIN_CANDIDATE")).toEqual([]);
+  });
+
+  it("warns when a field name matches a semantic type but uses another type", async () => {
+    const result = await compileSemLang(source([
+      "package warn.field_type_names",
+      "type: OfferId is string {",
+      "  identifies: Offer",
+      "}",
+      "concept MessageTrackingWithSynthetics is event from duckdb.table('message_tracking') {",
+      "  identity tracking_id :: string",
+      "  field:",
+      "    offer_id :: number",
+      "    sent_at :: timestamp",
+      "  occurrence_time: sent_at",
+      "}"
+    ]), { lintWarnings: true });
+
+    expectWarning(result, "FIELD_TYPE_NAME_MISMATCH", {
+      message: /MessageTrackingWithSynthetics\.offer_id is typed as number.*matches semantic type OfferId/,
+      line: 8,
+      column: 5
+    });
+  });
+
+  it("warns when repeated identifier fields use inconsistent semantic types", async () => {
+    const result = await compileSemLang(source([
+      "package warn.semantic_types",
+      "type: CustomerId is string {",
+      "  identifies: Customer",
+      "}",
+      "concept Customer is kind from duckdb.table('customers') {",
+      "  identity customer_id :: CustomerId",
+      "}",
+      "concept SupportTicket is kind from duckdb.table('support_tickets') {",
+      "  identity ticket_id :: string",
+      "  field:",
+      "    customer_id :: string",
+      "}"
+    ]), { lintWarnings: true });
+
+    expectWarning(result, "INCONSISTENT_SEMANTIC_TYPE", {
+      message: /customer_id uses inconsistent semantic types.*Customer\.customer_id :: CustomerId.*SupportTicket\.customer_id :: string/,
+      line: 6,
+      column: 12
+    });
+    expect(result.diagnostics.filter((item) => item.code === "INCONSISTENT_SEMANTIC_TYPE")).toHaveLength(2);
   });
 
   it("reports aggregate aliases that expose raw row fields", async () => {

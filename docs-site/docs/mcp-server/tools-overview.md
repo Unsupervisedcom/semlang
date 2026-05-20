@@ -5,7 +5,7 @@ sidebar_position: 2
 
 # Tools Overview
 
-The SemLang MCP server exposes ontology-aware tools for agents that need to discover a model, inspect semantic structure, plan lens overlays, validate queries, and run supported local examples.
+The SemLang MCP server exposes ontology-aware tools for agents that need to discover a model, inspect semantic structure, plan lens overlays, validate queries, run Malloy-backed queries, and invoke supported local actions.
 
 Call `set_ontology_source` first in each MCP session. All other tools read the compiled model held in the server context and return an error if no source has been loaded.
 
@@ -23,4 +23,4 @@ Call `set_ontology_source` first in each MCP session. All other tools read the c
 
 Tools return structured JSON. Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
 
-`query.run` and `action.invoke` can execute against local DuckDB example data when the loaded ontology file lives next to `schema.sql` and `sample_data.sql`. If those files are absent, execution is skipped and the tool returns a reason instead of failing the MCP session.
+`query.run` executes through the Malloy SDK using the project/config context captured by `set_ontology_source`; when no config is available, it uses the default local `duckdb` connection. `action.invoke` is separate and remains a local DuckDB action adapter for supported action edits.

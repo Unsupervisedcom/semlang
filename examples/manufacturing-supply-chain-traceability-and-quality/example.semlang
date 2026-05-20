@@ -6,7 +6,7 @@
 // effectivity, into inspection findings, shipments, warranty claims, and recall
 // scope. The file is intentionally in-situ: comments explain why the concepts
 // are shaped this way and how an agent might discover a useful query, but the
-// declarations stay close to the tables in schema.sql.
+// declarations stay close to the source table grains.
 //
 // A few modeling choices to notice:
 //
@@ -443,6 +443,7 @@ concept BOMVersion is situation from duckdb.table('bom_versions') {
   // order below can check whether the declaration was valid at start time.
   identity bom_version_id :: BOMVersionId
   valid_time: period(effective_from, effective_to)
+  observation_time: effective_from
 
   join_one product_model: ProductModel on product_model_id
 
@@ -1234,4 +1235,4 @@ query: lot_genealogy_recall_candidates is SupplierLotGenealogy -> {
 //     subject: { supplier_lot_id: "LOT_CTRL_A100" },
 //     params: { reason: "containment review", notify_supplier: false }
 //   })
-//   -> updates only the temp-mounted DuckDB copy before exposure queries are run.
+//   -> updates only the temp-mounted DuckDB copy and returns the changed row.

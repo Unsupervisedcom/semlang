@@ -77,3 +77,13 @@ Validations are preserved as model metadata in V1, but they are not analytical f
 - 05.06.001: The compiler MUST preserve validation declarations in the semantic model.
 - 05.06.002: Validation predicates MUST represent false rows or states as data-quality errors.
 - 05.06.003: V1 Malloy query emission MUST NOT emit validations into analytical queries by default.
+
+## 05.07 Lint Warnings
+
+Lint warnings identify likely model-quality problems without blocking successful compilation. They are intended for ontology validation surfaces rather than per-query validation.
+
+- 05.07.001: Lint warnings MUST be opt-in and MUST NOT be emitted by default compile or query validation calls.
+- 05.07.002: Lint validation SHOULD warn when an `event` concept omits `occurrence_time` or a `situation` concept omits `observation_time`.
+- 05.07.003: Lint validation SHOULD warn when a field's semantic type metadata identifies another modeled concept but the owning concept has no join to that target, excluding self-identifying fields and existing joins.
+- 05.07.004: Lint validation SHOULD warn when a field name matches a declared semantic type name after case and underscore normalization but the field is declared with a different type.
+- 05.07.005: Lint validation SHOULD warn when repeated identifier-like field names use inconsistent semantic types across concepts and at least one occurrence uses a modeled semantic type.

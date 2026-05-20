@@ -58,7 +58,7 @@ For named queries, returns the resolved query and diagnostics. For temporary que
 
 ## `query.run`
 
-Validates a query and then attempts local execution against DuckDB example data.
+Validates a query and executes it through the Malloy SDK.
 
 ### Inputs
 
@@ -68,18 +68,19 @@ Accepts the same query inputs as `query.validate`.
 
 Returns validation fields plus generated `malloy`, extracted `queryMalloy`, and an `execution` object.
 
-Execution succeeds only for named queries from the current ontology when the loaded source file has sibling `schema.sql` and `sample_data.sql` files. Lens-expanded query execution is currently skipped, but the tool still returns lens-local Malloy.
+Execution uses the Malloy project/config context captured by `set_ontology_source`. If no config is available, `query.run` uses Malloy's default local `duckdb` connection. Named queries and temporary root/body queries are both eligible for execution.
+
+Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config. If a model references an unknown custom connection, `query.run` returns a clear Malloy execution error naming the missing connection. See [Malloy Connections](./malloy-connections.md).
 
 ### Execution Results
 
 | Field | Meaning |
 | --- | --- |
-| `execution.ok` | Whether DuckDB execution succeeded. |
-| `execution.engine` | `duckdb` when execution ran. |
-| `execution.sql` | SQL lowered from the named query for local execution. |
-| `execution.rows` | JSON rows returned by DuckDB. |
-| `execution.skipped` | Present when execution could not run locally. |
-| `execution.reason` | Explanation for skipped execution. |
+| `execution.ok` | Whether Malloy execution succeeded. |
+| `execution.engine` | `malloy` when query execution reached the Malloy SDK. |
+| `execution.sql` | SQL produced by Malloy when available. |
+| `execution.rows` | JSON rows returned by the configured connection. |
+| `execution.error` | Clear error text when Malloy compilation or execution fails. |
 
 ## `action.invoke`
 

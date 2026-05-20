@@ -15,7 +15,7 @@ program
   .option("--out <file>", "Output file")
   .addOption(new Option("--emit <kind>", "Artifact to emit").choices(["ast", "model", "malloy", "json-schema"]).default("malloy"))
   .action(async (file: string, options: { out?: string; emit: "ast" | "model" | "malloy" | "json-schema" }) => {
-    const result = await compileFile(file);
+    const result = await compileFile(file, { lintWarnings: true });
     if (result.diagnostics.length > 0) {
       for (const diagnostic of result.diagnostics) {
         const loc = diagnostic.location ? `${diagnostic.location.file ?? "<input>"}:${diagnostic.location.line}:${diagnostic.location.column}` : "<input>";

@@ -16,6 +16,7 @@ export interface Diagnostic {
 export interface CompileOptions {
   filePath?: string;
   packageLoader?: PackageLoader;
+  lintWarnings?: boolean;
 }
 
 export interface PackageLoader {

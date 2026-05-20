@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { emitMalloy } from "./emitter.js";
+import { lintSemanticModel } from "./lint.js";
 import { parseSemLang } from "./parser.js";
 import { resolveSemLang } from "./resolver.js";
 import { emitJsonSchema } from "./schema.js";
@@ -8,6 +9,7 @@ import type { CompileOptions, CompileResult, PackageLoader } from "./types.js";
 
 export { emitMalloy } from "./emitter.js";
 export { createSemLangMcp, createSemLangMcpServer, runSemLangMcpStdioServer } from "./mcp.js";
+export { lintSemanticModel } from "./lint.js";
 export { parseSemLang } from "./parser.js";
 export { applyQueryLenses, resolveSemLang } from "./resolver.js";
 export { emitJsonSchema, semlangVocabularyUri } from "./schema.js";
@@ -23,6 +25,7 @@ export async function compileSemLang(source: string, options: CompileOptions = {
   diagnostics.push(...emitted.diagnostics);
   const schema = emitJsonSchema(resolved.model);
   diagnostics.push(...schema.diagnostics);
+  if (options.lintWarnings) diagnostics.push(...lintSemanticModel(resolved.model));
   return { ast: parsed.ast, model: resolved.model, malloy: emitted.malloy, jsonSchema: schema.schema, diagnostics };
 }
 
