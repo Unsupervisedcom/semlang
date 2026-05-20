@@ -13,12 +13,12 @@ Describes one concept and its members, optionally after applying lenses.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `concept` | string | Concept name. |
-| `name` | string | Alias for `concept`. |
-| `lens` | string | Optional lens to apply first. |
-| `lenses` | string array | Optional lens stack to apply first. |
+| Field     | Type         | Notes                               |
+| --------- | ------------ | ----------------------------------- |
+| `concept` | string       | Concept name.                       |
+| `name`    | string       | Alias for `concept`.                |
+| `lens`    | string       | Optional lens to apply first.       |
+| `lenses`  | string array | Optional lens stack to apply first. |
 
 ### Output
 
@@ -30,10 +30,10 @@ Describes one action, including subject mode, params, guards, edits, write mappi
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `action` | string | Action name. |
-| `name` | string | Alias for `action`. |
+| Field     | Type   | Notes                                                              |
+| --------- | ------ | ------------------------------------------------------------------ |
+| `action`  | string | Action name.                                                       |
+| `name`    | string | Alias for `action`.                                                |
 | `concept` | string | Optional concept name. Required when the action name is ambiguous. |
 
 ### Output
@@ -46,11 +46,11 @@ Describes a single role by local or qualified role name and optional concept.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `role` | string | Local role name or qualified role name such as `Customer.Active`. |
-| `name` | string | Alias for `role`. |
-| `concept` | string | Optional owning concept. |
+| Field     | Type   | Notes                                                             |
+| --------- | ------ | ----------------------------------------------------------------- |
+| `role`    | string | Local role name or qualified role name such as `Customer.Active`. |
+| `name`    | string | Alias for `role`.                                                 |
+| `concept` | string | Optional owning concept.                                          |
 
 ### Output
 
@@ -62,11 +62,11 @@ Lists roles across the ontology or on one concept, optionally after applying len
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `concept` | string | Optional concept filter. |
-| `lens` | string | Optional lens to apply first. |
-| `lenses` | string array | Optional lens stack to apply first. |
+| Field     | Type         | Notes                               |
+| --------- | ------------ | ----------------------------------- |
+| `concept` | string       | Optional concept filter.            |
+| `lens`    | string       | Optional lens to apply first.       |
+| `lenses`  | string array | Optional lens stack to apply first. |
 
 ### Output
 
@@ -78,11 +78,11 @@ Explains measures by name and optional concept.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `metric` | string | Measure name. |
-| `measure` | string | Alias for `metric`. |
-| `name` | string | Alias for `metric`. |
+| Field     | Type   | Notes                    |
+| --------- | ------ | ------------------------ |
+| `metric`  | string | Measure name.            |
+| `measure` | string | Alias for `metric`.      |
+| `name`    | string | Alias for `metric`.      |
 | `concept` | string | Optional owning concept. |
 
 ### Output
@@ -95,10 +95,10 @@ Lists temporal axes for one concept or the whole ontology.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
+| Field     | Type   | Notes                    |
+| --------- | ------ | ------------------------ |
 | `concept` | string | Optional concept filter. |
-| `name` | string | Alias for `concept`. |
+| `name`    | string | Alias for `concept`.     |
 
 ### Output
 
@@ -110,15 +110,15 @@ Finds declared join paths from a source concept or role target to one or more ta
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `from` | string | Starting concept or role target. |
-| `source` | string | Alias for `from`. |
-| `root` | string | Alias for `from`. |
-| `to` | string or string array | Target concept or role name. |
-| `target` | string or string array | Alias for `to`. |
-| `maxDepth` | number | Search depth, clamped from 1 to 8. Defaults to 4. |
-| `depth` | number | Alias for `maxDepth`. |
+| Field      | Type                   | Notes                                             |
+| ---------- | ---------------------- | ------------------------------------------------- |
+| `from`     | string                 | Starting concept or role target.                  |
+| `source`   | string                 | Alias for `from`.                                 |
+| `root`     | string                 | Alias for `from`.                                 |
+| `to`       | string or string array | Target concept or role name.                      |
+| `target`   | string or string array | Alias for `to`.                                   |
+| `maxDepth` | number                 | Search depth, clamped from 1 to 8. Defaults to 4. |
+| `depth`    | number                 | Alias for `maxDepth`.                             |
 
 ### Output
 

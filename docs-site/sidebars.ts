@@ -7,7 +7,7 @@ const sidebars: SidebarsConfig = {
       label: "Language Reference",
       link: {
         type: "doc",
-        id: "language-reference/index"
+        id: "language-reference/index",
       },
       items: [
         "language-reference/concepts",
@@ -19,15 +19,15 @@ const sidebars: SidebarsConfig = {
         "language-reference/diagnostics-lowering",
         "language-reference/schema-vocabulary",
         "language-reference/agent-instructions",
-        "language-reference/supported_malloy_features"
-      ]
+        "language-reference/supported_malloy_features",
+      ],
     },
     {
       type: "category",
       label: "MCP Server",
       link: {
         type: "doc",
-        id: "mcp-server/index"
+        id: "mcp-server/index",
       },
       items: [
         "mcp-server/tools-overview",
@@ -36,10 +36,10 @@ const sidebars: SidebarsConfig = {
         "mcp-server/lens-tools",
         "mcp-server/query-and-action-tools",
         "mcp-server/reasoning-tools",
-        "mcp-server/malloy-connections"
-      ]
-    }
-  ]
+        "mcp-server/malloy-connections",
+      ],
+    },
+  ],
 };
 
 export default sidebars;

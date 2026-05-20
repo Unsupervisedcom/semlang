@@ -10,7 +10,7 @@ const domains = [
   "healthcare-patient-journey-and-quality-measures",
   "manufacturing-supply-chain-traceability-and-quality",
   "retail-omnichannel-margin-and-returns",
-  "saas-product-usage-and-revenue"
+  "saas-product-usage-and-revenue",
 ] as const;
 
 async function semlangExamplesForDomain(domain: string): Promise<string[]> {
@@ -27,14 +27,18 @@ describe("SemLang example fixtures", () => {
     const examples = await semlangExamplesForDomain(domain);
     expect(examples.length).toBeGreaterThan(0);
 
-    const results = await Promise.all(examples.map(async (example) => ({
-      example,
-      result: await compileFile(example)
-    })));
-    const diagnostics = results.flatMap(({ example, result }) => result.diagnostics.map((diagnostic) => ({
-      file: path.relative(root, example),
-      ...diagnostic
-    })));
+    const results = await Promise.all(
+      examples.map(async (example) => ({
+        example,
+        result: await compileFile(example),
+      })),
+    );
+    const diagnostics = results.flatMap(({ example, result }) =>
+      result.diagnostics.map((diagnostic) => ({
+        file: path.relative(root, example),
+        ...diagnostic,
+      })),
+    );
     const missingMalloy = results
       .filter(({ result }) => !result.malloy)
       .map(({ example }) => path.relative(root, example));

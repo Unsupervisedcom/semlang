@@ -3,6 +3,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { compileFile, compileSemLang, parseSemLang } from "../src/index.js";
 
+type JsonSchemaObject = Record<string, unknown> & {
+  properties?: Record<string, unknown>;
+};
+
 // Requirement coverage: type parsing, type validation, JSON Schema export,
 // file/source forms, concept members, analytics/lenses, and read lowering.
 // 01.01.001, 01.01.002, 01.01.003, 01.01.004, 01.01.005, 01.01.006, 01.01.007, 01.01.008
@@ -58,7 +62,7 @@ describe("SemLang parser", () => {
       "ReturnLine",
       "Sale",
       "SaleLine",
-      "InventoryPosition"
+      "InventoryPosition",
     ]);
     expect(result.ast?.queries.map((query) => query.name)).toContain("monthly_margin_and_returns");
   });
@@ -68,7 +72,7 @@ describe("SemLang parser", () => {
     expect(result.ast).toBeUndefined();
     expect(result.diagnostics[0]).toMatchObject({
       code: "INVALID_CONCEPT_DECL",
-      location: { line: 2, column: 1 }
+      location: { line: 2, column: 1 },
     });
   });
 });
@@ -88,10 +92,14 @@ describe("SemLang compiler", () => {
   it("compiles lens queries through generated lens-local sources", async () => {
     const result = await compileFile(retailLens);
     expect(result.diagnostics).toEqual([]);
-    expect(result.malloy).toContain("source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend");
+    expect(result.malloy).toContain(
+      "source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend",
+    );
     expect(result.malloy).toContain("margin_risk_band is");
     expect(result.malloy).toContain("case when line_margin_rate < 0.10 then 'intervene'");
-    expect(result.malloy).toContain("query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->");
+    expect(result.malloy).toContain(
+      "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
+    );
   });
 
   it("applies deep lens filters to joined grains before aggregating on the query root", async () => {
@@ -231,7 +239,9 @@ concept SaleStatus is situation from sales_by_status {
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("source: sale_rows is duckdb.table('sales')");
     expect(result.malloy).toContain("source: sale is sale_rows extend");
-    expect(result.malloy).toContain('source: sql_sale is duckdb.sql(""" select sale_id, status, sold_at, amount from sales """) extend');
+    expect(result.malloy).toContain(
+      'source: sql_sale is duckdb.sql(""" select sale_id, status, sold_at, amount from sales """) extend',
+    );
     expect(result.malloy).toContain("query: sales_by_status is sale ->");
     expect(result.malloy).toContain("calculate:\n    status_rank is rank()");
     expect(result.malloy).toContain("order_by:\n    total_amount desc");
@@ -240,7 +250,9 @@ concept SaleStatus is situation from sales_by_status {
     expect(result.malloy).toContain("select:\n    sale_id\n    sale_status is status");
     expect(result.malloy).toContain("limit: 3");
     expect(result.malloy).toContain("source: sale_status is sales_by_status extend");
-    expect(result.malloy!.indexOf("query: sales_by_status")).toBeLessThan(result.malloy!.indexOf("source: sale_status is sales_by_status extend"));
+    expect(result.malloy!.indexOf("query: sales_by_status")).toBeLessThan(
+      result.malloy!.indexOf("source: sale_status is sales_by_status extend"),
+    );
   });
 
   it("preserves ignored sources as metadata without emitting Malloy", async () => {
@@ -259,24 +271,26 @@ concept Customer is kind from duckdb.table('dim_customer') {
     expect(result.ast?.ignored).toHaveLength(1);
     expect(result.model?.ignored).toHaveLength(1);
     expect(result.model?.ignored[0]).toMatchObject({
-      reason: "\"Staging table; canonical data lives in dim_customer\"",
+      reason: '"Staging table; canonical data lives in dim_customer"',
       source: {
         kind: "table",
         connection: "duckdb",
         path: "staging_customer_raw",
-        expression: "duckdb.table('staging_customer_raw')"
-      }
+        expression: "duckdb.table('staging_customer_raw')",
+      },
     });
     expect(result.malloy).not.toContain("staging_customer_raw");
     expect(result.malloy).toContain("source: dim_customer is duckdb.table('dim_customer') extend");
-    expect(result.jsonSchema?.["x-semlang-ignored-sources"]).toEqual([{
-      source: "duckdb.table('staging_customer_raw')",
-      sourceKind: "table",
-      reason: "Staging table; canonical data lives in dim_customer",
-      metadata: {
-        reason: "Staging table; canonical data lives in dim_customer"
-      }
-    }]);
+    expect(result.jsonSchema?.["x-semlang-ignored-sources"]).toEqual([
+      {
+        source: "duckdb.table('staging_customer_raw')",
+        sourceKind: "table",
+        reason: "Staging table; canonical data lives in dim_customer",
+        metadata: {
+          reason: "Staging table; canonical data lives in dim_customer",
+        },
+      },
+    ]);
   });
 
   it("diagnoses ignored sources without reasons, duplicates, and modeled sources", async () => {
@@ -295,11 +309,9 @@ concept Customer is kind from duckdb.table('customers') {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      "MISSING_IGNORED_REASON",
-      "DUPLICATE_IGNORED_SOURCE",
-      "IGNORED_SOURCE_MODELED"
-    ]));
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["MISSING_IGNORED_REASON", "DUPLICATE_IGNORED_SOURCE", "IGNORED_SOURCE_MODELED"]),
+    );
   });
 
   it("supports query/view compatibility clauses for having, project, nest, index, and view references", async () => {
@@ -359,7 +371,9 @@ query: compatibility is Sale -> {
     expect(result.malloy).toContain("query: compatibility is sales ->");
     expect(result.malloy).toContain("select:\n    sale_id\n    sale_status is status");
     expect(result.malloy).toContain("having: total_amount > 100");
-    expect(result.malloy).toContain("nest:\n    by_customer\n    customer_detail is by_customer\n    status_detail is {");
+    expect(result.malloy).toContain(
+      "nest:\n    by_customer\n    customer_detail is by_customer\n    status_detail is {",
+    );
     expect(result.malloy).toContain("having: rows > 1");
     expect(result.malloy).toContain("index:\n    status\n    customer is customer_id");
   });
@@ -375,7 +389,7 @@ concept Sale is event from table('sales') {
     expect(result.ast).toBeUndefined();
     expect(result.diagnostics[0]).toMatchObject({
       code: "UNQUALIFIED_SOURCE",
-      location: { line: 4, column: 1 }
+      location: { line: 4, column: 1 },
     });
     expect(result.diagnostics[0]?.message).toContain("duckdb.table('sales')");
   });
@@ -417,7 +431,9 @@ concept Sale is event from duckdb.table('sales') {
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("join_one: customer is customers\n    with customer_id");
     expect(result.malloy).toContain("join_cross: store_day is store_days\n");
-    expect(result.malloy).toContain("join_cross: comparable_store_day is store_days\n    on store_id = comparable_store_day.store_id");
+    expect(result.malloy).toContain(
+      "join_cross: comparable_store_day is store_days\n    on store_id = comparable_store_day.store_id",
+    );
   });
 
   it("validates richer Malloy filters, functions, and relation-aware aggregate methods", async () => {
@@ -523,12 +539,9 @@ query: q is Sale -> {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      "UNKNOWN_TYPE",
-      "UNKNOWN_JOIN_TARGET",
-      "UNKNOWN_PATH",
-      "RAW_FIELD_IN_AGGREGATE_ALIAS"
-    ]));
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["UNKNOWN_TYPE", "UNKNOWN_JOIN_TARGET", "UNKNOWN_PATH", "RAW_FIELD_IN_AGGREGATE_ALIAS"]),
+    );
   });
 
   it("01.02.001 exports semantic types and concepts as JSON Schema", async () => {
@@ -563,32 +576,34 @@ concept Customer is kind from duckdb.table('customers') {
     const schema = result.jsonSchema!;
     expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
     expect(schema.$vocabulary).toMatchObject({ "https://semlang.dev/vocab/semlang/1": true });
-    const defs = schema.$defs as Record<string, any>;
+    const defs = schema.$defs as Record<string, JsonSchemaObject>;
     expect(defs["type.CustomerStatus"]).toMatchObject({
       type: "string",
       enum: ["active", "paused", "closed"],
-      "x-semlang-scale-type": "nominal"
+      "x-semlang-scale-type": "nominal",
     });
     expect(defs["type.Dollars"]).toMatchObject({
       type: "number",
       minimum: 0,
       "x-semlang-primitive": "currency",
       "x-semlang-currency": "USD",
-      "x-semlang-render-format": "currency(\"USD\", 2)"
+      "x-semlang-render-format": 'currency("USD", 2)',
     });
     expect(defs["concept.Customer"]).toMatchObject({
       type: "object",
       required: ["customer_id", "email", "status", "lifetime_value"],
       "x-semlang-stereotype": "kind",
-      "x-semlang-identity": ["customer_id"]
+      "x-semlang-identity": ["customer_id"],
     });
-    expect(defs["concept.Customer"].properties.customer_id).toMatchObject({
+    const customerSchema = defs["concept.Customer"]!;
+    const customerProperties = customerSchema.properties!;
+    expect(customerProperties.customer_id).toMatchObject({
       $ref: "#/$defs/type.CustomerId",
-      "x-semlang-identity": true
+      "x-semlang-identity": true,
     });
-    expect(defs["concept.Customer"].properties.email).toMatchObject({
+    expect(customerProperties.email).toMatchObject({
       anyOf: [{ type: "string" }, { type: "null" }],
-      "x-semlang-unique": true
+      "x-semlang-unique": true,
     });
   });
 
@@ -626,18 +641,19 @@ query: active_customers is Account -> {
     expect(customerRole).toMatchObject({
       name: "Active",
       label: "Active Customer",
-      aliases: ["Current Customer", "Open Customer"]
+      aliases: ["Current Customer", "Open Customer"],
     });
     expect(result.malloy).toContain("is_active is status = 'active'");
     expect(result.malloy).toContain("where: (customer.status = 'active')");
 
-    const defs = result.jsonSchema?.$defs as Record<string, any>;
-    expect(defs["concept.Customer"]["x-semlang-roles"][0]).toMatchObject({
+    const defs = result.jsonSchema?.$defs as Record<string, JsonSchemaObject>;
+    const roles = defs["concept.Customer"]!["x-semlang-roles"] as unknown[];
+    expect(roles[0]).toMatchObject({
       name: "Active",
       qualifiedName: "Customer.Active",
       label: "Active Customer",
       aliases: ["Current Customer", "Open Customer"],
-      predicate: "status = 'active'"
+      predicate: "status = 'active'",
     });
   });
 
@@ -658,10 +674,9 @@ concept A is kind from duckdb.table('a') {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      "LEGACY_TYPE_METADATA",
-      "INVALID_TYPE_METADATA"
-    ]));
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["LEGACY_TYPE_METADATA", "INVALID_TYPE_METADATA"]),
+    );
   });
 
   it("diagnoses duplicate symbols, roles, lenses, temporal misuse, and include cycles", async () => {
@@ -687,12 +702,9 @@ query: q is A with missing_lens -> {
     rows is count()
 }
 `);
-    expect(duplicate.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      "DUPLICATE_TYPE",
-      "DUPLICATE_FIELD",
-      "UNKNOWN_REFINEMENT_TARGET",
-      "UNKNOWN_LENS"
-    ]));
+    expect(duplicate.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["DUPLICATE_TYPE", "DUPLICATE_FIELD", "UNKNOWN_REFINEMENT_TARGET", "UNKNOWN_LENS"]),
+    );
 
     const unknownRole = await compileSemLang(`
 package bad.role
@@ -731,8 +743,8 @@ concept B is kind from duckdb.table('b') {
           packageLoader: {
             load() {
               return { filePath: "/tmp/self.semlang", source: `package cycle\ninclude "./self.semlang"\n` };
-            }
-          }
+            },
+          },
         })
       : undefined;
     expect(cycle?.diagnostics.map((diagnostic) => diagnostic.code)).toContain("INCLUDE_CYCLE");

@@ -53,7 +53,7 @@ function actionFixture(extraConceptLines: string[] = []): string {
     "      notify_supplier :: boolean default true hidden",
     "    guard:",
     "      status in ['received', 'released']",
-    "        else \"Only received or released lots can be quarantined.\"",
+    '        else "Only received or released lots can be quarantined."',
     "    edit:",
     "      set status = 'quarantined'",
     "      set quarantine_reason = reason",
@@ -62,14 +62,14 @@ function actionFixture(extraConceptLines: string[] = []): string {
     "        when: notify_supplier",
     "      }",
     "    log as SupplierLotActionLog {",
-    "      summary: \"Quarantined ${this.supplier_lot_id}\"",
+    '      summary: "Quarantined ${this.supplier_lot_id}"',
     "      include: reason",
     "    }",
     "    agent:",
     "      expose: true",
     "      risk: high",
     "  }",
-    "}"
+    "}",
   ]);
 }
 
@@ -86,32 +86,34 @@ describe("SemLang actions", () => {
       subject: { mode: "single" },
       params: [
         { name: "reason", typeName: "QuarantineReason", nullable: false, hidden: false },
-        { name: "notify_supplier", typeName: "boolean", defaultExpression: "true", hidden: true }
+        { name: "notify_supplier", typeName: "boolean", defaultExpression: "true", hidden: true },
       ],
       guards: [
         {
           predicate: "status in ['received', 'released']",
-          elseMessage: "\"Only received or released lots can be quarantined.\""
-        }
+          elseMessage: '"Only received or released lots can be quarantined."',
+        },
       ],
       edits: [
         { kind: "set", target: "status", expression: "'quarantined'" },
-        { kind: "set", target: "quarantine_reason", expression: "reason" }
-      ]
+        { kind: "set", target: "quarantine_reason", expression: "reason" },
+      ],
     });
     expect(action?.effectBlocks[0]).toMatchObject({
       kind: "effect",
-      header: "effect after_commit:"
+      header: "effect after_commit:",
     });
-    expect(action?.effectBlocks[0]?.lines).toEqual(expect.arrayContaining(["notify supplier {", "when: notify_supplier"]));
+    expect(action?.effectBlocks[0]?.lines).toEqual(
+      expect.arrayContaining(["notify supplier {", "when: notify_supplier"]),
+    );
     expect(action?.logBlocks[0]).toMatchObject({
       kind: "log",
       header: "log as SupplierLotActionLog {",
-      lines: ["summary: \"Quarantined ${this.supplier_lot_id}\"", "include: reason"]
+      lines: ['summary: "Quarantined ${this.supplier_lot_id}"', "include: reason"],
     });
     expect(action?.agentMetadata).toEqual([
       expect.objectContaining({ key: "expose", value: "true" }),
-      expect.objectContaining({ key: "risk", value: "high" })
+      expect.objectContaining({ key: "risk", value: "high" }),
     ]);
   });
 
@@ -122,143 +124,148 @@ describe("SemLang actions", () => {
     const concept = result.ast?.concepts[0];
     expect(concept?.fields.find((field) => field.name === "status")).toMatchObject({
       writeable: true,
-      writeMappings: [{ kind: "default" }]
+      writeMappings: [{ kind: "default" }],
     });
     expect(concept?.fields.find((field) => field.name === "normalized_email")?.writeMappings).toEqual([
-      expect.objectContaining({ kind: "column", column: "email_normalized", expression: "lower(value)" })
+      expect.objectContaining({ kind: "column", column: "email_normalized", expression: "lower(value)" }),
     ]);
     expect(concept?.fields.find((field) => field.name === "email_search")?.writeMappings).toEqual([
-      expect.objectContaining({ kind: "sql", sql: "email_search_vector = to_tsvector('english', {value})" })
+      expect.objectContaining({ kind: "sql", sql: "email_search_vector = to_tsvector('english', {value})" }),
     ]);
     expect(concept?.dimensions.find((dimension) => dimension.name === "full_name")).toMatchObject({
       writeable: true,
       writeMappings: [
         { kind: "column", column: "first_name", expression: "split_part(value, ' ', 1)" },
-        { kind: "column", column: "last_name", expression: "split_part(value, ' ', 2)" }
-      ]
+        { kind: "column", column: "last_name", expression: "split_part(value, ' ', 2)" },
+      ],
     });
   });
 
   it("validates action declarations and write mappings", async () => {
-    const result = await compileSemLang(source([
-      "package actions.bad",
-      "",
-      "concept BadLot is kind from duckdb.table('bad_lots') {",
-      "  identity lot_id :: string",
-      "  field:",
-      "    status :: string",
-      "    note :: string writeable {",
-      "      write: sql \"update bad_lots set note = {value}\"",
-      "    }",
-      "  dimension:",
-      "    full_name is concat(first_name, ' ', last_name) writeable",
-      "  measure:",
-      "    rows is count()",
-      "  action duplicate {",
-      "    subject: single",
-      "  }",
-      "  action duplicate {",
-      "    subject: single",
-      "  }",
-      "  action no_subject {",
-      "    param:",
-      "      reason :: MissingReason",
-      "      reason :: string",
-      "    edit:",
-      "      set status = 'held'",
-      "      set nope = 'x'",
-      "      set rows = 1",
-      "  }",
-      "  action bad_subject {",
-      "    subject: many",
-      "    edit:",
-      "      insert {",
-      "        status: 'new'",
-      "      }",
-      "  }",
-      "}"
-    ]));
+    const result = await compileSemLang(
+      source([
+        "package actions.bad",
+        "",
+        "concept BadLot is kind from duckdb.table('bad_lots') {",
+        "  identity lot_id :: string",
+        "  field:",
+        "    status :: string",
+        "    note :: string writeable {",
+        '      write: sql "update bad_lots set note = {value}"',
+        "    }",
+        "  dimension:",
+        "    full_name is concat(first_name, ' ', last_name) writeable",
+        "  measure:",
+        "    rows is count()",
+        "  action duplicate {",
+        "    subject: single",
+        "  }",
+        "  action duplicate {",
+        "    subject: single",
+        "  }",
+        "  action no_subject {",
+        "    param:",
+        "      reason :: MissingReason",
+        "      reason :: string",
+        "    edit:",
+        "      set status = 'held'",
+        "      set nope = 'x'",
+        "      set rows = 1",
+        "  }",
+        "  action bad_subject {",
+        "    subject: many",
+        "    edit:",
+        "      insert {",
+        "        status: 'new'",
+        "      }",
+        "  }",
+        "}",
+      ]),
+    );
 
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
-      "DUPLICATE_ACTION",
-      "MISSING_ACTION_SUBJECT",
-      "INVALID_ACTION_SUBJECT",
-      "UNRESOLVED_ACTION_PARAM_TYPE",
-      "DUPLICATE_ACTION_PARAM",
-      "UNKNOWN_ACTION_TARGET",
-      "NON_WRITEABLE_ACTION_TARGET",
-      "INVALID_ACTION_EDIT",
-      "WRITEABLE_DIMENSION_REQUIRES_MAPPING",
-      "INVALID_WRITE_MAPPING"
-    ]));
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "DUPLICATE_ACTION",
+        "MISSING_ACTION_SUBJECT",
+        "INVALID_ACTION_SUBJECT",
+        "UNRESOLVED_ACTION_PARAM_TYPE",
+        "DUPLICATE_ACTION_PARAM",
+        "UNKNOWN_ACTION_TARGET",
+        "NON_WRITEABLE_ACTION_TARGET",
+        "INVALID_ACTION_EDIT",
+        "WRITEABLE_DIMENSION_REQUIRES_MAPPING",
+        "INVALID_WRITE_MAPPING",
+      ]),
+    );
   });
 
   it("accepts insert assignments only for subject:new", async () => {
-    const result = await compileSemLang(source([
-      "package actions.insert",
-      "",
-      "concept RecallCampaign is kind from duckdb.table('recall_campaigns') {",
-      "  identity campaign_id :: string",
-      "  field:",
-      "    title :: string writeable",
-      "    status :: string writeable",
-      "  action create {",
-      "    subject: new",
-      "    param:",
-      "      title :: string",
-      "    edit:",
-      "      insert {",
-      "        title: title",
-      "        status: 'draft'",
-      "      }",
-      "  }",
-      "}"
-    ]));
+    const result = await compileSemLang(
+      source([
+        "package actions.insert",
+        "",
+        "concept RecallCampaign is kind from duckdb.table('recall_campaigns') {",
+        "  identity campaign_id :: string",
+        "  field:",
+        "    title :: string writeable",
+        "    status :: string writeable",
+        "  action create {",
+        "    subject: new",
+        "    param:",
+        "      title :: string",
+        "    edit:",
+        "      insert {",
+        "        title: title",
+        "        status: 'draft'",
+        "      }",
+        "  }",
+        "}",
+      ]),
+    );
 
     expect(result.diagnostics).toEqual([]);
     expect(result.model?.concepts.get("RecallCampaign")?.actions[0]?.edits[0]).toMatchObject({
       kind: "insert",
       assignments: [
         { target: "title", expression: "title" },
-        { target: "status", expression: "'draft'" }
-      ]
+        { target: "status", expression: "'draft'" },
+      ],
     });
   });
 
   it("preserves collection subject metadata", () => {
-    const result = parseSemLang(source([
-      "package actions.collection",
-      "",
-      "concept SupplierLot is kind from duckdb.table('supplier_lots') {",
-      "  identity lot_id :: string",
-      "  field:",
-      "    status :: string writeable",
-      "  action bulk_hold {",
-      "    subject: collection {",
-      "      max: 500",
-      "      atomic: true",
-      "    }",
-      "    edit:",
-      "      set status = 'held'",
-      "  }",
-      "}"
-    ]));
+    const result = parseSemLang(
+      source([
+        "package actions.collection",
+        "",
+        "concept SupplierLot is kind from duckdb.table('supplier_lots') {",
+        "  identity lot_id :: string",
+        "  field:",
+        "    status :: string writeable",
+        "  action bulk_hold {",
+        "    subject: collection {",
+        "      max: 500",
+        "      atomic: true",
+        "    }",
+        "    edit:",
+        "      set status = 'held'",
+        "  }",
+        "}",
+      ]),
+    );
 
     expect(result.diagnostics).toEqual([]);
     expect(result.ast?.concepts[0]?.actions[0]?.subject).toMatchObject({
       mode: "collection",
       metadata: [
         { key: "max", value: "500" },
-        { key: "atomic", value: "true" }
-      ]
+        { key: "atomic", value: "true" },
+      ],
     });
   });
 
   it("keeps Malloy output focused on read declarations", async () => {
-    const result = await compileSemLang(actionFixture([
-      "  measure:",
-      "    rows is count()"
-    ]));
+    const result = await compileSemLang(actionFixture(["  measure:", "    rows is count()"]));
 
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("source: supplier_lots is duckdb.table('supplier_lots') extend");

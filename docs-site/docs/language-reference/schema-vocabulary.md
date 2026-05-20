@@ -69,10 +69,7 @@ Concept row schemas export under `$defs` names beginning with `concept.`:
       "properties": {
         "store_id": { "$ref": "#/$defs/type.StoreId", "x-semlang-identity": true },
         "closed_date": {
-          "anyOf": [
-            { "$ref": "#/$defs/type.BusinessDate" },
-            { "type": "null" }
-          ]
+          "anyOf": [{ "$ref": "#/$defs/type.BusinessDate" }, { "type": "null" }]
         }
       },
       "x-semlang-stereotype": "kind"

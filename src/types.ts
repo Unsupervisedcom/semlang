@@ -20,7 +20,10 @@ export interface CompileOptions {
 }
 
 export interface PackageLoader {
-  load(path: string, fromFile?: string): Promise<{ filePath: string; source: string }> | { filePath: string; source: string };
+  load(
+    path: string,
+    fromFile?: string,
+  ): Promise<{ filePath: string; source: string }> | { filePath: string; source: string };
 }
 
 export interface ParseResult {
@@ -395,6 +398,6 @@ export function emptyMembers(): ConceptMembers {
     validations: [],
     temporal: [],
     where: [],
-    actions: []
+    actions: [],
   };
 }

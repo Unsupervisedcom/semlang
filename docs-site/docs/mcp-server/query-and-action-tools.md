@@ -13,28 +13,28 @@ Validates a named query, full query declaration, or temporary query body against
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `query` | string | Named query, full `query:` declaration, or query body text. |
-| `name` | string | Alias for a named query, or the temporary query name when a body is supplied. |
-| `queryName` | string | Temporary query name. Defaults to `__mcp_query`. |
-| `root` | string | Root concept for a temporary query. |
-| `concept` | string | Alias for `root`. |
-| `source` | string | Alias for `root`. |
-| `lens` | string | Lens to apply to a temporary query. |
-| `lenses` | string array | Lens stack to apply to a temporary query. |
-| `with` | string or string array | Alias for `lenses`. |
-| `body` | string or object | Temporary query body. |
-| `queryBody` | string or object | Alias for `body`. |
-| `where` | string | Query body filter. |
-| `select` | string or string array | Query body select items. |
-| `groupBy` | string or string array | Query body group items. |
-| `group_by` | string or string array | Alias for `groupBy`. |
-| `aggregate` | string or string array | Query body aggregate items. |
-| `calculate` | string or string array | Query body calculate items. |
-| `orderBy` | string or string array | Query body ordering. |
-| `order_by` | string or string array | Alias for `orderBy`. |
-| `limit` | number | Query body limit. |
+| Field       | Type                   | Notes                                                                         |
+| ----------- | ---------------------- | ----------------------------------------------------------------------------- |
+| `query`     | string                 | Named query, full `query:` declaration, or query body text.                   |
+| `name`      | string                 | Alias for a named query, or the temporary query name when a body is supplied. |
+| `queryName` | string                 | Temporary query name. Defaults to `__mcp_query`.                              |
+| `root`      | string                 | Root concept for a temporary query.                                           |
+| `concept`   | string                 | Alias for `root`.                                                             |
+| `source`    | string                 | Alias for `root`.                                                             |
+| `lens`      | string                 | Lens to apply to a temporary query.                                           |
+| `lenses`    | string array           | Lens stack to apply to a temporary query.                                     |
+| `with`      | string or string array | Alias for `lenses`.                                                           |
+| `body`      | string or object       | Temporary query body.                                                         |
+| `queryBody` | string or object       | Alias for `body`.                                                             |
+| `where`     | string                 | Query body filter.                                                            |
+| `select`    | string or string array | Query body select items.                                                      |
+| `groupBy`   | string or string array | Query body group items.                                                       |
+| `group_by`  | string or string array | Alias for `groupBy`.                                                          |
+| `aggregate` | string or string array | Query body aggregate items.                                                   |
+| `calculate` | string or string array | Query body calculate items.                                                   |
+| `orderBy`   | string or string array | Query body ordering.                                                          |
+| `order_by`  | string or string array | Alias for `orderBy`.                                                          |
+| `limit`     | number                 | Query body limit.                                                             |
 
 ### Output
 
@@ -74,13 +74,13 @@ Custom connection names such as `warehouse.table('analytics.orders')` must be pr
 
 ### Execution Results
 
-| Field | Meaning |
-| --- | --- |
-| `execution.ok` | Whether Malloy execution succeeded. |
-| `execution.engine` | `malloy` when query execution reached the Malloy SDK. |
-| `execution.sql` | SQL produced by Malloy when available. |
-| `execution.rows` | JSON rows returned by the configured connection. |
-| `execution.error` | Clear error text when Malloy compilation or execution fails. |
+| Field              | Meaning                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| `execution.ok`     | Whether Malloy execution succeeded.                          |
+| `execution.engine` | `malloy` when query execution reached the Malloy SDK.        |
+| `execution.sql`    | SQL produced by Malloy when available.                       |
+| `execution.rows`   | JSON rows returned by the configured connection.             |
+| `execution.error`  | Clear error text when Malloy compilation or execution fails. |
 
 ## `action.invoke`
 
@@ -88,16 +88,16 @@ Invokes a supported action against local DuckDB example data.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `action` | string | Action name. |
-| `name` | string | Alias for `action`. |
-| `concept` | string | Optional concept name. Required when the action name is ambiguous. |
-| `subject` | object | Subject identity or field predicates. |
-| `id` | string or number | Shortcut for the first identity field on `subject: single` actions. |
-| `where` | string | Raw subject predicate for `subject: single` actions. |
-| `params` | object | Action parameter values. |
-| Action parameter names | any | Parameters may also be passed as top-level fields. |
+| Field                  | Type             | Notes                                                               |
+| ---------------------- | ---------------- | ------------------------------------------------------------------- |
+| `action`               | string           | Action name.                                                        |
+| `name`                 | string           | Alias for `action`.                                                 |
+| `concept`              | string           | Optional concept name. Required when the action name is ambiguous.  |
+| `subject`              | object           | Subject identity or field predicates.                               |
+| `id`                   | string or number | Shortcut for the first identity field on `subject: single` actions. |
+| `where`                | string           | Raw subject predicate for `subject: single` actions.                |
+| `params`               | object           | Action parameter values.                                            |
+| Action parameter names | any              | Parameters may also be passed as top-level fields.                  |
 
 ### Supported Actions
 

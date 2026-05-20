@@ -6,15 +6,22 @@ import { validateMalloyModel } from "../src/malloy-execution.js";
 
 async function writeMalloyConfig(projectDir: string): Promise<string> {
   const configPath = path.join(projectDir, "malloy-config.json");
-  await fs.writeFile(configPath, JSON.stringify({
-    connections: {
-      duckdb: {
-        is: "duckdb",
-        workingDirectory: projectDir,
-        extensionDirectory: path.join(projectDir, ".duckdb-extensions")
-      }
-    }
-  }, null, 2));
+  await fs.writeFile(
+    configPath,
+    JSON.stringify(
+      {
+        connections: {
+          duckdb: {
+            is: "duckdb",
+            workingDirectory: projectDir,
+            extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
   return configPath;
 }
 
@@ -31,20 +38,22 @@ source: accounts is duckdb.sql("""select 'A1' as account_id, date '2026-05-01' a
   dimension:
     days_since_last_order is days(now() - last_order_date)
 }
-`
+`,
     });
 
-    expect(diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: "error",
-        code: "MALLOY_VALIDATION_ERROR",
-        message: expect.stringContaining("Malloy validation")
-      })
-    ]));
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MALLOY_VALIDATION_ERROR",
+          message: expect.stringContaining("Malloy validation"),
+        }),
+      ]),
+    );
     expect(diagnostics[0]?.location).toMatchObject({
       file: "generated.malloy",
       line: expect.any(Number),
-      column: expect.any(Number)
+      column: expect.any(Number),
     });
   });
 });

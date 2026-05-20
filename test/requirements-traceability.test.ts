@@ -8,7 +8,10 @@ const commentPattern = /\/\*[\s\S]*?\*\/|\/\/.*$/gm;
 
 async function filesIn(dir: string, predicate: (name: string) => boolean): Promise<string[]> {
   const entries = await fs.readdir(dir);
-  return entries.filter(predicate).map((entry) => path.join(dir, entry)).sort();
+  return entries
+    .filter(predicate)
+    .map((entry) => path.join(dir, entry))
+    .sort();
 }
 
 function idsIn(text: string): Set<string> {
@@ -22,8 +25,9 @@ function commentsIn(text: string): string {
 describe("requirements traceability", () => {
   it("keeps every requirement ID referenced from test comments", async () => {
     const requirementFiles = await filesIn(path.join(root, "requirements"), (name) => /^REQ-\d+-.+\.md$/.test(name));
-    const testFiles = await filesIn(path.join(root, "test"), (name) =>
-      /\.test\.ts$/.test(name) && name !== "requirements-traceability.test.ts"
+    const testFiles = await filesIn(
+      path.join(root, "test"),
+      (name) => /\.test\.ts$/.test(name) && name !== "requirements-traceability.test.ts",
     );
 
     const requirementIds = new Set<string>();

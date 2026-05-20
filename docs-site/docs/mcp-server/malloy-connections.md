@@ -101,10 +101,10 @@ Malloy merges `malloy-config-local.json` with the sibling `malloy-config.json`, 
 
 Malloy's SDK needs a connection package loaded for each configured connection type. SemLang MCP currently registers:
 
-| Config `is` value | Package loaded by SemLang MCP |
-| --- | --- |
-| `duckdb` | `@malloydata/db-duckdb/native` |
-| `databricks` | `@malloydata/db-databricks` |
+| Config `is` value | Package loaded by SemLang MCP  |
+| ----------------- | ------------------------------ |
+| `duckdb`          | `@malloydata/db-duckdb/native` |
+| `databricks`      | `@malloydata/db-databricks`    |
 
 If `malloy-config.json` uses a connection type that SemLang MCP does not yet register, `query.run` fails before execution with an error naming the missing type. Adding a new engine is a SemLang MCP code/dependency change; changing connection names or credentials is project configuration.
 
@@ -164,15 +164,15 @@ The MCP server can then:
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `set_ontology_source` says no Malloy config file was found | Pass `configPath` / `malloyConfigPath`, or add `malloy-config-local.json` or `malloy-config.json` at or above the SemLang model directory. |
-| `Source expression ... is missing a named Malloy connection` | Change `table('orders')` to `connection_name.table('orders')` or define a named SemLang `source:` that uses a connection. |
-| Malloy says the connection is unknown | Add the same connection name to `malloy-config.json`, `malloy-config-local.json`, or global Malloy config. |
+| Symptom                                                                  | Check                                                                                                                                                    |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_ontology_source` says no Malloy config file was found               | Pass `configPath` / `malloyConfigPath`, or add `malloy-config-local.json` or `malloy-config.json` at or above the SemLang model directory.               |
+| `Source expression ... is missing a named Malloy connection`             | Change `table('orders')` to `connection_name.table('orders')` or define a named SemLang `source:` that uses a connection.                                |
+| Malloy says the connection is unknown                                    | Add the same connection name to `malloy-config.json`, `malloy-config-local.json`, or global Malloy config.                                               |
 | SemLang MCP says a connection type is configured but no package is known | The project config uses an engine that `src/malloy-execution.ts` does not register yet; add the relevant `@malloydata/db-*` dependency and registration. |
-| Databricks config loads but table resolution fails | Check that the SemLang table path uses Databricks path rules: `table`, `schema.table`, or `catalog.schema.table`. |
-| DuckDB relative paths resolve differently for the agent | Set `workingDirectory` in the DuckDB connection, preferably to `{ "config": "rootDirectory" }` for project-local config. |
-| A DuckDB file is locked by another process | For read-heavy shared files, set `readOnly: true`; when tools need to take turns with a writable file, set `shareable: true`. |
-| Secret values are missing | Make sure the MCP host process receives the environment variables referenced by config entries such as `{ "env": "FINANCE_PG_PASSWORD" }`. |
+| Databricks config loads but table resolution fails                       | Check that the SemLang table path uses Databricks path rules: `table`, `schema.table`, or `catalog.schema.table`.                                        |
+| DuckDB relative paths resolve differently for the agent                  | Set `workingDirectory` in the DuckDB connection, preferably to `{ "config": "rootDirectory" }` for project-local config.                                 |
+| A DuckDB file is locked by another process                               | For read-heavy shared files, set `readOnly: true`; when tools need to take turns with a writable file, set `shareable: true`.                            |
+| Secret values are missing                                                | Make sure the MCP host process receives the environment variables referenced by config entries such as `{ "env": "FINANCE_PG_PASSWORD" }`.               |
 
 See the Malloy documentation for [connection syntax](https://docs.malloydata.dev/documentation/language/connections), [database support](https://docs.malloydata.dev/documentation/setup/database_support), [CLI connection commands](https://docs.malloydata.dev/documentation/setup/cli), and the [`malloy-config.json` format](https://docs.malloydata.dev/documentation/setup/config).

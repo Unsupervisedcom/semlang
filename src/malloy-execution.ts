@@ -35,11 +35,13 @@ export async function validateMalloyModel(options: MalloyValidationOptions): Pro
   } catch (error) {
     const problems = malloyProblemsFromError(error);
     if (problems.length > 0) return malloyProblemsToDiagnostics(problems);
-    return [{
-      severity: "error",
-      code: "MALLOY_VALIDATION_ERROR",
-      message: `Malloy validation failed: ${error instanceof Error ? error.message : String(error)}`
-    }];
+    return [
+      {
+        severity: "error",
+        code: "MALLOY_VALIDATION_ERROR",
+        message: `Malloy validation failed: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    ];
   } finally {
     await runtime?.shutdown("close");
   }
@@ -71,8 +73,8 @@ export async function executeMalloyQuery(options: MalloyExecutionOptions): Promi
         projectDir: options.context.projectDir,
         path: options.context.malloyConfigPath ?? null,
         connectionTypes,
-        log: configLog
-      }
+        log: configLog,
+      },
     };
   } catch (error) {
     return {
@@ -85,8 +87,8 @@ export async function executeMalloyQuery(options: MalloyExecutionOptions): Promi
         projectDir: options.context.projectDir,
         path: options.context.malloyConfigPath ?? null,
         connectionTypes,
-        log: configLog ?? []
-      }
+        log: configLog ?? [],
+      },
     };
   } finally {
     await runtime?.shutdown("close");
@@ -102,7 +104,9 @@ async function createMalloyRuntime(context: MalloyExecutionContext): Promise<{
   const urlReader = new NodeFileURLReader();
 
   if (!context.malloyConfigPath) {
-    throw new Error("No Malloy config path is available. Call set_ontology_source with configPath/malloyConfigPath, or place malloy-config-local.json or malloy-config.json where it can be discovered.");
+    throw new Error(
+      "No Malloy config path is available. Call set_ontology_source with configPath/malloyConfigPath, or place malloy-config-local.json or malloy-config.json where it can be discovered.",
+    );
   }
   const configSource = context.malloyConfigSource ?? "explicit";
   const configURL = pathToFileURL(context.malloyConfigPath);
@@ -111,20 +115,20 @@ async function createMalloyRuntime(context: MalloyExecutionContext): Promise<{
   await registerConnectionTypes(connectionTypes);
   const config = new MalloyConfig(pojo, {
     configURL: configURL.toString(),
-    rootDirectory: path.resolve(context.projectDir)
+    rootDirectory: path.resolve(context.projectDir),
   });
 
   return {
     runtime: new Runtime({ config, urlReader }),
     configSource,
     configLog: config.log as unknown as JsonValue,
-    connectionTypes
+    connectionTypes,
   };
 }
 
 const malloyConnectionPackages: Record<string, string> = {
   databricks: "@malloydata/db-databricks",
-  duckdb: "@malloydata/db-duckdb/native"
+  duckdb: "@malloydata/db-duckdb/native",
 };
 
 const registeredConnectionTypes = new Set<string>();
@@ -137,7 +141,7 @@ async function registerConnectionTypes(types: string[]): Promise<void> {
     if (!packageName) {
       throw new Error(
         `Malloy connection type "${type}" is configured, but SemLang MCP does not know which package registers it. ` +
-        "Install and add the matching @malloydata/db-* package to src/malloy-execution.ts."
+          "Install and add the matching @malloydata/db-* package to src/malloy-execution.ts.",
       );
     }
     try {
@@ -146,7 +150,8 @@ async function registerConnectionTypes(types: string[]): Promise<void> {
     } catch (error) {
       throw new Error(
         `Malloy connection type "${type}" requires package "${packageName}", but it could not be loaded: ` +
-        `${error instanceof Error ? error.message : String(error)}`
+          `${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }
@@ -186,7 +191,7 @@ function malloyProblemsToDiagnostics(problems: LogMessage[]): Diagnostic[] {
     severity: problem.severity === "warn" ? "warning" : "error",
     code: problem.severity === "warn" ? "MALLOY_VALIDATION_WARNING" : "MALLOY_VALIDATION_ERROR",
     message: malloyProblemMessage(problem),
-    location: malloyProblemLocation(problem)
+    location: malloyProblemLocation(problem),
   }));
 }
 
@@ -212,7 +217,7 @@ function malloyProblemLocation(problem: LogMessage): Diagnostic["location"] | un
   return {
     file: malloyProblemFile(problem),
     line: start.line + 1,
-    column: start.character + 1
+    column: start.character + 1,
   };
 }
 
@@ -254,12 +259,10 @@ function isWithinOrEqualPath(child: string, ancestor: string): boolean {
 
 class NodeFileURLReader implements URLReader {
   async readURL(url: URL): Promise<{ contents: string; invalidationKey: number }> {
-    if (url.protocol !== "file:") throw new Error(`Only file URLs are supported by the SemLang Malloy URL reader: ${url.toString()}`);
+    if (url.protocol !== "file:")
+      throw new Error(`Only file URLs are supported by the SemLang Malloy URL reader: ${url.toString()}`);
     const filePath = fileURLToPath(url);
-    const [contents, stats] = await Promise.all([
-      fs.readFile(filePath, "utf8"),
-      fs.stat(filePath)
-    ]);
+    const [contents, stats] = await Promise.all([fs.readFile(filePath, "utf8"), fs.stat(filePath)]);
     return { contents, invalidationKey: stats.mtimeMs };
   }
 

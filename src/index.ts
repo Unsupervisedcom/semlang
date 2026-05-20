@@ -42,6 +42,6 @@ export function filePackageLoader(): PackageLoader {
       const base = fromFile ? path.dirname(fromFile) : process.cwd();
       const filePath = path.resolve(base, includePath);
       return { filePath, source: await fs.readFile(filePath, "utf8") };
-    }
+    },
   };
 }

@@ -8,7 +8,7 @@ import {
   startsDeclaration,
   toLines,
   trimBlankEdges,
-  type SourceLine
+  type SourceLine,
 } from "./text.js";
 import {
   emptyMembers,
@@ -44,7 +44,7 @@ import {
   type TypeDecl,
   type ValidationDecl,
   type ViewDecl,
-  type WriteMappingDecl
+  type WriteMappingDecl,
 } from "./types.js";
 
 const primitiveTypes = new Set(["string", "number", "date", "timestamp", "currency", "boolean"]);
@@ -57,7 +57,7 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
       severity: "error",
       code: "LEX_ERROR",
       message: error.message,
-      location: { file: options.filePath, line: error.line ?? 1, column: error.column ?? 1 }
+      location: { file: options.filePath, line: error.line ?? 1, column: error.column ?? 1 },
     });
   }
 
@@ -74,7 +74,7 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
     types: [],
     concepts: [],
     lenses: [],
-    queries: []
+    queries: [],
   };
 
   let i = 0;
@@ -89,7 +89,9 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
     let match = /^package\s+([A-Za-z_][A-Za-z0-9_.]*)$/.exec(trimmed);
     if (match) {
       if (packageName) {
-        diagnostics.push(error("DUPLICATE_PACKAGE", "Only one package declaration is allowed.", options.filePath, line));
+        diagnostics.push(
+          error("DUPLICATE_PACKAGE", "Only one package declaration is allowed.", options.filePath, line),
+        );
       }
       packageName = match[1]!;
       packageLoc = location(options.filePath, line.line, line.text, "package");
@@ -170,14 +172,19 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
       severity: "error",
       code: "MISSING_PACKAGE",
       message: "SemLang files must declare a package.",
-      location: { file: options.filePath, line: 1, column: 1 }
+      location: { file: options.filePath, line: 1, column: 1 },
     });
   }
 
   return { ast: diagnostics.some((diagnostic) => diagnostic.severity === "error") ? undefined : ast, diagnostics };
 }
 
-function parseType(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): TypeDecl | undefined {
+function parseType(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): TypeDecl | undefined {
   const match = /^type:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_TYPE_DECL", "Invalid type declaration.", file, header));
@@ -187,7 +194,7 @@ function parseType(header: SourceLine, body: SourceLine[], file: string | undefi
     name: match[1]!,
     base: match[2]!,
     metadata: parseTypeMetadata(body, file),
-    location: location(file, header.line, header.text, "type")
+    location: location(file, header.line, header.text, "type"),
   };
 }
 
@@ -208,13 +215,18 @@ function parseTypeMetadata(body: SourceLine[], file: string | undefined): Metada
     metadata.push({
       key: keyPart!.trim(),
       value,
-      location: location(file, line.line, line.text, keyPart)
+      location: location(file, line.line, line.text, keyPart),
     });
   }
   return metadata;
 }
 
-function parseIgnored(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): IgnoredDecl | undefined {
+function parseIgnored(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): IgnoredDecl | undefined {
   const match = /^ignored\s+(.+?)\s*\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_IGNORED_DECL", "Invalid ignored declaration.", file, header));
@@ -228,7 +240,7 @@ function parseIgnored(header: SourceLine, body: SourceLine[], file: string | und
     source,
     reason,
     metadata,
-    location: location(file, header.line, header.text, "ignored")
+    location: location(file, header.line, header.text, "ignored"),
   };
 }
 
@@ -237,8 +249,8 @@ function delimiterBalance(text: string): number {
   let quote: string | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i]!;
-    if ((char === "'" || char === "\"") && text[i - 1] !== "\\") {
-      quote = quote === char ? undefined : quote ?? char;
+    if ((char === "'" || char === '"') && text[i - 1] !== "\\") {
+      quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
     if (quote) continue;
@@ -248,13 +260,23 @@ function delimiterBalance(text: string): number {
   return balance;
 }
 
-function parseSourceBlock(lines: SourceLine[], start: number, file: string | undefined, diagnostics: Diagnostic[]): { source?: SourceDecl; end: number } {
+function parseSourceBlock(
+  lines: SourceLine[],
+  start: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): { source?: SourceDecl; end: number } {
   const block = collectDeclarationBlock(lines, start);
   diagnoseUnclosedBlock(block, file, diagnostics);
   return { source: parseSource(block.header, block.body, file, diagnostics), end: block.end };
 }
 
-function parseSource(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): SourceDecl | undefined {
+function parseSource(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): SourceDecl | undefined {
   const queryMatch = /^source:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(.+?)\s*->\s*\{$/.exec(header.stripped.trim());
   if (queryMatch) {
     const source = parseSourceExpression(queryMatch[2]!, file, header, diagnostics);
@@ -263,7 +285,7 @@ function parseSource(header: SourceLine, body: SourceLine[], file: string | unde
       name: queryMatch[1]!,
       source,
       query: parseQueryBody(body, file, diagnostics),
-      location: location(file, header.line, header.text, "source")
+      location: location(file, header.line, header.text, "source"),
     };
   }
 
@@ -277,14 +299,20 @@ function parseSource(header: SourceLine, body: SourceLine[], file: string | unde
   return {
     name: match[1]!,
     source,
-    location: location(file, header.line, header.text, "source")
+    location: location(file, header.line, header.text, "source"),
   };
 }
 
-function parseConcept(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ConceptDecl | undefined {
-  const match = /^concept\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(?:(phase)\s+of\s+([A-Za-z_][A-Za-z0-9_]*)|(kind|event|situation|relator))\s+from\s+(.+?)\s*\{$/.exec(
-    header.stripped.trim()
-  );
+function parseConcept(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ConceptDecl | undefined {
+  const match =
+    /^concept\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(?:(phase)\s+of\s+([A-Za-z_][A-Za-z0-9_]*)|(kind|event|situation|relator))\s+from\s+(.+?)\s*\{$/.exec(
+      header.stripped.trim(),
+    );
   if (!match) {
     diagnostics.push(error("INVALID_CONCEPT_DECL", "Invalid concept declaration.", file, header));
     return undefined;
@@ -298,11 +326,16 @@ function parseConcept(header: SourceLine, body: SourceLine[], file: string | und
     phaseParent: match[3],
     source,
     location: location(file, header.line, header.text, "concept"),
-    ...members
+    ...members,
   };
 }
 
-function parseSourceExpression(text: string, file: string | undefined, line: SourceLine, diagnostics: Diagnostic[]): SourceExpression | undefined {
+function parseSourceExpression(
+  text: string,
+  file: string | undefined,
+  line: SourceLine,
+  diagnostics: Diagnostic[],
+): SourceExpression | undefined {
   const expression = normalizeSourceExpression(text);
   const connectionMatch = /^([A-Za-z_][A-Za-z0-9_]*)\.(table|sql)\(([\s\S]*)\)$/.exec(expression);
   if (connectionMatch) {
@@ -315,7 +348,7 @@ function parseSourceExpression(text: string, file: string | undefined, line: Sou
         connection: connectionMatch[1]!,
         path: argument,
         expression,
-        location: location(file, line.line, line.text, expression)
+        location: location(file, line.line, line.text, expression),
       };
     }
     return {
@@ -323,17 +356,19 @@ function parseSourceExpression(text: string, file: string | undefined, line: Sou
       connection: connectionMatch[1]!,
       sql: argument,
       expression,
-      location: location(file, line.line, line.text, expression)
+      location: location(file, line.line, line.text, expression),
     };
   }
 
   if (/^table\(/.test(expression) || /^sql\(/.test(expression)) {
-    diagnostics.push(error(
-      "UNQUALIFIED_SOURCE",
-      `Source expression ${expression} is missing a named Malloy connection; use a form like duckdb.${expression}.`,
-      file,
-      line
-    ));
+    diagnostics.push(
+      error(
+        "UNQUALIFIED_SOURCE",
+        `Source expression ${expression} is missing a named Malloy connection; use a form like duckdb.${expression}.`,
+        file,
+        line,
+      ),
+    );
     return undefined;
   }
 
@@ -343,7 +378,7 @@ function parseSourceExpression(text: string, file: string | undefined, line: Sou
       kind: "reference",
       name: referenceMatch[1]!,
       expression,
-      location: location(file, line.line, line.text, expression)
+      location: location(file, line.line, line.text, expression),
     };
   }
 
@@ -351,13 +386,20 @@ function parseSourceExpression(text: string, file: string | undefined, line: Sou
   return undefined;
 }
 
-function parseSourceStringArgument(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): string | undefined {
+function parseSourceStringArgument(
+  text: string,
+  line: SourceLine,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): string | undefined {
   const trimmed = text.trim();
   const triple = /^"""([\s\S]*)"""$/.exec(trimmed);
   if (triple) return triple[1]!;
   const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
   if (quoted) return quoted[2]!;
-  diagnostics.push(error("INVALID_SOURCE_EXPR", `Source method argument must be a string literal: ${trimmed}`, file, line));
+  diagnostics.push(
+    error("INVALID_SOURCE_EXPR", `Source method argument must be a string literal: ${trimmed}`, file, line),
+  );
   return undefined;
 }
 
@@ -383,7 +425,10 @@ function sourceHeaderComplete(text: string): boolean {
   return tripleQuoteCount(expression) % 2 === 0 && parenBalance(expression) <= 0;
 }
 
-function collectDeclarationBlock(lines: SourceLine[], start: number): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
+function collectDeclarationBlock(
+  lines: SourceLine[],
+  start: number,
+): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
   const collected = [lines[start]!];
   let i = start + 1;
   while (i < lines.length && !combineHeader(collected).stripped.includes("{")) {
@@ -411,7 +456,7 @@ function combineHeader(lines: SourceLine[]): SourceLine {
   return {
     line: first.line,
     text: lines.map((line) => line.text.trim()).join(" "),
-    stripped: lines.map((line) => line.stripped.trim()).join(" ")
+    stripped: lines.map((line) => line.stripped.trim()).join(" "),
   };
 }
 
@@ -430,7 +475,7 @@ function parenBalance(text: string): number {
     const char = text[i]!;
     const prev = text[i - 1];
     if ((char === "'" || char === '"') && prev !== "\\") {
-      quote = quote === char ? undefined : quote ?? char;
+      quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
     if (quote) continue;
@@ -440,7 +485,12 @@ function parenBalance(text: string): number {
   return depth;
 }
 
-function parseLens(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): LensDecl | undefined {
+function parseLens(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): LensDecl | undefined {
   const match = /^lens:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(?:(.*?)\s+extend\s+)?\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_LENS_DECL", "Invalid lens declaration.", file, header));
@@ -448,10 +498,15 @@ function parseLens(header: SourceLine, body: SourceLine[], file: string | undefi
   }
   const lens: LensDecl = {
     name: match[1]!,
-    parents: match[2] ? match[2].split(",").map((part) => part.trim()).filter(Boolean) : [],
+    parents: match[2]
+      ? match[2]
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [],
     types: [],
     refinements: [],
-    location: location(file, header.line, header.text, "lens")
+    location: location(file, header.line, header.text, "lens"),
   };
 
   let i = 0;
@@ -490,7 +545,12 @@ function parseLens(header: SourceLine, body: SourceLine[], file: string | undefi
   return lens;
 }
 
-function parseRefinement(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): RefinementDecl | undefined {
+function parseRefinement(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): RefinementDecl | undefined {
   const match = /^refine:\s+([A-Za-z_][A-Za-z0-9_]*)\s+extend\s+\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_REFINEMENT", "Invalid refinement declaration.", file, header));
@@ -499,23 +559,34 @@ function parseRefinement(header: SourceLine, body: SourceLine[], file: string | 
   return {
     conceptName: match[1]!,
     members: parseConceptMembers(body, file, diagnostics),
-    location: location(file, header.line, header.text, "refine")
+    location: location(file, header.line, header.text, "refine"),
   };
 }
 
-function parseQuery(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): QueryDecl | undefined {
-  const blockMatch = /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s+\{$/.exec(header.stripped.trim());
+function parseQuery(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): QueryDecl | undefined {
+  const blockMatch =
+    /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s+\{$/.exec(
+      header.stripped.trim(),
+    );
   if (blockMatch) {
     return {
       name: blockMatch[1]!,
       root: blockMatch[2]!,
       lenses: blockMatch[3] ? blockMatch[3].split(",").map((part) => part.trim()) : [],
       body: parseQueryBody(body, file, diagnostics),
-      location: location(file, header.line, header.text, "query")
+      location: location(file, header.line, header.text, "query"),
     };
   }
 
-  const viewMatch = /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(header.stripped.trim());
+  const viewMatch =
+    /^query:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+with\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(
+      header.stripped.trim(),
+    );
   if (!viewMatch) {
     diagnostics.push(error("INVALID_QUERY_DECL", "Invalid query declaration.", file, header));
     return undefined;
@@ -526,7 +597,7 @@ function parseQuery(header: SourceLine, body: SourceLine[], file: string | undef
     lenses: viewMatch[3] ? viewMatch[3].split(",").map((part) => part.trim()) : [],
     view: viewMatch[4]!,
     body: emptyQueryBody(),
-    location: location(file, header.line, header.text, "query")
+    location: location(file, header.line, header.text, "query"),
   };
 }
 
@@ -552,7 +623,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
       members.temporal.push({
         axis: temporal[1] as TemporalAxisDecl["axis"],
         expression: temporal[2]!.trim(),
-        location: location(file, line.line, line.text, temporal[1])
+        location: location(file, line.line, line.text, temporal[1]),
       });
       i += 1;
       continue;
@@ -602,9 +673,13 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     }
 
     if (trimmed === "where:" || trimmed.startsWith("where: ")) {
-      const first = trimmed === "where:" ? undefined : { ...line, stripped: line.stripped.replace(/^(\s*)where:\s*/, "$1") };
+      const first =
+        trimmed === "where:" ? undefined : { ...line, stripped: line.stripped.replace(/^(\s*)where:\s*/, "$1") };
       const collected = collectSection(lines, i + 1);
-      members.where.push({ expression: normalizeExpression(first ? [first, ...collected.lines] : collected.lines), location: location(file, line.line, line.text, "where") });
+      members.where.push({
+        expression: normalizeExpression(first ? [first, ...collected.lines] : collected.lines),
+        location: location(file, line.line, line.text, "where"),
+      });
       i = collected.end;
       continue;
     }
@@ -666,10 +741,14 @@ function parseDescription(text: string): string {
 
 function parseIdentityLine(line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): IdentityField[] {
   const rest = line.stripped.trim().replace(/^identity\s+/, "");
-  return rest.split(",").map((part) => part.trim()).filter(Boolean).flatMap((part) => {
-    const parsed = parseTypedName(part, line, file, diagnostics);
-    return parsed ? [{ ...parsed, location: location(file, line.line, line.text, parsed.name) }] : [];
-  });
+  return rest
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) => {
+      const parsed = parseTypedName(part, line, file, diagnostics);
+      return parsed ? [{ ...parsed, location: location(file, line.line, line.text, parsed.name) }] : [];
+    });
 }
 
 function parseFields(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): FieldDecl[] {
@@ -693,21 +772,41 @@ function parseFields(lines: SourceLine[], file: string | undefined, diagnostics:
   return fields;
 }
 
-function parseFieldHeader(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): FieldDecl | undefined {
-  const text = header.stripped.trim().replace(/\s*\{\s*$/, "").trim();
+function parseFieldHeader(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): FieldDecl | undefined {
+  const text = header.stripped
+    .trim()
+    .replace(/\s*\{\s*$/, "")
+    .trim();
   const unique = /\s+unique(?:\s|$)/.test(text);
   const writeable = /\s+writeable(?:\s|$)/.test(text);
   const withoutModifiers = text.replace(/\s+(?:unique|writeable)\b/g, "").trim();
   const parsed = parseTypedName(withoutModifiers, header, file, diagnostics);
   if (!parsed) return undefined;
   const explicitMappings = parseWriteMappings(body, file, diagnostics);
-  const writeMappings = writeable && explicitMappings.length === 0
-    ? [{ kind: "default" as const, location: location(file, header.line, header.text, parsed.name) }]
-    : explicitMappings;
-  return { ...parsed, unique, writeable, writeMappings, location: location(file, header.line, header.text, parsed.name) };
+  const writeMappings =
+    writeable && explicitMappings.length === 0
+      ? [{ kind: "default" as const, location: location(file, header.line, header.text, parsed.name) }]
+      : explicitMappings;
+  return {
+    ...parsed,
+    unique,
+    writeable,
+    writeMappings,
+    location: location(file, header.line, header.text, parsed.name),
+  };
 }
 
-function parseTypedName(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): Omit<FieldDecl, "unique" | "writeable" | "writeMappings" | "location"> | undefined {
+function parseTypedName(
+  text: string,
+  line: SourceLine,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): Omit<FieldDecl, "unique" | "writeable" | "writeMappings" | "location"> | undefined {
   const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?$/.exec(text.trim());
   if (!match) {
     diagnostics.push(error("INVALID_TYPED_NAME", `Invalid typed declaration: ${text.trim()}`, file, line));
@@ -718,7 +817,10 @@ function parseTypedName(text: string, line: SourceLine, file: string | undefined
 
 function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): JoinDecl | undefined {
   const text = normalizeExpression(lines);
-  const match = /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(text);
+  const match =
+    /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(
+      text,
+    );
   if (!match) {
     diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
     return undefined;
@@ -741,12 +843,19 @@ function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: D
     on: operator === "on" ? match[6]!.trim() : "",
     with: operator === "with" ? match[6]!.trim() : undefined,
     at: match[7]?.trim(),
-    location: location(file, lines[0]!.line, lines[0]!.text, match[1])
+    location: location(file, lines[0]!.line, lines[0]!.text, match[1]),
   };
 }
 
-function parseRole(lines: SourceLine[], body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): RoleDecl | undefined {
-  const text = normalizeExpression(lines).replace(/\s*\{\s*$/, "").trim();
+function parseRole(
+  lines: SourceLine[],
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): RoleDecl | undefined {
+  const text = normalizeExpression(lines)
+    .replace(/\s*\{\s*$/, "")
+    .trim();
   const match = /^role\s+([A-Za-z_][A-Za-z0-9_]*)\s+when\s+(.+)$/.exec(text);
   if (!match) {
     diagnostics.push(error("INVALID_ROLE", `Invalid role declaration: ${text}`, file, lines[0]!));
@@ -762,7 +871,7 @@ function parseRole(lines: SourceLine[], body: SourceLine[], file: string | undef
     label: typeof labelValue === "string" ? labelValue : undefined,
     aliases: aliasesEntry ? parseMetadataStringArray(aliasesEntry.value) : [],
     metadata,
-    location: location(file, lines[0]!.line, lines[0]!.text, "role")
+    location: location(file, lines[0]!.line, lines[0]!.text, "role"),
   };
 }
 
@@ -771,33 +880,46 @@ function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnos
   return groups.flatMap((group) => {
     const { headerLines, bodyLines } = splitDefinitionGroup(group);
     const header = headerLines[0]!;
-    const text = normalizeExpression(headerLines).replace(/\s*\{\s*$/, "").trim();
+    const text = normalizeExpression(headerLines)
+      .replace(/\s*\{\s*$/, "")
+      .trim();
     const writeable = /\s+writeable$/.test(text);
     const withoutWriteable = text.replace(/\s+writeable$/, "").trim();
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?)?\s+is\s+(.+)$/.exec(withoutWriteable);
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?)?\s+is\s+(.+)$/.exec(
+      withoutWriteable,
+    );
     if (!match) {
       diagnostics.push(error("INVALID_DEFINITION", `Invalid definition: ${text}`, file, group[0]!));
       return [];
     }
-    return [{
-      name: match[1]!,
-      typeName: match[2],
-      nullable: Boolean(match[3]),
-      expression: match[4]!.trim(),
-      writeable,
-      writeMappings: parseWriteMappings(bodyLines, file, diagnostics),
-      location: location(file, header.line, header.text, match[1])
-    }];
+    return [
+      {
+        name: match[1]!,
+        typeName: match[2],
+        nullable: Boolean(match[3]),
+        expression: match[4]!.trim(),
+        writeable,
+        writeMappings: parseWriteMappings(bodyLines, file, diagnostics),
+        location: location(file, header.line, header.text, match[1]),
+      },
+    ];
   });
 }
 
 function splitDefinitionGroup(group: SourceLine[]): { headerLines: SourceLine[]; bodyLines: SourceLine[] } {
   const braceIndex = group.findIndex((line) => line.stripped.includes("{"));
   if (braceIndex < 0) return { headerLines: group, bodyLines: [] };
-  return { headerLines: group.slice(0, braceIndex + 1), bodyLines: group.slice(braceIndex + 1, group.at(-1)?.stripped.trim() === "}" ? -1 : undefined) };
+  return {
+    headerLines: group.slice(0, braceIndex + 1),
+    bodyLines: group.slice(braceIndex + 1, group.at(-1)?.stripped.trim() === "}" ? -1 : undefined),
+  };
 }
 
-function parseWriteMappings(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): WriteMappingDecl[] {
+function parseWriteMappings(
+  lines: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): WriteMappingDecl[] {
   const mappings: WriteMappingDecl[] = [];
   const trimmedLines = trimBlankEdges(lines);
   for (let i = 0; i < trimmedLines.length; i += 1) {
@@ -832,14 +954,19 @@ function parseWriteMappings(lines: SourceLine[], file: string | undefined, diagn
   return mappings;
 }
 
-function parseWriteMappingLine(text: string, line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): WriteMappingDecl | undefined {
+function parseWriteMappingLine(
+  text: string,
+  line: SourceLine,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): WriteMappingDecl | undefined {
   const column = /^column\s+([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.+)$/.exec(text);
   if (column) {
     return {
       kind: "column",
       column: column[1]!,
       expression: column[2]!.trim(),
-      location: location(file, line.line, line.text, "column")
+      location: location(file, line.line, line.text, "column"),
     };
   }
   const sql = /^sql\s+(['"])([\s\S]*)\1$/.exec(text);
@@ -847,14 +974,19 @@ function parseWriteMappingLine(text: string, line: SourceLine, file: string | un
     return {
       kind: "sql",
       sql: sql[2]!,
-      location: location(file, line.line, line.text, "sql")
+      location: location(file, line.line, line.text, "sql"),
     };
   }
   diagnostics.push(error("INVALID_WRITE_MAPPING", `Invalid write mapping: ${text}`, file, line));
   return undefined;
 }
 
-function parseAction(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionDecl | undefined {
+function parseAction(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ActionDecl | undefined {
   const match = /^action\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_ACTION_DECL", "Invalid action declaration.", file, header));
@@ -869,7 +1001,7 @@ function parseAction(header: SourceLine, body: SourceLine[], file: string | unde
     logBlocks: [],
     effectBlocks: [],
     agentMetadata: [],
-    location: location(file, header.line, header.text, "action")
+    location: location(file, header.line, header.text, "action"),
   };
 
   let i = 0;
@@ -950,7 +1082,7 @@ function parseAction(header: SourceLine, body: SourceLine[], file: string | unde
         header: "agent:",
         entries,
         lines: [...first, ...collected.lines].map((entry) => entry.stripped.trim()).filter(Boolean),
-        location: location(file, line.line, line.text, "agent")
+        location: location(file, line.line, line.text, "agent"),
       };
       i = collected.end;
       continue;
@@ -969,11 +1101,15 @@ function parseActionSubject(header: SourceLine, body: SourceLine[], file: string
   return {
     mode: match[1]!,
     metadata: parseMetadataEntries(body, file),
-    location: location(file, header.line, header.text, "subject")
+    location: location(file, header.line, header.text, "subject"),
   };
 }
 
-function parseActionParams(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionParamDecl[] {
+function parseActionParams(
+  lines: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ActionParamDecl[] {
   return trimBlankEdges(lines).flatMap((line) => {
     const trimmed = line.stripped.trim();
     if (!trimmed) return [];
@@ -985,28 +1121,32 @@ function parseActionParams(lines: SourceLine[], file: string | undefined, diagno
     const rest = match[4]!.trim();
     const hidden = /\bhidden\b/.test(rest);
     const defaultMatch = /\bdefault\s+(.+)$/.exec(rest.replace(/\bhidden\b/g, "").trim());
-    return [{
-      name: match[1]!,
-      typeName: match[2]!,
-      nullable: Boolean(match[3]),
-      defaultExpression: defaultMatch?.[1]?.trim(),
-      hidden,
-      location: location(file, line.line, line.text, match[1])
-    }];
+    return [
+      {
+        name: match[1]!,
+        typeName: match[2]!,
+        nullable: Boolean(match[3]),
+        defaultExpression: defaultMatch?.[1]?.trim(),
+        hidden,
+        location: location(file, line.line, line.text, match[1]),
+      },
+    ];
   });
 }
 
 function parseActionGuards(lines: SourceLine[], file: string | undefined): ActionGuardDecl[] {
   const groups = groupActionExpressionLines(lines, (trimmed) => /^(else|and|or)\b/.test(trimmed));
-  return groups.map((group) => {
-    const expression = normalizeExpression(group);
-    const elseMatch = /^(.*?)(?:\s+else\s+(.+))$/.exec(expression);
-    return {
-      predicate: (elseMatch ? elseMatch[1] : expression)!.trim(),
-      elseMessage: elseMatch?.[2]?.trim(),
-      location: location(file, group[0]!.line, group[0]!.text, group[0]!.stripped.trim())
-    };
-  }).filter((guard) => guard.predicate);
+  return groups
+    .map((group) => {
+      const expression = normalizeExpression(group);
+      const elseMatch = /^(.*?)(?:\s+else\s+(.+))$/.exec(expression);
+      return {
+        predicate: (elseMatch ? elseMatch[1] : expression)!.trim(),
+        elseMessage: elseMatch?.[2]?.trim(),
+        location: location(file, group[0]!.line, group[0]!.text, group[0]!.stripped.trim()),
+      };
+    })
+    .filter((guard) => guard.predicate);
 }
 
 function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionEditDecl[] {
@@ -1026,7 +1166,7 @@ function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnos
         kind: "set",
         target: set[1]!,
         expression: set[2]!.trim(),
-        location: location(file, line.line, line.text, "set")
+        location: location(file, line.line, line.text, "set"),
       });
       i += 1;
       continue;
@@ -1037,7 +1177,7 @@ function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnos
       edits.push({
         kind: "insert",
         assignments: parseInsertAssignments(block.body, file, diagnostics),
-        location: location(file, line.line, line.text, "insert")
+        location: location(file, line.line, line.text, "insert"),
       });
       i = block.end;
       continue;
@@ -1048,7 +1188,11 @@ function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnos
   return edits;
 }
 
-function parseInsertAssignments(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ActionInsertAssignmentDecl[] {
+function parseInsertAssignments(
+  lines: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ActionInsertAssignmentDecl[] {
   return trimBlankEdges(lines).flatMap((line) => {
     const trimmed = line.stripped.trim();
     if (!trimmed) return [];
@@ -1057,21 +1201,30 @@ function parseInsertAssignments(lines: SourceLine[], file: string | undefined, d
       diagnostics.push(error("INVALID_ACTION_EDIT", `Invalid insert assignment: ${trimmed}`, file, line));
       return [];
     }
-    return [{
-      target: match[1]!,
-      expression: match[2]!.trim(),
-      location: location(file, line.line, line.text, match[1])
-    }];
+    return [
+      {
+        target: match[1]!,
+        expression: match[2]!.trim(),
+        location: location(file, line.line, line.text, match[1]),
+      },
+    ];
   });
 }
 
-function parseActionMetadataBlock(kind: ActionMetadataBlockDecl["kind"], header: SourceLine, body: SourceLine[], file: string | undefined): ActionMetadataBlockDecl {
+function parseActionMetadataBlock(
+  kind: ActionMetadataBlockDecl["kind"],
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+): ActionMetadataBlockDecl {
   return {
     kind,
     header: header.stripped.trim(),
     entries: parseMetadataEntries(body, file),
-    lines: trimBlankEdges(body).map((line) => line.stripped.trim()).filter(Boolean),
-    location: location(file, header.line, header.text, kind)
+    lines: trimBlankEdges(body)
+      .map((line) => line.stripped.trim())
+      .filter(Boolean),
+    location: location(file, header.line, header.text, kind),
   };
 }
 
@@ -1081,15 +1234,22 @@ function parseMetadataEntries(lines: SourceLine[], file: string | undefined): Me
     if (!trimmed || trimmed === "}") return [];
     const match = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(trimmed);
     if (!match) return [];
-    return [{
-      key: match[1]!,
-      value: match[2]!.trim(),
-      location: location(file, line.line, line.text, match[1])
-    }];
+    return [
+      {
+        key: match[1]!,
+        value: match[2]!.trim(),
+        location: location(file, line.line, line.text, match[1]),
+      },
+    ];
   });
 }
 
-function parseValidation(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ValidationDecl | undefined {
+function parseValidation(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ValidationDecl | undefined {
   const match = /^([A-Za-z_][A-Za-z0-9_]*)\s+is\s+\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_VALIDATION", "Invalid validation declaration.", file, header));
@@ -1110,7 +1270,12 @@ function parseValidation(header: SourceLine, body: SourceLine[], file: string | 
   return validation;
 }
 
-function parseView(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): ViewDecl | undefined {
+function parseView(
+  header: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): ViewDecl | undefined {
   const match = /^view:\s+([A-Za-z_][A-Za-z0-9_]*)\s+is\s+\{$/.exec(header.stripped.trim());
   if (!match) {
     diagnostics.push(error("INVALID_VIEW", "Invalid view declaration.", file, header));
@@ -1119,7 +1284,7 @@ function parseView(header: SourceLine, body: SourceLine[], file: string | undefi
   return {
     name: match[1]!,
     body: parseQueryBody(body, file, diagnostics),
-    location: location(file, header.line, header.text, "view")
+    location: location(file, header.line, header.text, "view"),
   };
 }
 
@@ -1139,7 +1304,7 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
       const collected = collectQuerySection(lines, i + 1);
       body.where = {
         expression: normalizeExpression([...startLines, ...collected.lines]),
-        location: location(file, line.line, line.text, "where")
+        location: location(file, line.line, line.text, "where"),
       };
       i = collected.end;
       continue;
@@ -1150,7 +1315,7 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
       const collected = collectQuerySection(lines, i + 1);
       body.having = {
         expression: normalizeExpression([...startLines, ...collected.lines]),
-        location: location(file, line.line, line.text, "having")
+        location: location(file, line.line, line.text, "having"),
       };
       i = collected.end;
       continue;
@@ -1159,12 +1324,20 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
     if (limit) {
       body.limit = {
         value: Number(limit[2]),
-        location: location(file, line.line, line.text, limit[1])
+        location: location(file, line.line, line.text, limit[1]),
       };
       i += 1;
       continue;
     }
-    if (trimmed === "select:" || trimmed === "project:" || trimmed === "group_by:" || trimmed === "aggregate:" || trimmed === "calculate:" || trimmed === "order_by:" || trimmed === "index:") {
+    if (
+      trimmed === "select:" ||
+      trimmed === "project:" ||
+      trimmed === "group_by:" ||
+      trimmed === "aggregate:" ||
+      trimmed === "calculate:" ||
+      trimmed === "order_by:" ||
+      trimmed === "index:"
+    ) {
       const collected = collectQuerySection(lines, i + 1);
       const items = parseQueryItems(collected.lines, file);
       if (trimmed === "select:" || trimmed === "project:") body.select.push(...items);
@@ -1197,7 +1370,11 @@ function parseQueryItems(lines: SourceLine[], file: string | undefined): QueryIt
     const text = normalizeExpression(group);
     const aliasMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s+is\s+(.+)$/.exec(text);
     return aliasMatch
-      ? { alias: aliasMatch[1]!, expression: aliasMatch[2]!.trim(), location: location(file, group[0]!.line, group[0]!.text, aliasMatch[1]) }
+      ? {
+          alias: aliasMatch[1]!,
+          expression: aliasMatch[2]!.trim(),
+          location: location(file, group[0]!.line, group[0]!.text, aliasMatch[1]),
+        }
       : { expression: text, location: location(file, group[0]!.line, group[0]!.text, group[0]!.stripped.trim()) };
   });
 }
@@ -1216,7 +1393,7 @@ function parseNestItems(lines: SourceLine[], file: string | undefined, diagnosti
       items.push({
         name: inlineMatch[1]!,
         body: parseQueryBody(block.body, file, diagnostics),
-        location: location(file, line.line, line.text, inlineMatch[1])
+        location: location(file, line.line, line.text, inlineMatch[1]),
       });
       i = block.end;
       continue;
@@ -1226,7 +1403,7 @@ function parseNestItems(lines: SourceLine[], file: string | undefined, diagnosti
       items.push({
         name: aliasMatch[1]!,
         view: aliasMatch[2]!,
-        location: location(file, line.line, line.text, aliasMatch[1])
+        location: location(file, line.line, line.text, aliasMatch[1]),
       });
       i += 1;
       continue;
@@ -1235,7 +1412,7 @@ function parseNestItems(lines: SourceLine[], file: string | undefined, diagnosti
     if (viewMatch) {
       items.push({
         view: viewMatch[1]!,
-        location: location(file, line.line, line.text, viewMatch[1])
+        location: location(file, line.line, line.text, viewMatch[1]),
       });
       i += 1;
       continue;
@@ -1297,10 +1474,16 @@ function collectQuerySection(lines: SourceLine[], start: number): { lines: Sourc
 }
 
 function isQueryClauseStart(trimmed: string): boolean {
-  return /^(where:|having:|select:|project:|group_by:|aggregate:|calculate:|nest:|index:|order_by:|limit:|top:)/.test(trimmed);
+  return /^(where:|having:|select:|project:|group_by:|aggregate:|calculate:|nest:|index:|order_by:|limit:|top:)/.test(
+    trimmed,
+  );
 }
 
-function collectContinuation(lines: SourceLine[], start: number, shouldContinue: (line: SourceLine) => boolean): { lines: SourceLine[]; end: number } {
+function collectContinuation(
+  lines: SourceLine[],
+  start: number,
+  shouldContinue: (line: SourceLine) => boolean,
+): { lines: SourceLine[]; end: number } {
   const collected = [lines[start]!];
   let i = start + 1;
   while (i < lines.length) {
@@ -1317,11 +1500,16 @@ function collectContinuation(lines: SourceLine[], start: number, shouldContinue:
 }
 
 function groupDefinitionLines(lines: SourceLine[]): SourceLine[][] {
-  return groupByStarts(lines, (trimmed) => /^[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*\??)?\s+is\b/.test(trimmed));
+  return groupByStarts(lines, (trimmed) =>
+    /^[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*\??)?\s+is\b/.test(trimmed),
+  );
 }
 
 function groupQueryItemLines(lines: SourceLine[]): SourceLine[][] {
-  return groupByStarts(lines, (trimmed) => /^[A-Za-z_][A-Za-z0-9_.]*(?:\s+is\b|\s*$)/.test(trimmed) && !/^(and|or|when|else|end)\b/.test(trimmed));
+  return groupByStarts(
+    lines,
+    (trimmed) => /^[A-Za-z_][A-Za-z0-9_.]*(?:\s+is\b|\s*$)/.test(trimmed) && !/^(and|or|when|else|end)\b/.test(trimmed),
+  );
 }
 
 function groupActionExpressionLines(lines: SourceLine[], isContinuation: (trimmed: string) => boolean): SourceLine[][] {
@@ -1350,9 +1538,15 @@ function error(code: string, message: string, file: string | undefined, line: So
   return { severity: "error", code, message, location: location(file, line.line, line.text) };
 }
 
-function diagnoseUnclosedBlock(block: { header: SourceLine; unclosed: boolean }, file: string | undefined, diagnostics: Diagnostic[]) {
+function diagnoseUnclosedBlock(
+  block: { header: SourceLine; unclosed: boolean },
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+) {
   if (!block.unclosed) return;
-  diagnostics.push(error("UNCLOSED_BLOCK", `Unclosed block starting on line ${block.header.line}.`, file, block.header));
+  diagnostics.push(
+    error("UNCLOSED_BLOCK", `Unclosed block starting on line ${block.header.line}.`, file, block.header),
+  );
 }
 
 export { primitiveTypes };

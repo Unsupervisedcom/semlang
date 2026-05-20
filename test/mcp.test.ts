@@ -19,20 +19,20 @@ async function tempExamplePath(domain: string, fileName = "example.semlang"): Pr
     await fs.copyFile(path.join(sourceDir, name), path.join(targetDir, name));
   }
   await prepareExampleDuckDb(targetDir);
-  await fs.writeFile(path.join(targetDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(targetDir), null, 2));
+  await fs.writeFile(
+    path.join(targetDir, "malloy-config.json"),
+    JSON.stringify(duckDbMalloyConfig(targetDir), null, 2),
+  );
   return path.join(targetDir, fileName);
 }
 
 async function prepareExampleDuckDb(projectDir: string): Promise<void> {
   const schemaPath = path.join(projectDir, "schema.sql");
   const samplePath = path.join(projectDir, "sample_data.sql");
-  const [schema, sampleData] = await Promise.all([
-    fs.readFile(schemaPath, "utf8"),
-    fs.readFile(samplePath, "utf8")
-  ]);
+  const [schema, sampleData] = await Promise.all([fs.readFile(schemaPath, "utf8"), fs.readFile(samplePath, "utf8")]);
   await execFileAsync("duckdb", [duckDbDatabasePath(projectDir), "-c", `${schema}\n${sampleData}`], {
     cwd: projectDir,
-    maxBuffer: 10 * 1024 * 1024
+    maxBuffer: 10 * 1024 * 1024,
   });
 }
 
@@ -47,28 +47,36 @@ function duckDbMalloyConfig(projectDir: string): Record<string, unknown> {
         is: "duckdb",
         databasePath: duckDbDatabasePath(projectDir),
         workingDirectory: projectDir,
-        extensionDirectory: path.join(projectDir, ".duckdb-extensions")
-      }
-    }
+        extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
+      },
+    },
   };
 }
 
-async function setInlineOntology(mcp: ReturnType<typeof createSemLangMcp>, source: string): Promise<Record<string, unknown>> {
+async function setInlineOntology(
+  mcp: ReturnType<typeof createSemLangMcp>,
+  source: string,
+): Promise<Record<string, unknown>> {
   const projectDir = await writeTempProject({});
-  await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+  await fs.writeFile(
+    path.join(projectDir, "malloy-config.json"),
+    JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+  );
   return mcp.tools.set_ontology_source({
     basePath: path.join(projectDir, "inline.semlang"),
-    source
+    source,
   });
 }
 
 async function writeTempProject(files: Record<string, string>): Promise<string> {
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-mcp-project-"));
-  await Promise.all(Object.entries(files).map(async ([name, contents]) => {
-    const target = path.join(projectDir, name);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, contents);
-  }));
+  await Promise.all(
+    Object.entries(files).map(async ([name, contents]) => {
+      const target = path.join(projectDir, name);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, contents);
+    }),
+  );
   return projectDir;
 }
 
@@ -89,7 +97,7 @@ function records(value: unknown): Record<string, unknown>[] {
 }
 
 function names(value: unknown): string[] {
-  return asArray(value).map((item) => typeof item === "string" ? item : String(asObject(item).name));
+  return asArray(value).map((item) => (typeof item === "string" ? item : String(asObject(item).name)));
 }
 
 function text(value: unknown): string {
@@ -134,32 +142,39 @@ concept Order is event from warehouse.table('orders') {
     ordered_at :: timestamp
   occurrence_time: ordered_at
 }
-`
+`,
     });
     const modelPath = path.join(projectDir, "model.semlang");
     const configPath = path.join(projectDir, "malloy-config.json");
-    await fs.writeFile(configPath, JSON.stringify({
-      connections: {
-        warehouse: {
-          is: "duckdb",
-          databasePath: duckDbDatabasePath(projectDir),
-          workingDirectory: projectDir,
-          extensionDirectory: path.join(projectDir, ".duckdb-extensions")
-        }
-      }
-    }, null, 2));
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          connections: {
+            warehouse: {
+              is: "duckdb",
+              databasePath: duckDbDatabasePath(projectDir),
+              workingDirectory: projectDir,
+              extensionDirectory: path.join(projectDir, ".duckdb-extensions"),
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
 
     const source = await mcp.tools.set_ontology_source({
       path: modelPath,
       projectPath: projectDir,
-      configPath
+      configPath,
     });
     expectOk(source);
     expect(asObject(source.context)).toMatchObject({
       execution: {
         projectDir,
-        malloyConfigPath: configPath
-      }
+        malloyConfigPath: configPath,
+      },
     });
   });
 
@@ -176,20 +191,23 @@ concept Order is event from duckdb.table('orders') {
     ordered_at :: timestamp
   occurrence_time: ordered_at
 }
-`
+`,
     });
-    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
 
     const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "semlang", "model.semlang")
+      path: path.join(projectDir, "semlang", "model.semlang"),
     });
     expectOk(source);
     expect(asObject(source.context)).toMatchObject({
       execution: {
         projectDir,
         malloyConfigPath: path.join(projectDir, "malloy-config.json"),
-        malloyConfigSource: "discovered"
-      }
+        malloyConfigSource: "discovered",
+      },
     });
   });
 
@@ -206,7 +224,7 @@ concept Sale is event from duckdb.table('sales') {
     sold_at :: timestamp
   occurrence_time: sold_at
 }
-`
+`,
     });
 
     expect(source.ok).toBe(false);
@@ -217,9 +235,12 @@ concept Sale is event from duckdb.table('sales') {
   it("runs temporary queries through Malloy execution with a configured DuckDB connection", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({
-      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2)
+      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2),
     });
-    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
 
     const source = await mcp.tools.set_ontology_source({
       basePath: path.join(projectDir, "inline.semlang"),
@@ -243,30 +264,30 @@ concept InlineOrder is event from duckdb.sql("""
     order_count is count()
     total_order_amount is sum(order_amount)
 }
-`
+`,
     });
     expectOk(source);
     expect(asObject(asObject(source.context).execution)).toMatchObject({
-      malloyConfigSource: "discovered"
+      malloyConfigSource: "discovered",
     });
 
     const run = await mcp.tools.query_run({
       root: "InlineOrder",
-      aggregate: ["order_count", "total_order_amount"]
+      aggregate: ["order_count", "total_order_amount"],
     });
     expectOk(run);
     expect(run).toMatchObject({
       queryName: "__mcp_query",
-      root: "InlineOrder"
+      root: "InlineOrder",
     });
     expect(text(run.queryMalloy)).toContain("query: __mcp_query is");
     const execution = asObject(run.execution);
     expect(execution).toMatchObject({
       ok: true,
-      engine: "malloy"
+      engine: "malloy",
     });
     expect(records(execution.rows)[0]).toMatchObject({
-      order_count: 2
+      order_count: 2,
     });
   });
 
@@ -293,34 +314,43 @@ query: warehouse_order_count is WarehouseOrder -> {
   aggregate:
     order_count
 }
-`
+`,
     });
-    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
 
     const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang")
+      path: path.join(projectDir, "model.semlang"),
     });
     expect(source.ok).toBe(false);
-    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: "error",
-        code: "MALLOY_VALIDATION_ERROR",
-        message: expect.stringContaining("warehouse")
-      })
-    ]));
+    expect(records(source.diagnostics)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MALLOY_VALIDATION_ERROR",
+          message: expect.stringContaining("warehouse"),
+        }),
+      ]),
+    );
   });
 
   it("returns a clear error for configured connection engines without registered packages", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({
-      "malloy-config.json": JSON.stringify({
-        connections: {
-          warehouse: {
-            is: "not_registered",
-            host: "example.invalid"
-          }
-        }
-      }, null, 2),
+      "malloy-config.json": JSON.stringify(
+        {
+          connections: {
+            warehouse: {
+              is: "not_registered",
+              host: "example.invalid",
+            },
+          },
+        },
+        null,
+        2,
+      ),
       "model.semlang": `
 package mcp.unknown_engine
 
@@ -338,26 +368,30 @@ query: warehouse_order_count is WarehouseOrder -> {
   aggregate:
     order_count
 }
-`
+`,
     });
 
     const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang")
+      path: path.join(projectDir, "model.semlang"),
     });
     expect(source.ok).toBe(false);
-    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: "error",
-        code: "MALLOY_VALIDATION_ERROR",
-        message: expect.stringContaining('Malloy connection type "not_registered" is configured')
-      })
-    ]));
+    expect(records(source.diagnostics)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MALLOY_VALIDATION_ERROR",
+          message: expect.stringContaining('Malloy connection type "not_registered" is configured'),
+        }),
+      ]),
+    );
   });
 
   it("surfaces ignored sources in context and semantic search", async () => {
     const mcp = createSemLangMcp();
 
-    const source = await setInlineOntology(mcp, `
+    const source = await setInlineOntology(
+      mcp,
+      `
 package mcp.ignored_sources
 
 ignored duckdb.table('legacy_ticket_log') {
@@ -370,28 +404,30 @@ concept EventTransaction is event from duckdb.table('event_transactions') {
     occurred_at :: timestamp
   occurrence_time: occurred_at
 }
-`
+`,
     );
     expectOk(source);
     const context = asObject(source.context);
     expect(records(context.ignored)[0]).toMatchObject({
       source: "duckdb.table('legacy_ticket_log')",
       sourceKind: "table",
-      reason: "\"Deprecated -- replaced by event_transactions as of 2025-Q3\""
+      reason: '"Deprecated -- replaced by event_transactions as of 2025-Q3"',
     });
 
     const search = await mcp.tools.semantic_search_terms({ question: "legacy ticket log deprecated" });
     expectOk(search);
     expect(records(search.ignored)[0]).toMatchObject({
       source: "duckdb.table('legacy_ticket_log')",
-      reason: "\"Deprecated -- replaced by event_transactions as of 2025-Q3\""
+      reason: '"Deprecated -- replaced by event_transactions as of 2025-Q3"',
     });
   });
 
   it("surfaces role qualified names, labels, and aliases in ontology search tools", async () => {
     const mcp = createSemLangMcp();
 
-    const source = await setInlineOntology(mcp, `
+    const source = await setInlineOntology(
+      mcp,
+      `
 package mcp.role_aliases
 
 concept Customer is kind from duckdb.table('customers') {
@@ -403,7 +439,7 @@ concept Customer is kind from duckdb.table('customers') {
     aliases: "Current Customer", "Open Customer"
   }
 }
-`
+`,
     );
     expectOk(source);
 
@@ -415,7 +451,7 @@ concept Customer is kind from duckdb.table('customers') {
       qualifiedName: "Customer.Active",
       label: "Active Customer",
       aliases: ["Current Customer", "Open Customer"],
-      predicate: "status = 'active'"
+      predicate: "status = 'active'",
     });
 
     const search = await mcp.tools.semantic_search_terms({ question: "current customer" });
@@ -424,14 +460,14 @@ concept Customer is kind from duckdb.table('customers') {
     expect(roleMatch).toMatchObject({
       name: "Active",
       concept: "Customer",
-      matchedTerms: expect.arrayContaining(["current", "customer"])
+      matchedTerms: expect.arrayContaining(["current", "customer"]),
     });
 
     const entity = await mcp.tools.catalog_resolve_entity({ name: "Open Customer" });
     expectOk(entity);
     expect(records(entity.matches).find((match) => match.kind === "role")).toMatchObject({
       name: "Active",
-      concept: "Customer"
+      concept: "Customer",
     });
   });
 
@@ -440,7 +476,9 @@ concept Customer is kind from duckdb.table('customers') {
     // not be repeated by ordinary query validation.
     const mcp = createSemLangMcp();
 
-    const source = await setInlineOntology(mcp, `
+    const source = await setInlineOntology(
+      mcp,
+      `
 package mcp.lint_warnings
 
 type: CustomerId is string {
@@ -460,14 +498,14 @@ concept Account is kind from duckdb.table('accounts') {
   field:
     customer_id :: CustomerId
 }
-`
+`,
     );
     expect(source.ok).toBe(true);
     expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_JOIN_CANDIDATE");
 
     const validated = await mcp.tools.query_validate({
       root: "Account",
-      aggregate: ["count()"]
+      aggregate: ["count()"],
     });
     expectOk(validated);
     expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_JOIN_CANDIDATE");
@@ -478,22 +516,26 @@ concept Account is kind from duckdb.table('accounts') {
     // and must block ontology source loading.
     const mcp = createSemLangMcp();
 
-    const source = await setInlineOntology(mcp, `
+    const source = await setInlineOntology(
+      mcp,
+      `
 package mcp.lint_errors
 
 concept Sale is event from duckdb.table('sales') {
   identity sale_id :: string
 }
-`
+`,
     );
 
     expect(source.ok).toBe(false);
-    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: "error",
-        code: "MISSING_TEMPORAL_AXIS"
-      })
-    ]));
+    expect(records(source.diagnostics)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MISSING_TEMPORAL_AXIS",
+        }),
+      ]),
+    );
   });
 
   it("returns Malloy SDK validation diagnostics when setting ontology source but not during query validation", async () => {
@@ -501,7 +543,9 @@ concept Sale is event from duckdb.table('sales') {
     // Malloy model and fails before bad generated Malloy reaches query use.
     const mcp = createSemLangMcp();
 
-    const source = await setInlineOntology(mcp, `
+    const source = await setInlineOntology(
+      mcp,
+      `
 package mcp.malloy_validation
 
 concept Account is kind from duckdb.sql("""
@@ -519,23 +563,25 @@ query: account_recency is Account -> {
   group_by:
     days_since_last_order
 }
-`
+`,
     );
     expect(source.ok).toBe(false);
-    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        severity: "error",
-        code: "MALLOY_VALIDATION_ERROR",
-        message: expect.stringContaining("Malloy validation")
-      })
-    ]));
+    expect(records(source.diagnostics)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MALLOY_VALIDATION_ERROR",
+          message: expect.stringContaining("Malloy validation"),
+        }),
+      ]),
+    );
   });
 
   it("walks the retail base ontology from search to generated Malloy", async () => {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns"),
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -545,13 +591,15 @@ query: account_recency is Account -> {
     // The agent starts from the business phrase and checks which concepts,
     // metrics, and named queries the ontology thinks are relevant.
     const search = await mcp.tools.semantic_search_terms({
-      question: "monthly margin and returns by region and product category"
+      question: "monthly margin and returns by region and product category",
     });
     expectOk(search);
     const conceptMatches = records(search.concepts);
-    expect(conceptMatches.map((concept) => concept.name)).toEqual(expect.arrayContaining(["SaleLine", "Store", "ReturnLine"]));
+    expect(conceptMatches.map((concept) => concept.name)).toEqual(
+      expect.arrayContaining(["SaleLine", "Store", "ReturnLine"]),
+    );
     expect(conceptMatches.find((concept) => concept.name === "SaleLine")).toMatchObject({
-      description: expect.stringContaining("Sold SKU line fact grain")
+      description: expect.stringContaining("Sold SKU line fact grain"),
     });
     expect(names(search.metrics)).toEqual(expect.arrayContaining(["merchandising_margin", "settled_refund_amount"]));
     expect(names(search.queries)).toContain("monthly_margin_and_returns");
@@ -560,7 +608,7 @@ query: account_recency is Account -> {
     // so the agent asks for all required paths in one array-valued call.
     const paths = await mcp.tools.ontology_find_paths({
       from: "SaleLine",
-      to: ["Store", "ProductSKU", "ReturnLine"]
+      to: ["Store", "ProductSKU", "ReturnLine"],
     });
     expectOk(paths);
     expect(paths).not.toHaveProperty("targets");
@@ -587,13 +635,15 @@ query: account_recency is Account -> {
     if (execution.ok) {
       const marginRows = records(execution.rows);
       expect(marginRows.length).toBeGreaterThan(0);
-      expect(marginRows[0]).toEqual(expect.objectContaining({
-        sold_month: expect.anything(),
-        region: expect.anything(),
-        category_name: expect.anything(),
-        net_sales: expect.anything(),
-        merchandising_margin: expect.anything()
-      }));
+      expect(marginRows[0]).toEqual(
+        expect.objectContaining({
+          sold_month: expect.anything(),
+          region: expect.anything(),
+          category_name: expect.anything(),
+          net_sales: expect.anything(),
+          merchandising_margin: expect.anything(),
+        }),
+      );
     } else {
       expect(text(execution.error).length).toBeGreaterThan(0);
     }
@@ -609,7 +659,7 @@ query: account_recency is Account -> {
     expect(asObject(settleAction.action)).toMatchObject({
       concept: "ReturnLine",
       name: "settle_return",
-      subject: { mode: "single" }
+      subject: { mode: "single" },
     });
 
     const settled = await mcp.tools.action_invoke({
@@ -617,22 +667,22 @@ query: account_recency is Account -> {
       subject: { return_line_id: "RET_50002_1" },
       params: {
         approved_refund_amount: 121.25,
-        approved_restocking_fee_amount: 4.5
-      }
+        approved_restocking_fee_amount: 4.5,
+      },
     });
     expect(settled).toMatchObject({
       ok: true,
       engine: "duckdb",
       action: "settle_return",
       concept: "ReturnLine",
-      changedRowCount: 1
+      changedRowCount: 1,
     });
-    expect(text(settled.sql)).toContain("UPDATE \"return_lines\" AS root");
+    expect(text(settled.sql)).toContain('UPDATE "return_lines" AS root');
     expect(records(settled.rows)[0]).toMatchObject({
       return_line_id: "RET_50002_1",
       return_status: "settled",
       refund_amount: "121.25",
-      restocking_fee_amount: "4.50"
+      restocking_fee_amount: "4.50",
     });
 
     // action.invoke remains a local DuckDB action adapter. Non-DuckDB action
@@ -643,7 +693,7 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns"),
     });
     expectOk(source);
 
@@ -653,10 +703,12 @@ query: account_recency is Account -> {
     expectOk(entity);
     expect(entity).toMatchObject({ concept: "Store", business_name: "Denver" });
     const storeCandidate = records(entity.candidates)[0];
-    expect(names(storeCandidate?.candidateFields)).toEqual(expect.arrayContaining(["store_name", "region", "store_label"]));
+    expect(names(storeCandidate?.candidateFields)).toEqual(
+      expect.arrayContaining(["store_name", "region", "store_label"]),
+    );
     expect(records(storeCandidate?.rows)[0]).toMatchObject({
       store_code: "DEN-01",
-      store_name: "Denver Cherry Creek"
+      store_name: "Denver Cherry Creek",
     });
 
     // The example query encodes the resulting store filter; query.run should
@@ -667,12 +719,14 @@ query: account_recency is Account -> {
     expect(execution).toMatchObject({ engine: "malloy" });
     expect(execution).not.toHaveProperty("skipped", true);
     if (execution.ok) {
-      expect(records(execution.rows)[0]).toEqual(expect.objectContaining({
-        sales: expect.anything(),
-        identified_customer_sales: expect.anything(),
-        identified_customers: expect.anything(),
-        unrecognized_cash_sales: expect.anything()
-      }));
+      expect(records(execution.rows)[0]).toEqual(
+        expect.objectContaining({
+          sales: expect.anything(),
+          identified_customer_sales: expect.anything(),
+          identified_customers: expect.anything(),
+          unrecognized_cash_sales: expect.anything(),
+        }),
+      );
     } else {
       expect(text(execution.error).length).toBeGreaterThan(0);
     }
@@ -682,7 +736,7 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns", "example_with_lens.semlang")
+      path: await tempExamplePath("retail-omnichannel-margin-and-returns", "example_with_lens.semlang"),
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -691,14 +745,12 @@ query: account_recency is Account -> {
     // The agent has a role/context phrase, so it asks which lens overlays match
     // before choosing a governed query surface.
     const suggested = await mcp.tools.lens_suggest({
-      user_context: "western margin returns intervention with customer contact"
+      user_context: "western margin returns intervention with customer contact",
     });
     expectOk(suggested);
-    expect(names(suggested.lenses)).toEqual(expect.arrayContaining([
-      "western_margin_operations",
-      "margin_operations",
-      "with_pii"
-    ]));
+    expect(names(suggested.lenses)).toEqual(
+      expect.arrayContaining(["western_margin_operations", "margin_operations", "with_pii"]),
+    );
 
     // The top suggested lens is composed, so the agent inspects its parents and
     // direct refinements before expanding the model.
@@ -709,48 +761,54 @@ query: account_recency is Account -> {
     expect(records(describedLens.refinements)[0]).toMatchObject({
       lens: "western_margin_operations",
       concept: "SaleLine",
-      views: ["western_margin_risk_by_category"]
+      views: ["western_margin_risk_by_category"],
     });
 
     // Expansion checks that parent lenses are applied and margin operations add
     // the temporary risk-band type the query needs.
     const expanded = await mcp.tools.lens_expand({
       lens: "western_margin_operations",
-      concept: "SaleLine"
+      concept: "SaleLine",
     });
     expectOk(expanded);
     expect(names(asObject(expanded.model).types)).toContain("MarginRiskBand");
     expect(records(expanded.refinements)[0]).toMatchObject({
       lens: "western_margin_operations",
-      concept: "SaleLine"
+      concept: "SaleLine",
     });
 
     // Before producing a customer-service queue, the agent asks which lens owns
     // contact/PII fields rather than assuming they exist in the base ontology.
     const piiFields = await mcp.tools.lens_required_fields({
-      fields: ["contact_email", "phone_number", "customer_contact_email"]
+      fields: ["contact_email", "phone_number", "customer_contact_email"],
     });
     expectOk(piiFields);
     expect(piiFields.requestedFields).toEqual(["contact_email", "phone_number", "customer_contact_email"]);
     const piiMatches = records(piiFields.matches);
     const customerPii = piiMatches.find((match) => match.lens === "with_pii" && match.concept === "Customer");
     expect(customerPii).toBeDefined();
-    expect(records(customerPii?.matches)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        field: "contact_email",
-        exposedAs: [expect.objectContaining({ field: "contact_email", kind: "dimension", expression: "email_address" })]
-      }),
-      expect.objectContaining({
-        field: "phone_number",
-        exposedAs: [expect.objectContaining({ field: "phone_number", kind: "field", typeName: "string" })],
-        requiredByExpressions: ["phone_number"]
-      })
-    ]));
+    expect(records(customerPii?.matches)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "contact_email",
+          exposedAs: [
+            expect.objectContaining({ field: "contact_email", kind: "dimension", expression: "email_address" }),
+          ],
+        }),
+        expect.objectContaining({
+          field: "phone_number",
+          exposedAs: [expect.objectContaining({ field: "phone_number", kind: "field", typeName: "string" })],
+          requiredByExpressions: ["phone_number"],
+        }),
+      ]),
+    );
     const salePii = piiMatches.find((match) => match.lens === "with_pii" && match.concept === "Sale");
-    expect(records(salePii?.matches)).toContainEqual(expect.objectContaining({
-      field: "customer_contact_email",
-      exposedAs: [expect.objectContaining({ field: "customer_contact_email", expression: "customer.contact_email" })]
-    }));
+    expect(records(salePii?.matches)).toContainEqual(
+      expect.objectContaining({
+        field: "customer_contact_email",
+        exposedAs: [expect.objectContaining({ field: "customer_contact_email", expression: "customer.contact_email" })],
+      }),
+    );
 
     // The lens queries should validate as named examples because their roots and
     // lens lists are declared in the fixture.
@@ -766,9 +824,13 @@ query: account_recency is Account -> {
     // to the Malloy runtime rather than fixture-specific local lowering.
     const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue" });
     expectQuery(run, "western_margin_intervention_queue", "SaleLine");
-    expect(text(run.malloy)).toContain("source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend");
+    expect(text(run.malloy)).toContain(
+      "source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend",
+    );
     expect(text(run.malloy)).toContain("margin_risk_band is");
-    expect(text(run.queryMalloy)).toContain("query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->");
+    expect(text(run.queryMalloy)).toContain(
+      "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
+    );
     expect(asObject(run.execution)).toMatchObject({ engine: "malloy" });
   });
 
@@ -776,26 +838,22 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("saas-product-usage-and-revenue")
+      path: await tempExamplePath("saas-product-usage-and-revenue"),
     });
     expectOk(source);
-    expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([
-      "SubscriptionPeriod",
-      "RevenueRecognitionEntry",
-      "FeatureUsageDay"
-    ]));
+    expect(names(asObject(source.context).concepts)).toEqual(
+      expect.arrayContaining(["SubscriptionPeriod", "RevenueRecognitionEntry", "FeatureUsageDay"]),
+    );
 
     // The SaaS fixture warns that ARR, recognized revenue, and usage have
     // distinct grains, so search should surface multiple candidate roots.
     const search = await mcp.tools.semantic_search_terms({
-      question: "recognized revenue ARR movement subscription product usage"
+      question: "recognized revenue ARR movement subscription product usage",
     });
     expectOk(search);
-    expect(names(search.concepts)).toEqual(expect.arrayContaining([
-      "SubscriptionPeriod",
-      "RevenueRecognitionEntry",
-      "FeatureUsageDay"
-    ]));
+    expect(names(search.concepts)).toEqual(
+      expect.arrayContaining(["SubscriptionPeriod", "RevenueRecognitionEntry", "FeatureUsageDay"]),
+    );
 
     // Since "recognized revenue" is an accounting measure, the agent asks the
     // ontology to explain the metric rather than treating invoice total as ARR.
@@ -804,29 +862,26 @@ query: account_recency is Account -> {
     expect(records(metric.metrics)[0]).toMatchObject({
       concept: "RevenueRecognitionEntry",
       name: "recognized_revenue",
-      expression: "sum(recognized_revenue_amount)"
+      expression: "sum(recognized_revenue_amount)",
     });
 
     // For entitlement-aware usage, the agent needs feature, entitlement, and
     // plan context from the FeatureUsageDay root in one array request.
     const paths = await mcp.tools.ontology_find_paths({
       from: "FeatureUsageDay",
-      to: ["ProductFeature", "EntitlementInterval", "ProductPlan"]
+      to: ["ProductFeature", "EntitlementInterval", "ProductPlan"],
     });
     expectOk(paths);
     expect(paths).not.toHaveProperty("targets");
     expect(records(pathResult(paths, "ProductFeature").paths)[0]?.concepts).toEqual([
       "FeatureUsageDay",
-      "ProductFeature"
+      "ProductFeature",
     ]);
     expect(records(pathResult(paths, "EntitlementInterval").paths)[0]?.concepts).toEqual([
       "FeatureUsageDay",
-      "EntitlementInterval"
+      "EntitlementInterval",
     ]);
-    expect(records(pathResult(paths, "ProductPlan").paths)[0]?.concepts).toEqual([
-      "FeatureUsageDay",
-      "ProductPlan"
-    ]);
+    expect(records(pathResult(paths, "ProductPlan").paths)[0]?.concepts).toEqual(["FeatureUsageDay", "ProductPlan"]);
 
     // With those joins confirmed, the named usage query should validate at the
     // FeatureUsageDay grain.
@@ -841,13 +896,13 @@ query: account_recency is Account -> {
 
     const openCaseAction = await mcp.tools.ontology_describe_action({
       concept: "SupportCase",
-      name: "open_case"
+      name: "open_case",
     });
     expectOk(openCaseAction);
     expect(asObject(openCaseAction.action)).toMatchObject({
       concept: "SupportCase",
       name: "open_case",
-      subject: { mode: "new" }
+      subject: { mode: "new" },
     });
 
     const opened = await mcp.tools.action_invoke({
@@ -860,17 +915,17 @@ query: account_recency is Account -> {
         subscription_id: "SUB_ACME_MAIN",
         priority: "urgent",
         channel: "chat",
-        category: "workflow_error"
-      }
+        category: "workflow_error",
+      },
     });
     expect(opened).toMatchObject({
       ok: true,
       engine: "duckdb",
       action: "open_case",
       concept: "SupportCase",
-      changedRowCount: 1
+      changedRowCount: 1,
     });
-    expect(text(opened.sql)).toContain("INSERT INTO \"support_cases\"");
+    expect(text(opened.sql)).toContain('INSERT INTO "support_cases"');
     expect(records(opened.rows)[0]).toMatchObject({
       support_case_id: "CASE_MCP_OPEN_1",
       account_id: "ACCT_ACME",
@@ -878,7 +933,7 @@ query: account_recency is Account -> {
       case_status: "open",
       channel: "chat",
       category: "workflow_error",
-      sla_paused_minutes: 0
+      sla_paused_minutes: 0,
     });
   });
 
@@ -886,43 +941,43 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang")
+      path: await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang"),
     });
     expectOk(source);
-    expect(names(asObject(source.context).lenses)).toEqual(expect.arrayContaining([
-      "regulatory_base_reporting",
-      "commercial_real_estate_concentration",
-      "watchlist_credit_review"
-    ]));
+    expect(names(asObject(source.context).lenses)).toEqual(
+      expect.arrayContaining([
+        "regulatory_base_reporting",
+        "commercial_real_estate_concentration",
+        "watchlist_credit_review",
+      ]),
+    );
 
     // The banking question mixes regulatory scope, CRE concentration, and
     // officer action, so search should identify the exposure root and risk paths.
     const search = await mcp.tools.semantic_search_terms({
-      question: "regulatory CRE watchlist exposure after guarantee collateral"
+      question: "regulatory CRE watchlist exposure after guarantee collateral",
     });
     expectOk(search);
-    expect(names(search.concepts)).toEqual(expect.arrayContaining([
-      "LoanExposureSnapshot",
-      "Guarantee",
-      "LoanCollateralLink"
-    ]));
+    expect(names(search.concepts)).toEqual(
+      expect.arrayContaining(["LoanExposureSnapshot", "Guarantee", "LoanCollateralLink"]),
+    );
 
     // The comment in the fixture points to lens.plan for composing the
     // regulatory, CRE, and watchlist overlays before validating the queue.
     const plan = await mcp.tools.lens_plan({
       question: "regulatory CRE watchlist queue",
-      lenses: ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"]
+      lenses: ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"],
     });
     expectOk(plan);
     expect(names(plan.lenses)).toEqual([
       "regulatory_base_reporting",
       "commercial_real_estate_concentration",
-      "watchlist_credit_review"
+      "watchlist_credit_review",
     ]);
     expect(records(plan.steps).map((step) => step.lens)).toEqual([
       "regulatory_base_reporting",
       "commercial_real_estate_concentration",
-      "watchlist_credit_review"
+      "watchlist_credit_review",
     ]);
 
     // Once the lens stack is known, the composed named query should validate on
@@ -936,19 +991,17 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("healthcare-patient-journey-and-quality-measures")
+      path: await tempExamplePath("healthcare-patient-journey-and-quality-measures"),
     });
     expectOk(source);
-    expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([
-      "InpatientStay",
-      "DiagnosisInterval",
-      "QualityMeasurePopulation"
-    ]));
+    expect(names(asObject(source.context).concepts)).toEqual(
+      expect.arrayContaining(["InpatientStay", "DiagnosisInterval", "QualityMeasurePopulation"]),
+    );
 
     // The healthcare question asks about diagnoses active at discharge, so
     // search should keep the discharge denominator root and diagnosis interval.
     const search = await mcp.tools.semantic_search_terms({
-      question: "readmission denominator diagnosis active at discharge"
+      question: "readmission denominator diagnosis active at discharge",
     });
     expectOk(search);
     expect(names(search.concepts)).toEqual(expect.arrayContaining(["InpatientStay", "DiagnosisInterval"]));
@@ -963,7 +1016,7 @@ query: account_recency is Account -> {
     // The path should make the discharge-date temporal join explicit.
     const paths = await mcp.tools.ontology_find_paths({
       from: "InpatientStay",
-      to: "DiagnosisInterval"
+      to: "DiagnosisInterval",
     });
     expectOk(paths);
     const dischargePath = records(pathResult(paths, "DiagnosisInterval").paths)[0];
@@ -971,7 +1024,7 @@ query: account_recency is Account -> {
     expect(records(dischargePath.steps)[0]).toMatchObject({
       join: "diagnoses_at_discharge",
       kind: "join_many",
-      at: "discharge_date"
+      at: "discharge_date",
     });
 
     // With the temporal path established, the denominator audit query should
@@ -984,27 +1037,22 @@ query: account_recency is Account -> {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("manufacturing-supply-chain-traceability-and-quality")
+      path: await tempExamplePath("manufacturing-supply-chain-traceability-and-quality"),
     });
     expectOk(source);
-    expect(names(asObject(source.context).concepts)).toEqual(expect.arrayContaining([
-      "SerializedUnit",
-      "SupplierLot",
-      "RecallAffectedUnit"
-    ]));
+    expect(names(asObject(source.context).concepts)).toEqual(
+      expect.arrayContaining(["SerializedUnit", "SupplierLot", "RecallAffectedUnit"]),
+    );
 
     // The manufacturing question names lots, defects, warranties, and recall
     // scope, so search should surface both serial-unit and recall concepts.
     const search = await mcp.tools.semantic_search_terms({
-      question: "supplier lots defects warranty recall scope"
+      question: "supplier lots defects warranty recall scope",
     });
     expectOk(search);
-    expect(names(search.concepts)).toEqual(expect.arrayContaining([
-      "SerializedUnit",
-      "SupplierLot",
-      "RecallAffectedUnit",
-      "WarrantyClaim"
-    ]));
+    expect(names(search.concepts)).toEqual(
+      expect.arrayContaining(["SerializedUnit", "SupplierLot", "RecallAffectedUnit", "WarrantyClaim"]),
+    );
 
     // Recall scope is its own relator, so the agent describes the concept
     // before joining it into traceability questions.
@@ -1013,30 +1061,27 @@ query: account_recency is Account -> {
     expect(asObject(recallConcept.concept)).toMatchObject({
       name: "RecallAffectedUnit",
       stereotype: "relator",
-      sourceName: "recall_affected_units"
+      sourceName: "recall_affected_units",
     });
 
     // Supplier quality needs lots, defects, and warranty claims from the serial
     // number grain, so the agent asks for the whole path set together.
     const paths = await mcp.tools.ontology_find_paths({
       from: "SerializedUnit",
-      to: ["SupplierLot", "InspectionDefect", "WarrantyClaim"]
+      to: ["SupplierLot", "InspectionDefect", "WarrantyClaim"],
     });
     expectOk(paths);
     expect(paths).not.toHaveProperty("targets");
     expect(records(pathResult(paths, "SupplierLot").paths)[0]?.concepts).toEqual([
       "SerializedUnit",
       "InspectionDefect",
-      "SupplierLot"
+      "SupplierLot",
     ]);
     expect(records(pathResult(paths, "InspectionDefect").paths)[0]?.concepts).toEqual([
       "SerializedUnit",
-      "InspectionDefect"
+      "InspectionDefect",
     ]);
-    expect(records(pathResult(paths, "WarrantyClaim").paths)[0]?.concepts).toEqual([
-      "SerializedUnit",
-      "WarrantyClaim"
-    ]);
+    expect(records(pathResult(paths, "WarrantyClaim").paths)[0]?.concepts).toEqual(["SerializedUnit", "WarrantyClaim"]);
 
     // Those paths are the prerequisites for the named supplier scorecard query.
     const validated = await mcp.tools.query_validate({ query: "supplier_quality_scorecard" });

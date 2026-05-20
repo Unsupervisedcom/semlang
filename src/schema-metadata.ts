@@ -39,7 +39,7 @@ export const jsonSchemaMetadataKeywords = new Set([
   "propertyNames",
   "items",
   "prefixItems",
-  "contains"
+  "contains",
 ]);
 
 export const semlangTypeMetadataKeywords = new Set([
@@ -48,13 +48,13 @@ export const semlangTypeMetadataKeywords = new Set([
   "identifies_role",
   "currency",
   "unit",
-  "render_format"
+  "render_format",
 ]);
 
 export const legacyTypeMetadataReplacements = new Map([
   ["allowed_values", "enum"],
   ["semantics", "description"],
-  ["format", "render_format when the value is a Malloy renderer expression; use JSON Schema format strings otherwise"]
+  ["format", "render_format when the value is a Malloy renderer expression; use JSON Schema format strings otherwise"],
 ]);
 
 export function parseMetadataLiteral(text: string): unknown {
@@ -62,7 +62,9 @@ export function parseMetadataLiteral(text: string): unknown {
   if (trimmed === "") return "";
   const quoted = parseQuoted(trimmed);
   if (quoted !== undefined) return quoted;
-  const jsonish = trimmed.replace(/'((?:[^'\\]|\\.)*)'/g, (_match, body: string) => JSON.stringify(unescapeSingleQuoted(body)));
+  const jsonish = trimmed.replace(/'((?:[^'\\]|\\.)*)'/g, (_match, body: string) =>
+    JSON.stringify(unescapeSingleQuoted(body)),
+  );
   try {
     return JSON.parse(jsonish);
   } catch {
@@ -71,13 +73,15 @@ export function parseMetadataLiteral(text: string): unknown {
 }
 
 export function parseMetadataValue(entry: Pick<MetadataEntry, "key" | "value">): unknown {
-  return arrayValuedMetadataKeywords.has(entry.key) ? parseMetadataArrayValue(entry.value) : parseMetadataLiteral(entry.value);
+  return arrayValuedMetadataKeywords.has(entry.key)
+    ? parseMetadataArrayValue(entry.value)
+    : parseMetadataLiteral(entry.value);
 }
 
 export function parseMetadataStringArray(text: string): string[] {
   const parsed = parseMetadataArrayValue(text);
   const values = Array.isArray(parsed) ? parsed : [parsed];
-  return values.map((item) => typeof item === "string" ? item : String(item));
+  return values.map((item) => (typeof item === "string" ? item : String(item)));
 }
 
 function parseMetadataArrayValue(text: string): unknown {
@@ -102,7 +106,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
       severity: "error",
       code: "LEGACY_TYPE_METADATA",
       message: `Type metadata ${entry.key} is not supported; use ${replacement}.`,
-      location: entry.location
+      location: entry.location,
     };
   }
   if (entry.key === "enum") {
@@ -112,7 +116,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
         severity: "error",
         code: "INVALID_TYPE_METADATA",
         message: "Type metadata enum must be an array value.",
-        location: entry.location
+        location: entry.location,
       };
     }
   }
@@ -121,7 +125,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
       severity: "error",
       code: "INVALID_TYPE_METADATA",
       message: `Type metadata ${entry.key} must be numeric.`,
-      location: entry.location
+      location: entry.location,
     };
   }
   if (integerMetadataKeywords.has(entry.key)) {
@@ -131,7 +135,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
         severity: "error",
         code: "INVALID_TYPE_METADATA",
         message: `Type metadata ${entry.key} must be an integer.`,
-        location: entry.location
+        location: entry.location,
       };
     }
   }
@@ -140,7 +144,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
       severity: "error",
       code: "INVALID_TYPE_METADATA",
       message: `Type metadata ${entry.key} must be true or false.`,
-      location: entry.location
+      location: entry.location,
     };
   }
   if (arrayMetadataKeywords.has(entry.key) && !Array.isArray(parseMetadataValue(entry))) {
@@ -148,7 +152,7 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
       severity: "error",
       code: "INVALID_TYPE_METADATA",
       message: `Type metadata ${entry.key} must be an array value.`,
-      location: entry.location
+      location: entry.location,
     };
   }
   return undefined;
@@ -161,7 +165,7 @@ function isJsonSchemaFormatValue(value: string): boolean {
 
 function parseQuoted(text: string): string | undefined {
   const quote = text[0];
-  if ((quote !== "'" && quote !== "\"") || text[text.length - 1] !== quote) return undefined;
+  if ((quote !== "'" && quote !== '"') || text[text.length - 1] !== quote) return undefined;
   if (quote === "'") return unescapeSingleQuoted(text.slice(1, -1));
   try {
     return JSON.parse(text);
@@ -178,12 +182,12 @@ function splitTopLevelComma(text: string): string[] {
   const parts: string[] = [];
   let start = 0;
   let depth = 0;
-  let quote: "'" | "\"" | "`" | undefined;
+  let quote: "'" | '"' | "`" | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i]!;
     const prev = text[i - 1];
-    if ((char === "'" || char === "\"" || char === "`") && prev !== "\\") {
-      quote = quote === char ? undefined : quote ?? char;
+    if ((char === "'" || char === '"' || char === "`") && prev !== "\\") {
+      quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
     if (quote) continue;
@@ -199,7 +203,16 @@ function splitTopLevelComma(text: string): string[] {
 }
 
 const numericMetadataKeywords = new Set(["multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum"]);
-const integerMetadataKeywords = new Set(["maxLength", "minLength", "maxItems", "minItems", "maxContains", "minContains", "maxProperties", "minProperties"]);
+const integerMetadataKeywords = new Set([
+  "maxLength",
+  "minLength",
+  "maxItems",
+  "minItems",
+  "maxContains",
+  "minContains",
+  "maxProperties",
+  "minProperties",
+]);
 const booleanMetadataKeywords = new Set(["deprecated", "readOnly", "writeOnly", "uniqueItems"]);
 const arrayMetadataKeywords = new Set(["examples", "required", "prefixItems"]);
 const arrayValuedMetadataKeywords = new Set(["enum", ...arrayMetadataKeywords]);

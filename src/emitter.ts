@@ -10,7 +10,7 @@ import type {
   SemanticModel,
   SourceDecl,
   SourceExpression,
-  TemporalAxisDecl
+  TemporalAxisDecl,
 } from "./types.js";
 
 export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics: Diagnostic[] } {
@@ -33,10 +33,12 @@ export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics:
   for (const query of model.queries) {
     const queryModel = query.lenses.length > 0 ? applyQueryLenses(model, query, diagnostics) : model;
     if (!queryModel) continue;
-    const names = new Map([...queryModel.concepts].map(([name, concept]) => {
-      const sourceName = query.lenses.length > 0 ? `${concept.sourceName}__${query.name}` : concept.sourceName;
-      return [name, sourceName];
-    }));
+    const names = new Map(
+      [...queryModel.concepts].map(([name, concept]) => {
+        const sourceName = query.lenses.length > 0 ? `${concept.sourceName}__${query.name}` : concept.sourceName;
+        return [name, sourceName];
+      }),
+    );
     if (query.lenses.length > 0) {
       for (const concept of queryModel.concepts.values()) {
         chunks.push(emitConcept(queryModel, concept, names));
@@ -64,25 +66,34 @@ function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames
   const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
   const lines: string[] = [];
   lines.push(`source: ${sourceName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`);
-  const compositePrimaryKeyName = concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
+  const compositePrimaryKeyName =
+    concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
   if (concept.identities.length === 1) lines.push(`  primary_key: ${concept.identities[0]!.name}`);
   if (compositePrimaryKeyName) lines.push(`  primary_key: ${compositePrimaryKeyName}`);
   for (const join of concept.joins) {
     lines.push("");
     lines.push(...indent(emitJoin(model, concept, join, sourceNames), 2));
   }
-  const dimensions = [...(compositePrimaryKeyName ? [{
-    name: compositePrimaryKeyName,
-    expression: primaryKey(concept.identities),
-    location: concept.identities[0]?.location ?? concept.location
-  }] : []), ...concept.roles.map((role) => ({
-    name: roleDimensionName(role.name),
-    expression: lowerExpression(model, concept, role.predicate),
-    location: role.location
-  })), ...concept.dimensions.map((dimension) => ({
-    ...dimension,
-    expression: lowerExpression(model, concept, dimension.expression)
-  }))];
+  const dimensions = [
+    ...(compositePrimaryKeyName
+      ? [
+          {
+            name: compositePrimaryKeyName,
+            expression: primaryKey(concept.identities),
+            location: concept.identities[0]?.location ?? concept.location,
+          },
+        ]
+      : []),
+    ...concept.roles.map((role) => ({
+      name: roleDimensionName(role.name),
+      expression: lowerExpression(model, concept, role.predicate),
+      location: role.location,
+    })),
+    ...concept.dimensions.map((dimension) => ({
+      ...dimension,
+      expression: lowerExpression(model, concept, dimension.expression),
+    })),
+  ];
   if (concept.where.length > 0) {
     for (const where of concept.where) lines.push(`  where: ${lowerExpression(model, concept, where.expression)}`);
   }
@@ -97,7 +108,14 @@ function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames
     lines.push("");
     lines.push("  measure:");
     for (const measure of concept.measures) {
-      lines.push(...emitDefinition(measure.name, lowerExpression(model, concept, measure.expression), 4, formatAnnotation(model, concept, measure.expression)));
+      lines.push(
+        ...emitDefinition(
+          measure.name,
+          lowerExpression(model, concept, measure.expression),
+          4,
+          formatAnnotation(model, concept, measure.expression),
+        ),
+      );
     }
   }
   for (const view of concept.views) {
@@ -116,11 +134,16 @@ function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: M
   return [`source: ${source.name} is ${expression} -> {`, ...body, "}"].join("\n");
 }
 
-function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl, sourceNames: Map<string, string>): string[] {
+function emitJoin(
+  model: SemanticModel,
+  source: ResolvedConcept,
+  join: JoinDecl,
+  sourceNames: Map<string, string>,
+): string[] {
   const roleIndex = buildRoleIndex(model);
   const targetRole = roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target);
   const targetConcept = model.concepts.get(join.target) ?? targetRole?.concept;
-  const targetSource = targetConcept ? sourceNames.get(targetConcept.name) ?? targetConcept.sourceName : join.target;
+  const targetSource = targetConcept ? (sourceNames.get(targetConcept.name) ?? targetConcept.sourceName) : join.target;
   const lines = [`${join.kind}: ${join.name} is ${targetSource}`];
   if (join.with) {
     lines.push(`  with ${lowerExpression(model, source, join.with)}`);
@@ -144,14 +167,24 @@ function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl,
   return lines;
 }
 
-function lowerJoinOn(model: SemanticModel, source: ResolvedConcept, target: ResolvedConcept | undefined, join: JoinDecl): string {
+function lowerJoinOn(
+  model: SemanticModel,
+  source: ResolvedConcept,
+  target: ResolvedConcept | undefined,
+  join: JoinDecl,
+): string {
   const raw = lowerExpression(model, source, join.on ?? "");
   if (!target) return raw;
   if (!/[=\s<>]/.test(raw)) return `${raw} = ${join.name}.${raw}`;
   return raw.replace(/=\s*([A-Za-z_][A-Za-z0-9_]*)\b(?!\.)/g, (_match, field: string) => `= ${join.name}.${field}`);
 }
 
-function emitQuery(query: QueryDecl, rootSource: string, model: SemanticModel, root: ResolvedConcept | undefined): string {
+function emitQuery(
+  query: QueryDecl,
+  rootSource: string,
+  model: SemanticModel,
+  root: ResolvedConcept | undefined,
+): string {
   if (query.view) return `query: ${query.name} is ${rootSource} -> ${query.view}`;
   const body = root ? emitQueryBody(query.body, model, root, 2) : [];
   return [`query: ${query.name} is ${rootSource} -> {`, ...body, "}"].join("\n");
@@ -161,7 +194,12 @@ function emitView(name: string, body: QueryBodyDecl, model: SemanticModel, root:
   return [`view: ${name} is {`, ...emitQueryBody(body, model, root, 2), "}"];
 }
 
-function emitQueryBody(body: QueryBodyDecl, model: SemanticModel, root: ResolvedConcept, indentSpaces: number): string[] {
+function emitQueryBody(
+  body: QueryBodyDecl,
+  model: SemanticModel,
+  root: ResolvedConcept,
+  indentSpaces: number,
+): string[] {
   const lines: string[] = [];
   if (body.where) lines.push(`${spaces(indentSpaces)}where: ${lowerExpression(model, root, body.where.expression)}`);
   if (body.select.length > 0) {
@@ -201,15 +239,23 @@ function emitQueryBody(body: QueryBodyDecl, model: SemanticModel, root: Resolved
   }
   if (body.orderBy.length > 0) {
     lines.push(`${spaces(indentSpaces)}order_by:`);
-    for (const item of body.orderBy) lines.push(`${spaces(indentSpaces + 2)}${lowerOrderByExpression(model, root, item.expression)}`);
+    for (const item of body.orderBy)
+      lines.push(`${spaces(indentSpaces + 2)}${lowerOrderByExpression(model, root, item.expression)}`);
   }
   if (body.limit) lines.push(`${spaces(indentSpaces)}limit: ${body.limit.value}`);
   return lines;
 }
 
-function emitQueryItem(item: QueryItemDecl, model: SemanticModel, root: ResolvedConcept, indentSpaces: number): string[] {
+function emitQueryItem(
+  item: QueryItemDecl,
+  model: SemanticModel,
+  root: ResolvedConcept,
+  indentSpaces: number,
+): string[] {
   const expression = lowerExpression(model, root, item.expression);
-  return item.alias ? wrapDefinition(`${item.alias} is ${expression}`, indentSpaces) : [`${spaces(indentSpaces)}${expression}`];
+  return item.alias
+    ? wrapDefinition(`${item.alias} is ${expression}`, indentSpaces)
+    : [`${spaces(indentSpaces)}${expression}`];
 }
 
 function emitDefinition(name: string, expression: string, indentSpaces: number, annotation?: string): string[] {
@@ -228,12 +274,15 @@ function wrapDefinition(text: string, indentSpaces: number): string[] {
 
 export function lowerExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
   const roleIndex = buildRoleIndex(model);
-  return expression.replace(/\b([A-Za-z_][A-Za-z0-9_.]*|this)\s+is\s+([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)?)\b/g, (match, path: string, roleName: string) => {
-    const resolution = resolveRoleTest(model, roleIndex, root, path, roleName);
-    if (!resolution) return match;
-    if (path === "this") return `(${lowerExpression(model, root, resolution.role.predicate)})`;
-    return `(${prefixRolePredicate(model, resolution.concept, resolution.role.predicate, path)})`;
-  });
+  return expression.replace(
+    /\b([A-Za-z_][A-Za-z0-9_.]*|this)\s+is\s+([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)?)\b/g,
+    (match, path: string, roleName: string) => {
+      const resolution = resolveRoleTest(model, roleIndex, root, path, roleName);
+      if (!resolution) return match;
+      if (path === "this") return `(${lowerExpression(model, root, resolution.role.predicate)})`;
+      return `(${prefixRolePredicate(model, resolution.concept, resolution.role.predicate, path)})`;
+    },
+  );
 }
 
 function lowerOrderByExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
@@ -242,13 +291,18 @@ function lowerOrderByExpression(model: SemanticModel, root: ResolvedConcept, exp
   return `${lowerExpression(model, root, match[1]!.trim())}${match[2] ?? ""}`;
 }
 
-function prefixRolePredicate(model: SemanticModel, concept: ResolvedConcept, predicate: string, prefix: string): string {
+function prefixRolePredicate(
+  model: SemanticModel,
+  concept: ResolvedConcept,
+  predicate: string,
+  prefix: string,
+): string {
   let result = lowerExpression(model, concept, predicate);
   const members = new Set([
     ...concept.identities.map((field) => field.name),
     ...concept.fields.map((field) => field.name),
     ...concept.dimensions.map((field) => field.name),
-    ...concept.measures.map((field) => field.name)
+    ...concept.measures.map((field) => field.name),
   ]);
   for (const member of [...members].sort((a, b) => b.length - a.length)) {
     result = result.replace(new RegExp(`(?<![.A-Za-z0-9_])${member}\\b`, "g"), `${prefix}.${member}`);
@@ -258,8 +312,12 @@ function prefixRolePredicate(model: SemanticModel, concept: ResolvedConcept, pre
 
 function sourceExpr(model: SemanticModel, source: SourceExpression, sourceNames: Map<string, string>): string {
   if (source.kind === "table" || source.kind === "sql") return source.expression;
-  return sourceNames.get(source.name)
-    ?? (model.sources.has(source.name) || model.queries.some((query) => query.name === source.name) ? source.name : source.expression);
+  return (
+    sourceNames.get(source.name) ??
+    (model.sources.has(source.name) || model.queries.some((query) => query.name === source.name)
+      ? source.name
+      : source.expression)
+  );
 }
 
 function sourceExpressionConcept(model: SemanticModel, source: SourceExpression): ResolvedConcept | undefined {
@@ -325,7 +383,7 @@ function uniqueGeneratedFieldName(concept: ResolvedConcept, baseName: string): s
     ...concept.fields.map((field) => field.name),
     ...concept.dimensions.map((dimension) => dimension.name),
     ...concept.measures.map((measure) => measure.name),
-    ...concept.roles.map((role) => roleDimensionName(role.name))
+    ...concept.roles.map((role) => roleDimensionName(role.name)),
   ]);
   let name = baseName;
   let suffix = 2;
@@ -346,13 +404,24 @@ function roleDimensionName(roleName: string): string {
   return `is_${roleName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}`;
 }
 
-function resolveRoleTest(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, path: string, roleName: string): RoleResolution | undefined {
+function resolveRoleTest(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  root: ResolvedConcept,
+  path: string,
+  roleName: string,
+): RoleResolution | undefined {
   if (roleName.includes(".")) return roleIndex.byQualifiedName.get(roleName);
   const pathConcept = conceptForPath(model, roleIndex, root, path);
   return findRoleOnConcept(pathConcept, roleName) ?? roleIndex.byName.get(roleName);
 }
 
-function conceptForPath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string): ResolvedConcept | undefined {
+function conceptForPath(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  root: ResolvedConcept,
+  pathText: string,
+): ResolvedConcept | undefined {
   if (pathText === "this") return root;
   const segments = pathText.split(".");
   let current: ResolvedConcept | undefined = root;
@@ -362,7 +431,10 @@ function conceptForPath(model: SemanticModel, roleIndex: RoleIndex, root: Resolv
     if (i === 0 && (segment === current.name || segment === current.sourceName)) continue;
     const join: JoinDecl | undefined = current.joins.find((candidate) => candidate.name === segment);
     if (!join) return i === segments.length - 1 ? current : undefined;
-    current = model.concepts.get(join.target) ?? roleIndex.byQualifiedName.get(join.target)?.concept ?? roleIndex.byName.get(join.target)?.concept;
+    current =
+      model.concepts.get(join.target) ??
+      roleIndex.byQualifiedName.get(join.target)?.concept ??
+      roleIndex.byName.get(join.target)?.concept;
   }
   return current;
 }
@@ -371,7 +443,10 @@ function formatAnnotation(model: SemanticModel, concept: ResolvedConcept, expres
   const amountField = [...concept.fields, ...concept.dimensions].find((field) => expression.includes(field.name));
   if (!amountField) return undefined;
   const type = model.types.get(amountField.typeName ?? "");
-  const currency = type?.metadata.find((entry) => entry.key === "currency")?.value.replace(/["']/g, "").toLowerCase();
+  const currency = type?.metadata
+    .find((entry) => entry.key === "currency")
+    ?.value.replace(/["']/g, "")
+    .toLowerCase();
   return currency ? `# currency=${currency}2` : undefined;
 }
 

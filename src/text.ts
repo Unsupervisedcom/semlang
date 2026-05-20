@@ -10,7 +10,7 @@ export function toLines(source: string): SourceLine[] {
   return source.split(/\r?\n/).map((text, index) => ({
     text,
     stripped: stripLineComment(text),
-    line: index + 1
+    line: index + 1,
   }));
 }
 
@@ -20,7 +20,7 @@ export function stripLineComment(line: string): string {
     const char = line[i];
     const prev = line[i - 1];
     if ((char === "'" || char === '"') && prev !== "\\") {
-      quote = quote === char ? undefined : quote ?? char;
+      quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
     if (!quote && char === "/" && line[i + 1] === "/") {
@@ -50,7 +50,7 @@ export function countNetBraces(text: string): number {
     const char = text[i];
     const prev = text[i - 1];
     if ((char === "'" || char === '"') && prev !== "\\") {
-      quote = quote === char ? undefined : quote ?? char;
+      quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
     if (quote) continue;
@@ -60,7 +60,10 @@ export function countNetBraces(text: string): number {
   return count;
 }
 
-export function collectBraceBlock(lines: SourceLine[], start: number): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
+export function collectBraceBlock(
+  lines: SourceLine[],
+  start: number,
+): { header: SourceLine; body: SourceLine[]; end: number; unclosed: boolean } {
   const header = lines[start]!;
   let depth = countNetBraces(header.stripped);
   const body: SourceLine[] = [];
@@ -78,10 +81,17 @@ export function collectBraceBlock(lines: SourceLine[], start: number): { header:
 }
 
 export function startsDeclaration(trimmed: string): boolean {
-  return /^(identity\b|valid_time:|occurrence_time:|observation_time:|recorded_time:|join_one\b|join_many\b|role\b|field:|dimension:|measure:|validation:|view:|where:|description:|type:|refine:)/.test(trimmed);
+  return /^(identity\b|valid_time:|occurrence_time:|observation_time:|recorded_time:|join_one\b|join_many\b|role\b|field:|dimension:|measure:|validation:|view:|where:|description:|type:|refine:)/.test(
+    trimmed,
+  );
 }
 
 export function normalizeExpression(lines: SourceLine[] | string): string {
   if (typeof lines === "string") return lines.trim().replace(/\s+/g, " ");
-  return lines.map((line) => line.stripped.trim()).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  return lines
+    .map((line) => line.stripped.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

@@ -1,4 +1,9 @@
-import { jsonSchemaMetadataKeywords, semlangTypeMetadataKeywords, parseMetadataLiteral, parseMetadataValue } from "./schema-metadata.js";
+import {
+  jsonSchemaMetadataKeywords,
+  semlangTypeMetadataKeywords,
+  parseMetadataLiteral,
+  parseMetadataValue,
+} from "./schema-metadata.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
   DefinitionDecl,
@@ -10,7 +15,7 @@ import type {
   JsonSchemaEmitResult,
   ResolvedConcept,
   SemanticModel,
-  TypeDecl
+  TypeDecl,
 } from "./types.js";
 
 const draft2020Schema = "https://json-schema.org/draft/2020-12/schema";
@@ -33,7 +38,7 @@ export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOpti
         diagnostics.push({
           severity: "error",
           code: "UNKNOWN_SCHEMA_CONCEPT",
-          message: `Cannot emit JSON Schema for unknown concept ${conceptName}.`
+          message: `Cannot emit JSON Schema for unknown concept ${conceptName}.`,
         });
       }
     }
@@ -48,7 +53,7 @@ export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOpti
     $schema: draft2020Schema,
     $id: options.id,
     $vocabulary: {
-      [semlangVocabularyUri]: true
+      [semlangVocabularyUri]: true,
     },
     title: options.title ?? `${model.packageName} schema`,
     type: "object",
@@ -59,8 +64,8 @@ export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOpti
       source: ignored.source.expression,
       sourceKind: ignored.source.kind,
       reason: ignored.reason ? stripQuoted(ignored.reason) : undefined,
-      metadata: Object.fromEntries(ignored.metadata.map((entry) => [entry.key, parseMetadataValue(entry)]))
-    }))
+      metadata: Object.fromEntries(ignored.metadata.map((entry) => [entry.key, parseMetadataValue(entry)])),
+    })),
   };
   if (!options.id) delete schema.$id;
   if (model.ignored.length === 0) delete schema["x-semlang-ignored-sources"];
@@ -109,50 +114,60 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
     "x-semlang-concept": concept.name,
     "x-semlang-stereotype": concept.stereotype,
     "x-semlang-source": concept.source.expression,
-    "x-semlang-identity": concept.identities.map((identity) => identity.name)
+    "x-semlang-identity": concept.identities.map((identity) => identity.name),
   };
 
   if (concept.description) schema.description = stripQuoted(concept.description);
   if (concept.phaseParent) schema["x-semlang-phase-parent"] = concept.phaseParent;
-  if (concept.joins.length > 0) schema["x-semlang-joins"] = concept.joins.map((join) => ({
-    kind: join.kind,
-    name: join.name,
-    optional: join.optional,
-    target: join.target,
-    on: join.on,
-    with: join.with,
-    at: join.at
-  }));
-  if (concept.roles.length > 0) schema["x-semlang-roles"] = concept.roles.map((role) => ({
-    name: role.name,
-    qualifiedName: qualifiedRoleName(concept.name, role.name),
-    label: role.label ?? undefined,
-    aliases: role.aliases,
-    predicate: role.predicate
-  }));
-  if (concept.temporal.length > 0) schema["x-semlang-temporal"] = concept.temporal.map((axis) => ({
-    axis: axis.axis,
-    expression: axis.expression
-  }));
+  if (concept.joins.length > 0)
+    schema["x-semlang-joins"] = concept.joins.map((join) => ({
+      kind: join.kind,
+      name: join.name,
+      optional: join.optional,
+      target: join.target,
+      on: join.on,
+      with: join.with,
+      at: join.at,
+    }));
+  if (concept.roles.length > 0)
+    schema["x-semlang-roles"] = concept.roles.map((role) => ({
+      name: role.name,
+      qualifiedName: qualifiedRoleName(concept.name, role.name),
+      label: role.label ?? undefined,
+      aliases: role.aliases,
+      predicate: role.predicate,
+    }));
+  if (concept.temporal.length > 0)
+    schema["x-semlang-temporal"] = concept.temporal.map((axis) => ({
+      axis: axis.axis,
+      expression: axis.expression,
+    }));
   if (concept.where.length > 0) schema["x-semlang-where"] = concept.where.map((where) => where.expression);
-  if (concept.validations.length > 0) schema["x-semlang-validations"] = concept.validations.map((validation) => ({
-    name: validation.name,
-    description: validation.description ? stripQuoted(validation.description) : undefined,
-    predicate: validation.predicate
-  }));
-  if (concept.dimensions.length > 0) schema["x-semlang-dimensions"] = concept.dimensions.map((definition) => emitDefinition(model, definition));
-  if (concept.measures.length > 0) schema["x-semlang-measures"] = concept.measures.map((definition) => emitDefinition(model, definition));
+  if (concept.validations.length > 0)
+    schema["x-semlang-validations"] = concept.validations.map((validation) => ({
+      name: validation.name,
+      description: validation.description ? stripQuoted(validation.description) : undefined,
+      predicate: validation.predicate,
+    }));
+  if (concept.dimensions.length > 0)
+    schema["x-semlang-dimensions"] = concept.dimensions.map((definition) => emitDefinition(model, definition));
+  if (concept.measures.length > 0)
+    schema["x-semlang-measures"] = concept.measures.map((definition) => emitDefinition(model, definition));
 
   return schema;
 }
 
-function emitFieldSchema(model: SemanticModel, field: FieldDecl | IdentityField, options: { identity?: boolean; unique?: boolean } = {}): Record<string, unknown> {
+function emitFieldSchema(
+  model: SemanticModel,
+  field: FieldDecl | IdentityField,
+  options: { identity?: boolean; unique?: boolean } = {},
+): Record<string, unknown> {
   const schema = typeReferenceOrPrimitive(model, field.typeName);
   if (field.nullable) {
     return {
       anyOf: [schema, { type: "null" }],
       ...(options.identity ? { "x-semlang-identity": true } : {}),
-      ...(options.unique ? { "x-semlang-unique": true } : {})
+      ...(options.unique ? { "x-semlang-unique": true } : {}),
     };
   }
   if (options.identity) schema["x-semlang-identity"] = true;
@@ -164,7 +179,9 @@ function emitDefinition(model: SemanticModel, definition: DefinitionDecl): Recor
   return {
     name: definition.name,
     expression: definition.expression,
-    type: definition.typeName ? nullableSchema(typeReferenceOrPrimitive(model, definition.typeName), Boolean(definition.nullable)) : undefined
+    type: definition.typeName
+      ? nullableSchema(typeReferenceOrPrimitive(model, definition.typeName), Boolean(definition.nullable))
+      : undefined,
   };
 }
 
@@ -193,7 +210,10 @@ function conceptDefName(name: string): string {
 }
 
 function camelToKebab(text: string): string {
-  return text.replace(/_/g, "-").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+  return text
+    .replace(/_/g, "-")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase();
 }
 
 function stripQuoted(text: string): string {

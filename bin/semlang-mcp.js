@@ -14,17 +14,21 @@ if (!fs.existsSync(tsxLoaderPath)) {
   process.exit(1);
 }
 
-const child = spawn(process.execPath, ["--import", pathToFileURL(tsxLoaderPath).href, entryPath, ...process.argv.slice(2)], {
-  cwd: process.cwd(),
-  env: {
-    ...process.env,
-    SEMLANG_REPO_ROOT: repoRoot
+const child = spawn(
+  process.execPath,
+  ["--import", pathToFileURL(tsxLoaderPath).href, entryPath, ...process.argv.slice(2)],
+  {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SEMLANG_REPO_ROOT: repoRoot,
+    },
+    stdio: "inherit",
   },
-  stdio: "inherit"
-});
+);
 
 child.on("error", (error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
   process.exit(1);
 });
 

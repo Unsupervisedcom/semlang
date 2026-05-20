@@ -13,17 +13,17 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `path` | string | Path to one SemLang file. |
-| `paths` | string array | Paths to multiple SemLang files. The server creates an include-based context file. |
-| `filePath` | string | Alias for `path` when loading a file, or a base file path for inline source. |
-| `filePaths` | string array | Alias for `paths`. |
-| `source` | string | Inline SemLang source. |
-| `sources` | string array | Multiple inline sources joined with blank lines. |
-| `basePath` | string | File path used for resolving includes when compiling inline source. |
-| `projectPath` | string | Malloy project root to associate with the MCP context. |
-| `configPath` | string | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
+| Field         | Type         | Notes                                                                                                                                                                                                                     |
+| ------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`        | string       | Path to one SemLang file.                                                                                                                                                                                                 |
+| `paths`       | string array | Paths to multiple SemLang files. The server creates an include-based context file.                                                                                                                                        |
+| `filePath`    | string       | Alias for `path` when loading a file, or a base file path for inline source.                                                                                                                                              |
+| `filePaths`   | string array | Alias for `paths`.                                                                                                                                                                                                        |
+| `source`      | string       | Inline SemLang source.                                                                                                                                                                                                    |
+| `sources`     | string array | Multiple inline sources joined with blank lines.                                                                                                                                                                          |
+| `basePath`    | string       | File path used for resolving includes when compiling inline source.                                                                                                                                                       |
+| `projectPath` | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
+| `configPath`  | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
 
 When `configPath` / `malloyConfigPath` is omitted, `set_ontology_source` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
 
@@ -45,13 +45,13 @@ Searches concepts, metrics, members, queries, and lenses using terms from a user
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `question` | string | Preferred natural-language search text. |
-| `query` | string | Alias for `question`. |
-| `phrase` | string | Alias for `question`. |
-| `text` | string | Alias for `question`. |
-| `limit` | number | Maximum results per category. Defaults to 20. |
+| Field      | Type   | Notes                                         |
+| ---------- | ------ | --------------------------------------------- |
+| `question` | string | Preferred natural-language search text.       |
+| `query`    | string | Alias for `question`.                         |
+| `phrase`   | string | Alias for `question`.                         |
+| `text`     | string | Alias for `question`.                         |
+| `limit`    | number | Maximum results per category. Defaults to 20. |
 
 ### Output
 
@@ -72,14 +72,14 @@ Resolves a name or business label to ontology objects. When a concept and busine
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `entity` | string | Ontology name or term to resolve. |
-| `name` | string | Alias for `entity`. |
-| `term` | string | Alias for `entity`. |
-| `concept` | string | Optional concept to search for a business label. |
+| Field           | Type   | Notes                                                                      |
+| --------------- | ------ | -------------------------------------------------------------------------- |
+| `entity`        | string | Ontology name or term to resolve.                                          |
+| `name`          | string | Alias for `entity`.                                                        |
+| `term`          | string | Alias for `entity`.                                                        |
+| `concept`       | string | Optional concept to search for a business label.                           |
 | `business_name` | string | Business label to resolve against candidate fields and local example data. |
-| `businessName` | string | Alias for `business_name`. |
+| `businessName`  | string | Alias for `business_name`.                                                 |
 
 ### Output
 

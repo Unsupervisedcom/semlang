@@ -11,12 +11,12 @@ const config: Config = {
   onBrokenLinks: "throw",
   markdown: {
     hooks: {
-      onBrokenMarkdownLinks: "warn"
-    }
+      onBrokenMarkdownLinks: "warn",
+    },
   },
   i18n: {
     defaultLocale: "en",
-    locales: ["en"]
+    locales: ["en"],
   },
   presets: [
     [
@@ -25,14 +25,14 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: undefined
+          editUrl: undefined,
         },
         blog: false,
         theme: {
-          customCss: "./src/css/custom.css"
-        }
-      } satisfies Preset.Options
-    ]
+          customCss: "./src/css/custom.css",
+        },
+      } satisfies Preset.Options,
+    ],
   ],
   themeConfig: {
     navbar: {
@@ -42,24 +42,24 @@ const config: Config = {
           type: "docSidebar",
           sidebarId: "languageReference",
           position: "left",
-          label: "Language Reference"
+          label: "Language Reference",
         },
         {
           type: "doc",
           docId: "mcp-server/index",
           position: "left",
-          label: "MCP Server"
-        }
-      ]
+          label: "MCP Server",
+        },
+      ],
     },
     footer: {
       style: "dark",
-      copyright: `Copyright © ${new Date().getFullYear()} SemLang`
+      copyright: `Copyright © ${new Date().getFullYear()} SemLang`,
     },
     prism: {
-      additionalLanguages: ["sql"]
-    }
-  } satisfies Preset.ThemeConfig
+      additionalLanguages: ["sql"],
+    },
+  } satisfies Preset.ThemeConfig,
 };
 
 export default config;

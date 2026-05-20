@@ -13,11 +13,11 @@ Derives candidate concepts, metrics, lenses, and path hints for a question.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
+| Field      | Type   | Notes                          |
+| ---------- | ------ | ------------------------------ |
 | `question` | string | Preferred analytical question. |
-| `goal` | string | Alias for `question`. |
-| `text` | string | Alias for `question`. |
+| `goal`     | string | Alias for `question`.          |
+| `text`     | string | Alias for `question`.          |
 
 ### Output
 

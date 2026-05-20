@@ -8,25 +8,26 @@ export function lintSemanticModel(model: SemanticModel): Diagnostic[] {
     ...lintRequiredTemporalAxes(model),
     ...lintJoinCandidates(model),
     ...lintFieldTypeNameMatches(model),
-    ...lintSemanticTypeConsistency(model)
+    ...lintSemanticTypeConsistency(model),
   ];
 }
 
 function lintRequiredTemporalAxes(model: SemanticModel): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const concept of model.concepts.values()) {
-    const requiredAxis = concept.stereotype === "event"
-      ? "occurrence_time"
-      : concept.stereotype === "situation"
-        ? "observation_time"
-        : undefined;
+    const requiredAxis =
+      concept.stereotype === "event"
+        ? "occurrence_time"
+        : concept.stereotype === "situation"
+          ? "observation_time"
+          : undefined;
     if (!requiredAxis || concept.temporal.some((axis) => axis.axis === requiredAxis)) continue;
     const article = concept.stereotype === "event" ? "an" : "a";
     diagnostics.push({
       severity: "error",
       code: "MISSING_TEMPORAL_AXIS",
       message: `Concept ${concept.name} is ${article} ${concept.stereotype} but does not declare ${requiredAxis}.`,
-      location: concept.location
+      location: concept.location,
     });
   }
   return diagnostics;
@@ -43,7 +44,7 @@ function lintJoinCandidates(model: SemanticModel): Diagnostic[] {
         severity: "warning",
         code: "MISSING_JOIN_CANDIDATE",
         message: `Field ${concept.name}.${member.name} has semantic type ${member.typeName}, which identifies ${targetName}; consider declaring an optional join to ${targetName}.`,
-        location: member.location
+        location: member.location,
       });
     }
   }
@@ -66,13 +67,15 @@ function lintSemanticTypeConsistency(model: SemanticModel): Diagnostic[] {
     const typeNames = unique(references.map((reference) => reference.member.typeName));
     if (typeNames.length <= 1) continue;
     if (!typeNames.some((typeName) => isSemanticType(model, typeName))) continue;
-    const concepts = references.map((reference) => `${reference.concept.name}.${reference.member.name} :: ${reference.member.typeName}`);
+    const concepts = references.map(
+      (reference) => `${reference.concept.name}.${reference.member.name} :: ${reference.member.typeName}`,
+    );
     for (const reference of references) {
       diagnostics.push({
         severity: "warning",
         code: "INCONSISTENT_SEMANTIC_TYPE",
         message: `Field name ${name} uses inconsistent semantic types across concepts: ${concepts.join(", ")}.`,
-        location: reference.member.location
+        location: reference.member.location,
       });
     }
   }
@@ -98,7 +101,7 @@ function lintFieldTypeNameMatches(model: SemanticModel): Diagnostic[] {
         severity: "warning",
         code: "FIELD_TYPE_NAME_MISMATCH",
         message: `Field ${concept.name}.${member.name} is typed as ${member.typeName}, but its name matches semantic type ${matchingType.name}.`,
-        location: member.location
+        location: member.location,
       });
     }
   }

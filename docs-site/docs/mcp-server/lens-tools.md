@@ -13,14 +13,14 @@ Scores lenses against a user question or context phrase.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `user_context` | string | Preferred context text. |
-| `context` | string | Alias for `user_context`. |
-| `question` | string | Alias for `user_context`. |
-| `phrase` | string | Alias for `user_context`. |
-| `text` | string | Alias for `user_context`. |
-| `limit` | number | Maximum lens results. Defaults to 8. |
+| Field          | Type   | Notes                                |
+| -------------- | ------ | ------------------------------------ |
+| `user_context` | string | Preferred context text.              |
+| `context`      | string | Alias for `user_context`.            |
+| `question`     | string | Alias for `user_context`.            |
+| `phrase`       | string | Alias for `user_context`.            |
+| `text`         | string | Alias for `user_context`.            |
+| `limit`        | number | Maximum lens results. Defaults to 8. |
 
 ### Output
 
@@ -32,9 +32,9 @@ Describes one lens.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `lens` | string | Lens name. |
+| Field  | Type   | Notes             |
+| ------ | ------ | ----------------- |
+| `lens` | string | Lens name.        |
 | `name` | string | Alias for `lens`. |
 
 ### Output
@@ -47,13 +47,13 @@ Applies one or more lenses and summarizes the expanded model.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `lens` | string | Lens name. |
-| `lenses` | string array | Lens stack to apply. |
-| `name` | string | Alias for `lens`. |
-| `root` | string | Optional root concept for expansion. |
-| `concept` | string | Alias for `root`. |
+| Field     | Type         | Notes                                |
+| --------- | ------------ | ------------------------------------ |
+| `lens`    | string       | Lens name.                           |
+| `lenses`  | string array | Lens stack to apply.                 |
+| `name`    | string       | Alias for `lens`.                    |
+| `root`    | string       | Optional root concept for expansion. |
+| `concept` | string       | Alias for `root`.                    |
 
 ### Output
 
@@ -65,12 +65,12 @@ Reports fields exposed by lens refinements and fields referenced by lens express
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `lens` | string | Optional lens filter. |
-| `lenses` | string array | Optional lens filters. |
-| `name` | string | Alias for `lens`. |
-| `field` | string | Optional requested field to match. |
+| Field    | Type         | Notes                               |
+| -------- | ------------ | ----------------------------------- |
+| `lens`   | string       | Optional lens filter.               |
+| `lenses` | string array | Optional lens filters.              |
+| `name`   | string       | Alias for `lens`.                   |
+| `field`  | string       | Optional requested field to match.  |
 | `fields` | string array | Optional requested fields to match. |
 
 ### Output
@@ -91,14 +91,14 @@ Plans lens application for a question or explicit lens list.
 
 ### Inputs
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `question` | string | Question or goal text. |
-| `goal` | string | Alias for `question`. |
-| `phrase` | string | Alias for `question`. |
-| `text` | string | Alias for `question`. |
-| `lens` | string | Explicit lens to include. |
-| `lenses` | string array | Explicit lens stack to include. |
+| Field      | Type         | Notes                           |
+| ---------- | ------------ | ------------------------------- |
+| `question` | string       | Question or goal text.          |
+| `goal`     | string       | Alias for `question`.           |
+| `phrase`   | string       | Alias for `question`.           |
+| `text`     | string       | Alias for `question`.           |
+| `lens`     | string       | Explicit lens to include.       |
+| `lenses`   | string array | Explicit lens stack to include. |
 
 ### Output
 
@@ -109,10 +109,6 @@ Returns described lenses and ordered steps. Each step includes parent lenses to 
 ```json
 {
   "question": "regulatory CRE watchlist queue",
-  "lenses": [
-    "regulatory_base_reporting",
-    "commercial_real_estate_concentration",
-    "watchlist_credit_review"
-  ]
+  "lenses": ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"]
 }
 ```
