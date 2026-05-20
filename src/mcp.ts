@@ -1147,6 +1147,10 @@ function sqlExpression(
   aggregateAliases: Map<string, string> = new Map(),
   aggregateContext = false,
 ): string {
+  expression = expression.replace(
+    /"([^"\\]*(?:\\.[^"\\]*)*)"/g,
+    (_match, value: string) => `'${value.replace(/'/g, "''")}'`,
+  );
   const replacements = new Map<string, string>();
   const identifiers = expressionIdentifiers(expression)
     .filter((identifier) => !sqlIgnoredIdentifier(identifier))

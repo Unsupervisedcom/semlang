@@ -268,7 +268,7 @@ describe("SemLang actions", () => {
     const result = await compileSemLang(actionFixture(["  measure:", "    rows is count()"]));
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.malloy).toContain("source: supplier_lots is duckdb.table('supplier_lots') extend");
+    expect(result.malloy).toContain("source: supplier_lots is __semlang_base_supplier_lots extend");
     expect(result.malloy).toContain("measure:");
     expect(result.malloy).not.toContain("action quarantine");
     expect(result.malloy).not.toContain("writeable");

@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "docs-site/build/**", "node_modules/**"],
+    ignores: [".deepwork/**", "dist/**", "docs-site/.docusaurus/**", "docs-site/build/**", "node_modules/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

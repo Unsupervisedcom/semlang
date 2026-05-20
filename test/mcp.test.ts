@@ -10,14 +10,20 @@ import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../src/index.js";
 
 const root = path.resolve(import.meta.dirname, "..");
+const tmpRoot = os.tmpdir();
 const execFileAsync = promisify(execFile);
+
+async function resetTempProjectDir(name: string): Promise<string> {
+  const projectDir = path.join(tmpRoot, name);
+  await fs.rm(projectDir, { recursive: true, force: true });
+  await fs.mkdir(projectDir);
+  return projectDir;
+}
 
 async function tempExamplePath(domain: string, fileName = "example.semlang"): Promise<string> {
   const sourceDir = path.join(root, "examples", domain);
-  const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), `semlang-mcp-${domain}-`));
-  for (const name of ["example.semlang", "example_with_lens.semlang", "schema.sql", "sample_data.sql"]) {
-    await fs.copyFile(path.join(sourceDir, name), path.join(targetDir, name));
-  }
+  const targetDir = await resetTempProjectDir(`semlang-mcp-${domain}`);
+  await fs.cp(sourceDir, targetDir, { recursive: true });
   await prepareExampleDuckDb(targetDir);
   await fs.writeFile(
     path.join(targetDir, "malloy-config.json"),
@@ -69,7 +75,7 @@ async function setInlineOntology(
 }
 
 async function writeTempProject(files: Record<string, string>): Promise<string> {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-mcp-project-"));
+  const projectDir = await resetTempProjectDir("semlang-mcp-project");
   await Promise.all(
     Object.entries(files).map(async ([name, contents]) => {
       const target = path.join(projectDir, name);
@@ -289,6 +295,83 @@ concept InlineOrder is event from duckdb.sql("""
     expect(records(execution.rows)[0]).toMatchObject({
       order_count: 2,
     });
+  });
+
+  it("emits valid Malloy when two concepts reference each other", async () => {
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({});
+    await execFileAsync(
+      "duckdb",
+      [
+        duckDbDatabasePath(projectDir),
+        "-c",
+        `
+create table customers (
+  customer_id varchar primary key,
+  customer_name varchar
+);
+create table orders (
+  order_id varchar primary key,
+  customer_id varchar references customers(customer_id),
+  ordered_at timestamp
+);
+insert into customers values ('C-1', 'Ada'), ('C-2', 'Grace');
+insert into orders values
+  ('O-1', 'C-1', timestamp '2026-01-01 10:00:00'),
+  ('O-2', 'C-1', timestamp '2026-01-02 10:00:00');
+`,
+      ],
+      {
+        cwd: projectDir,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    );
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
+
+    const source = await mcp.tools.set_ontology_source({
+      basePath: path.join(projectDir, "reciprocal.semlang"),
+      source: `
+package mcp.reciprocal_sources
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  join_many orders: Order on customer_id
+  field:
+    customer_name :: string
+  measure:
+    order_count is orders.count()
+}
+
+concept Order is event from duckdb.table('orders') {
+  identity order_id :: string
+  occurrence_time: ordered_at
+  join_one customer: Customer on customer_id
+  field:
+    customer_id :: string
+    ordered_at :: timestamp
+}
+
+query: customer_order_counts is Customer -> {
+  group_by:
+    customer_id
+  aggregate:
+    order_count
+}
+`,
+    });
+    expectOk(source);
+
+    const run = await mcp.tools.query_run({ query: "customer_order_counts" });
+    expectQuery(run, "customer_order_counts", "Customer");
+    expect(text(run.malloy)).toContain("join_many: orders is __semlang_base_orders");
+    const execution = asObject(run.execution);
+    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
+    expect(records(execution.rows)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ customer_id: "C-1", order_count: 2 })]),
+    );
   });
 
   it("blocks ontology source loading when emitted Malloy references an unknown source connection", async () => {
@@ -626,27 +709,23 @@ query: account_recency is Account -> {
     // the Malloy runtime using the discovered DuckDB connection.
     const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
     expectQuery(run, "monthly_margin_and_returns", "SaleLine");
-    expect(text(run.malloy)).toContain("source: retail_line_items is duckdb.table('retail_line_items') extend");
+    expect(text(run.malloy)).toContain("source: retail_line_items is __semlang_base_retail_line_items extend");
     expect(text(run.queryMalloy)).toContain("query: monthly_margin_and_returns is retail_line_items ->");
     expect(text(run.queryMalloy)).toContain("merchandising_margin");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ engine: "malloy" });
+    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
     expect(execution).not.toHaveProperty("skipped", true);
-    if (execution.ok) {
-      const marginRows = records(execution.rows);
-      expect(marginRows.length).toBeGreaterThan(0);
-      expect(marginRows[0]).toEqual(
-        expect.objectContaining({
-          sold_month: expect.anything(),
-          region: expect.anything(),
-          category_name: expect.anything(),
-          net_sales: expect.anything(),
-          merchandising_margin: expect.anything(),
-        }),
-      );
-    } else {
-      expect(text(execution.error).length).toBeGreaterThan(0);
-    }
+    const marginRows = records(execution.rows);
+    expect(marginRows.length).toBeGreaterThan(0);
+    expect(marginRows[0]).toEqual(
+      expect.objectContaining({
+        sold_month: expect.anything(),
+        region: expect.anything(),
+        category_name: expect.anything(),
+        net_sales: expect.anything(),
+        merchandising_margin: expect.anything(),
+      }),
+    );
 
     // 06.01.004 / 06.10.003: Action-aware agents should see available actions
     // in concept details before invoking a write against the temp-mounted data.
@@ -716,20 +795,16 @@ query: account_recency is Account -> {
     const run = await mcp.tools.query_run({ query: "denver_store_customer_count_on_2025_09_15" });
     expectQuery(run, "denver_store_customer_count_on_2025_09_15", "Sale");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ engine: "malloy" });
+    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
     expect(execution).not.toHaveProperty("skipped", true);
-    if (execution.ok) {
-      expect(records(execution.rows)[0]).toEqual(
-        expect.objectContaining({
-          sales: expect.anything(),
-          identified_customer_sales: expect.anything(),
-          identified_customers: expect.anything(),
-          unrecognized_cash_sales: expect.anything(),
-        }),
-      );
-    } else {
-      expect(text(execution.error).length).toBeGreaterThan(0);
-    }
+    expect(records(execution.rows)[0]).toEqual(
+      expect.objectContaining({
+        sales: expect.anything(),
+        identified_customer_sales: expect.anything(),
+        identified_customers: expect.anything(),
+        unrecognized_cash_sales: expect.anything(),
+      }),
+    );
   });
 
   it("walks the retail lens ontology through suggestion, PII requirements, and lens-local Malloy", async () => {
@@ -825,13 +900,13 @@ query: account_recency is Account -> {
     const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue" });
     expectQuery(run, "western_margin_intervention_queue", "SaleLine");
     expect(text(run.malloy)).toContain(
-      "source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend",
+      "source: retail_line_items__western_margin_intervention_queue is __semlang_base_retail_line_items__western_margin_intervention_queue extend",
     );
     expect(text(run.malloy)).toContain("margin_risk_band is");
     expect(text(run.queryMalloy)).toContain(
       "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
     );
-    expect(asObject(run.execution)).toMatchObject({ engine: "malloy" });
+    expect(asObject(run.execution)).toMatchObject({ ok: true, engine: "malloy" });
   });
 
   it("uses SaaS source, search, metric explanation, array paths, and validation", async () => {

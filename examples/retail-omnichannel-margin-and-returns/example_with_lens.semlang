@@ -42,18 +42,18 @@ lens: western_region is {
   description: "Regional operating view for leaders accountable for western markets."
 
   refine: Store extend {
-    where: region = 'West'
+    where: region = "West"
 
     dimension:
-      regional_market_label is concat(market, ' / ', store_name)
+      regional_market_label is concat(market, " / ", store_name)
   }
 
   refine: Sale extend {
-    where: store.region = 'West'
+    where: store.region = "West"
   }
 
   refine: SaleLine extend {
-    where: sale.store.region = 'West'
+    where: sale.store.region = "West"
 
     view: western_sales_by_category is {
       group_by:
@@ -72,16 +72,16 @@ lens: western_region is {
   }
 
   refine: ReturnLine extend {
-    where: original_sale_line.sale.store.region = 'West'
+    where: original_sale_line.sale.store.region = "West"
   }
 
   refine: InventoryPosition extend {
-    where: store.region = 'West'
+    where: store.region = "West"
 
     view: western_inventory_exceptions is {
       where:
         is_negative_on_hand
-        or product_at_snapshot.lifecycle_status in ('recalled', 'discontinued')
+        or product_at_snapshot.lifecycle_status = ("recalled" | "discontinued")
       group_by:
         snapshot_date
         store.market
@@ -117,16 +117,15 @@ lens: margin_operations is {
     dimension:
       line_margin_rate is margin_amount / nullif(net_sales_amount, 0)
 
-      margin_risk_band :: MarginRiskBand is case
-        when line_margin_rate < 0.10 then 'intervene'
-        when line_margin_rate < 0.18 or is_return_window_open then 'watch'
-        else 'healthy'
-      end
+      margin_risk_band :: MarginRiskBand is
+        pick "intervene" when line_margin_rate < 0.10
+        pick "watch" when line_margin_rate < 0.18 or is_return_window_open
+        else "healthy"
 
     measure:
       average_line_margin_rate is avg(line_margin_rate)
-      lines_to_intervene is count(case when margin_risk_band = 'intervene' then line_item_id end)
-      intervention_net_sales is sum(case when margin_risk_band = 'intervene' then net_sales_amount else 0 end)
+      lines_to_intervene is count(line_item_id) { where: margin_risk_band = "intervene" }
+      intervention_net_sales is sum(net_sales_amount) { where: margin_risk_band = "intervene" }
 
     view: margin_risk_by_category is {
       group_by:
@@ -243,7 +242,7 @@ query: western_margin_intervention_queue is SaleLine with western_margin_operati
   // Uses both lenses: western_region contributes the regional filters, and
   // margin_operations contributes margin_risk_band and intervention measures.
   where:
-    margin_risk_band = 'intervene'
+    margin_risk_band = "intervene"
   group_by:
     sold_month
     sale.store.market
@@ -266,7 +265,7 @@ query: pii_customer_service_returns is ReturnLine with with_pii -> {
   // Without the with_pii lens, customer.display_name and contact_email do not
   // exist on Customer, so this query should fail validation.
   where:
-    return_status in ('authorized', 'received')
+    return_status = ("authorized" | "received")
     and original_sale_line.sale.customer_has_verified_pii
   group_by:
     returned_at.day
@@ -278,14 +277,14 @@ query: pii_customer_service_returns is ReturnLine with with_pii -> {
     reason_code
   aggregate:
     returned_units
-    refund_amount
+    total_refund_amount
 }
 
 query: western_pii_customer_service_returns is ReturnLine with western_region, with_pii -> {
   // Multiple lenses can be applied directly to a query. This runs the customer
   // service return queue only for western stores, while also exposing PII.
   where:
-    return_status in ('authorized', 'received')
+    return_status = ("authorized" | "received")
     and original_sale_line.sale.customer_has_verified_pii
   group_by:
     returned_at.day
@@ -297,7 +296,7 @@ query: western_pii_customer_service_returns is ReturnLine with western_region, w
     reason_code
   aggregate:
     returned_units
-    refund_amount
+    total_refund_amount
 }
 
 // ---------------------------------------------------------------------------

@@ -59,9 +59,9 @@ describe("SemLang parser", () => {
       "ProductSKUVersion",
       "Promotion",
       "PromotionAllocation",
-      "ReturnLine",
       "Sale",
       "SaleLine",
+      "ReturnLine",
       "InventoryPosition",
     ]);
     expect(result.ast?.queries.map((query) => query.name)).toContain("monthly_margin_and_returns");
@@ -82,9 +82,9 @@ describe("SemLang compiler", () => {
     const result = await compileFile(retailBase);
     expect(result.diagnostics).toEqual([]);
     expect(result.model?.concepts.size).toBe(11);
-    expect(result.malloy).toContain("source: retail_line_items is duckdb.table('retail_line_items') extend");
+    expect(result.malloy).toContain("source: retail_line_items is __semlang_base_retail_line_items extend");
     expect(result.malloy).toContain("join_one: product_at_sale is product_sku_history");
-    expect(result.malloy).toContain("and sale.sold_at >= product_at_sale.valid_from");
+    expect(result.malloy).toContain("and cast(sale.sold_at as date) >= product_at_sale.valid_from");
     expect(result.malloy).toContain("on line_item_id = returns.original_line_item_id");
     expect(result.malloy).toContain("query: monthly_margin_and_returns is retail_line_items ->");
   });
@@ -93,10 +93,10 @@ describe("SemLang compiler", () => {
     const result = await compileFile(retailLens);
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain(
-      "source: retail_line_items__western_margin_intervention_queue is duckdb.table('retail_line_items') extend",
+      "source: retail_line_items__western_margin_intervention_queue is __semlang_base_retail_line_items__western_margin_intervention_queue extend",
     );
     expect(result.malloy).toContain("margin_risk_band is");
-    expect(result.malloy).toContain("case when line_margin_rate < 0.10 then 'intervene'");
+    expect(result.malloy).toContain('pick "intervene" when line_margin_rate < 0.10');
     expect(result.malloy).toContain(
       "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
     );
@@ -158,12 +158,18 @@ query: young_adult_apple_value is Customer with apple_products, young_adult_cust
 
     expect(result.diagnostics).toEqual([]);
     expect(result.model?.concepts.get("Customer")?.where).toHaveLength(0);
-    expect(result.malloy).toContain("source: sale_lines__young_adult_apple_value is duckdb.table('sale_lines') extend");
+    expect(result.malloy).toContain(
+      "source: sale_lines__young_adult_apple_value is __semlang_base_sale_lines__young_adult_apple_value extend",
+    );
     expect(result.malloy).toContain("join_one: product is products__young_adult_apple_value");
     expect(result.malloy).toContain("where: product.brand = 'Apple'");
-    expect(result.malloy).toContain("source: products__young_adult_apple_value is duckdb.table('products') extend");
+    expect(result.malloy).toContain(
+      "source: products__young_adult_apple_value is __semlang_base_products__young_adult_apple_value extend",
+    );
     expect(result.malloy).toContain("where: brand = 'Apple'");
-    expect(result.malloy).toContain("source: customers__young_adult_apple_value is duckdb.table('customers') extend");
+    expect(result.malloy).toContain(
+      "source: customers__young_adult_apple_value is __semlang_base_customers__young_adult_apple_value extend",
+    );
     expect(result.malloy).toContain("join_many: sale_lines is sale_lines__young_adult_apple_value");
     expect(result.malloy).toContain("where: age >= 18 and age <= 25");
     expect(result.malloy).toContain("apple_product_spend is sale_lines.sum(net_sales_amount)");
@@ -174,7 +180,7 @@ query: young_adult_apple_value is Customer with apple_products, young_adult_cust
   it("preserves explicit DuckDB table sources", async () => {
     const result = await compileFile(retailBase);
     expect(result.diagnostics).toEqual([]);
-    expect(result.malloy).toContain("source: stores is duckdb.table('stores') extend");
+    expect(result.malloy).toContain("source: stores is __semlang_base_stores extend");
   });
 
   it("supports Malloy-like table, SQL, named source, and query source references", async () => {
@@ -238,10 +244,8 @@ concept SaleStatus is situation from sales_by_status {
 `);
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("source: sale_rows is duckdb.table('sales')");
-    expect(result.malloy).toContain("source: sale is sale_rows extend");
-    expect(result.malloy).toContain(
-      'source: sql_sale is duckdb.sql(""" select sale_id, status, sold_at, amount from sales """) extend',
-    );
+    expect(result.malloy).toContain("source: sale is __semlang_base_sale extend");
+    expect(result.malloy).toContain("source: sql_sale is __semlang_base_sql_sale extend");
     expect(result.malloy).toContain("query: sales_by_status is sale ->");
     expect(result.malloy).toContain("calculate:\n    status_rank is rank()");
     expect(result.malloy).toContain("order_by:\n    total_amount desc");
@@ -280,7 +284,6 @@ concept Customer is kind from duckdb.table('dim_customer') {
       },
     });
     expect(result.malloy).not.toContain("staging_customer_raw");
-    expect(result.malloy).toContain("source: dim_customer is duckdb.table('dim_customer') extend");
     expect(result.jsonSchema?.["x-semlang-ignored-sources"]).toEqual([
       {
         source: "duckdb.table('staging_customer_raw')",
@@ -291,6 +294,7 @@ concept Customer is kind from duckdb.table('dim_customer') {
         },
       },
     ]);
+    expect(result.malloy).toContain("source: dim_customer is __semlang_base_dim_customer extend");
   });
 
   it("diagnoses ignored sources without reasons, duplicates, and modeled sources", async () => {

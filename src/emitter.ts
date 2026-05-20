@@ -17,17 +17,25 @@ export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics:
   const diagnostics: Diagnostic[] = [];
   const chunks: string[] = [];
   const sourceNames = new Map([...model.concepts].map(([name, concept]) => [name, concept.sourceName]));
+  const declaredSources = new Set<string>();
 
   for (const source of [...model.sources.values()].filter((source) => !source.query)) {
     chunks.push(emitSourceDecl(model, source, sourceNames));
+    declaredSources.add(source.name);
   }
 
-  for (const concept of [...model.concepts.values()].filter((concept) => !conceptUsesQuerySource(model, concept))) {
-    chunks.push(emitConcept(model, concept, sourceNames));
+  const directConcepts = [...model.concepts.values()].filter((concept) => !conceptUsesQuerySource(model, concept));
+  const directBaseSources = conceptBaseSourceNames(directConcepts);
+  chunks.push(...emitConceptBaseSources(model, directConcepts, directBaseSources, sourceNames));
+
+  for (const concept of directConcepts) {
+    chunks.push(emitConcept(model, concept, sourceNames, declaredSources, directBaseSources));
+    declaredSources.add(sourceNames.get(concept.name) ?? concept.sourceName);
   }
 
   for (const source of [...model.sources.values()].filter((source) => source.query)) {
     chunks.push(emitSourceDecl(model, source, sourceNames));
+    declaredSources.add(source.name);
   }
 
   for (const query of model.queries) {
@@ -40,8 +48,13 @@ export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics:
       }),
     );
     if (query.lenses.length > 0) {
+      const lensConcepts = [...queryModel.concepts.values()];
+      const lensBaseSources = conceptBaseSourceNames(lensConcepts, names);
+      chunks.push(...emitConceptBaseSources(queryModel, lensConcepts, lensBaseSources, names));
+      const lensDeclaredSources = new Set(declaredSources);
       for (const concept of queryModel.concepts.values()) {
-        chunks.push(emitConcept(queryModel, concept, names));
+        chunks.push(emitConcept(queryModel, concept, names, lensDeclaredSources, lensBaseSources));
+        lensDeclaredSources.add(names.get(concept.name) ?? concept.sourceName);
       }
     }
     const rootSource = names.get(query.root) ?? query.root;
@@ -49,7 +62,8 @@ export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics:
   }
 
   for (const concept of [...model.concepts.values()].filter((concept) => conceptUsesQuerySource(model, concept))) {
-    chunks.push(emitConcept(model, concept, sourceNames));
+    chunks.push(emitConcept(model, concept, sourceNames, declaredSources, directBaseSources));
+    declaredSources.add(sourceNames.get(concept.name) ?? concept.sourceName);
   }
 
   return { malloy: chunks.filter(Boolean).join("\n\n") + "\n", diagnostics };
@@ -62,17 +76,25 @@ function conceptUsesQuerySource(model: SemanticModel, concept: ResolvedConcept):
   return Boolean(model.sources.get(source.name)?.query);
 }
 
-function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames: Map<string, string>): string {
+function emitConcept(
+  model: SemanticModel,
+  concept: ResolvedConcept,
+  sourceNames: Map<string, string>,
+  declaredSources: Set<string>,
+  baseSourceNames: Map<string, string>,
+): string {
   const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
   const lines: string[] = [];
-  lines.push(`source: ${sourceName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`);
+  lines.push(
+    `source: ${sourceName} is ${baseSourceNames.get(concept.name) ?? sourceExpr(model, concept.source, sourceNames)} extend {`,
+  );
   const compositePrimaryKeyName =
     concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
   if (concept.identities.length === 1) lines.push(`  primary_key: ${concept.identities[0]!.name}`);
   if (compositePrimaryKeyName) lines.push(`  primary_key: ${compositePrimaryKeyName}`);
   for (const join of concept.joins) {
     lines.push("");
-    lines.push(...indent(emitJoin(model, concept, join, sourceNames), 2));
+    lines.push(...indent(emitJoin(model, concept, join, sourceNames, declaredSources, baseSourceNames), 2));
   }
   const dimensions = [
     ...(compositePrimaryKeyName
@@ -126,6 +148,48 @@ function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames
   return lines.join("\n");
 }
 
+function conceptBaseSourceNames(
+  concepts: ResolvedConcept[],
+  sourceNames = new Map<string, string>(),
+): Map<string, string> {
+  return new Map(
+    concepts.map((concept) => {
+      const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
+      return [concept.name, `__semlang_base_${sourceName}`];
+    }),
+  );
+}
+
+function emitConceptBaseSources(
+  model: SemanticModel,
+  concepts: ResolvedConcept[],
+  baseSourceNames: Map<string, string>,
+  sourceNames: Map<string, string>,
+): string[] {
+  const emitted = new Set<string>();
+  const lines: string[] = [];
+  for (const concept of concepts) {
+    const baseName = baseSourceNames.get(concept.name);
+    if (!baseName || emitted.has(baseName)) continue;
+    emitted.add(baseName);
+    const primaryKeyName = concept.identities.length > 1 ? "__semlang_base_primary_key" : concept.identities[0]?.name;
+    if (!primaryKeyName) {
+      lines.push(`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)}`);
+      continue;
+    }
+    const body = [`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`];
+    if (concept.identities.length > 1) {
+      body.push("  dimension:");
+      body.push(`    ${primaryKeyName} is ${primaryKey(concept.identities)}`);
+      body.push("");
+    }
+    body.push(`  primary_key: ${primaryKeyName}`);
+    body.push("}");
+    lines.push(body.join("\n"));
+  }
+  return lines;
+}
+
 function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: Map<string, string>): string {
   const expression = sourceExpr(model, source.source, sourceNames);
   if (!source.query) return `source: ${source.name} is ${expression}`;
@@ -139,11 +203,15 @@ function emitJoin(
   source: ResolvedConcept,
   join: JoinDecl,
   sourceNames: Map<string, string>,
+  declaredSources: Set<string>,
+  baseSourceNames: Map<string, string>,
 ): string[] {
   const roleIndex = buildRoleIndex(model);
   const targetRole = roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target);
   const targetConcept = model.concepts.get(join.target) ?? targetRole?.concept;
-  const targetSource = targetConcept ? (sourceNames.get(targetConcept.name) ?? targetConcept.sourceName) : join.target;
+  const targetSource = targetConcept
+    ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
+    : join.target;
   const lines = [`${join.kind}: ${join.name} is ${targetSource}`];
   if (join.with) {
     lines.push(`  with ${lowerExpression(model, source, join.with)}`);
@@ -165,6 +233,17 @@ function emitJoin(
     lines.push(`  and ${prefixRolePredicate(model, targetRole.concept, targetRole.role.predicate, join.name)}`);
   }
   return lines;
+}
+
+function joinTargetSource(
+  targetConcept: ResolvedConcept,
+  sourceNames: Map<string, string>,
+  declaredSources: Set<string>,
+  baseSourceNames: Map<string, string>,
+): string {
+  const finalSource = sourceNames.get(targetConcept.name) ?? targetConcept.sourceName;
+  if (declaredSources.has(finalSource)) return finalSource;
+  return baseSourceNames.get(targetConcept.name) ?? finalSource;
 }
 
 function lowerJoinOn(

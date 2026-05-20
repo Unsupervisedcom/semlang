@@ -175,7 +175,7 @@ concept Store is kind from duckdb.table('stores') {
   role SameStore when same_store_start_date is not null
 
   dimension:
-    store_label is concat(store_code, ' - ', store_name)
+    store_label is concat(store_code, " - ", store_name)
     is_same_store_eligible is this is SameStore
 
   validation:
@@ -206,11 +206,10 @@ concept Customer is kind from duckdb.table('customers') {
     when loyalty_member_id is null and payment_card_hash is not null
 
   dimension:
-    recognition_method is case
-      when this is LoyaltyCustomer then 'loyalty'
-      when this is PaymentCardRecognizedCustomer then 'payment_card'
-      else 'unknown'
-    end
+    recognition_method is
+      pick "loyalty" when this is LoyaltyCustomer
+      pick "payment_card" when this is PaymentCardRecognizedCustomer
+      else "unknown"
 
   validation:
     has_recognition_key is {
@@ -275,10 +274,10 @@ concept ProductSKUVersion is phase of ProductSKU from duckdb.table('product_sku_
     list_price :: Dollars
     standard_cost :: Dollars
 
-  role ActiveProduct when lifecycle_status = 'active'
+  role ActiveProduct when lifecycle_status = "active"
 
   dimension:
-    category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
+    category_path is concat(department, " / ", category_name, " / ", subcategory_name)
     category_at_event is category_name
 
   validation:
@@ -300,7 +299,7 @@ concept Promotion is relator from duckdb.table('promotions') {
     promotion_type :: PromotionType
     funding_source :: PromotionFundingSource
 
-  role VendorFundedPromotion when funding_source = 'vendor'
+  role VendorFundedPromotion when funding_source = "vendor"
 
   dimension:
     is_vendor_funded is this is VendorFundedPromotion
@@ -325,80 +324,8 @@ concept PromotionAllocation is relator from duckdb.table('line_item_promotions')
 
   measure:
     allocated_discount is sum(allocation_amount)
-    vendor_funded_discount is sum(
-      case when promotion is VendorFundedPromotion then allocation_amount else 0 end
-    )
+    vendor_funded_discount is sum(allocation_amount) { where: promotion is VendorFundedPromotion }
     promotion_count is count()
-}
-
-concept ReturnLine is event from duckdb.table('return_lines') {
-  description: "Returned item line linked back to the original sale line, including return status, quantity, refund, and settlement timing."
-
-  identity return_line_id :: string
-  occurrence_time: returned_at
-
-  join_one original_sale_line: SaleLine on original_line_item_id = line_item_id
-
-  field:
-    returned_at :: EventTimestamp
-    return_authorization_id :: string
-    return_channel :: ReturnChannel
-    return_status :: ReturnStatus writeable
-    returned_quantity :: UnitCount
-    refund_amount :: Dollars writeable
-    restocking_fee_amount :: Dollars writeable
-    reason_code :: string
-    settled_at :: EventTimestamp? writeable
-
-  measure:
-    return_authorizations is count(return_authorization_id)
-    returned_units is sum(returned_quantity)
-    settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
-    refund_amount is sum(refund_amount)
-    settled_refund_amount is sum(case when return_status = 'settled' then refund_amount else 0 end)
-    restocking_fees is sum(restocking_fee_amount)
-
-  view: return_lifecycle is {
-    group_by:
-      returned_month is returned_at.month
-      return_channel
-      return_status
-      reason_code
-    aggregate:
-      return_authorizations
-      returned_units
-      refund_amount
-      restocking_fees
-  }
-
-  action settle_return {
-    subject: single
-
-    param:
-      approved_refund_amount :: Dollars
-      approved_restocking_fee_amount :: Dollars default 0
-
-    guard:
-      this.return_status in ['authorized', 'received', 'accepted']
-        else "Only authorized, received, or accepted return lines can be settled."
-
-    edit:
-      set return_status = 'settled'
-      set refund_amount = approved_refund_amount
-      set restocking_fee_amount = approved_restocking_fee_amount
-      set settled_at = current_time
-
-    log as ReturnLineActionLog {
-      summary: "Settled return authorization ${this.return_authorization_id}"
-      include: approved_refund_amount, approved_restocking_fee_amount, current_user.id
-    }
-  }
-
-  validation:
-    settled_returns_have_settlement_time is {
-      description: "A settled return must have a settlement timestamp."
-      predicate: return_status != 'settled' or settled_at is not null
-    }
 }
 
 concept Sale is event from duckdb.table('transactions') {
@@ -415,7 +342,7 @@ concept Sale is event from duckdb.table('transactions') {
 
   join_one loyalty_points_at_sale?: LoyaltyPointBalance
     on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
-    and sold_at.day = loyalty_points_at_sale.balance_date
+    and cast(sold_at as date) = loyalty_points_at_sale.balance_date
 
   join_many lines: SaleLine on transaction_id
 
@@ -431,21 +358,25 @@ concept Sale is event from duckdb.table('transactions') {
     sold_month is sold_at.month
     loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
 
-    customer_recognition_method is case
-      when customer is null then 'unrecognized_cash'
-      when customer is LoyaltyCustomer then 'loyalty'
-      when customer is PaymentCardRecognizedCustomer then 'payment_card'
-      else 'known_other'
-    end
+    customer_recognition_method is
+      pick "unrecognized_cash" when customer.customer_id is null
+      pick "loyalty" when customer is LoyaltyCustomer
+      pick "payment_card" when customer is PaymentCardRecognizedCustomer
+      else "known_other"
 
   measure:
     sales is count()
-    loyalty_customers is count(case when customer is LoyaltyCustomer then customer.loyalty_member_id end)
+    loyalty_customers is count(customer.loyalty_member_id) { where: customer is LoyaltyCustomer }
     identified_customers is count(customer.customer_id)
-    identified_customer_sales is count(case when customer is not null then transaction_id end)
-    unrecognized_cash_sales is count(case when customer is null then transaction_id end)
+    identified_customer_sales is count(transaction_id) { where: customer.customer_id is not null }
+    unrecognized_cash_sales is count(transaction_id) { where: customer.customer_id is null }
     identified_sales_per_customer is identified_customer_sales / nullif(identified_customers, 0)
-    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
+    max_possible_unique_customers is identified_customers + unrecognized_cash_sales
+    estimated_unrecognized_customers_same_repeat_rate is
+      unrecognized_cash_sales / nullif(identified_sales_per_customer, 0)
+    estimated_total_customers_same_repeat_rate is
+      identified_customers + estimated_unrecognized_customers_same_repeat_rate
+    average_loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance.avg()
 
   view: loyalty_sale_mix is {
     group_by:
@@ -474,7 +405,7 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 
   join_one product_at_sale: ProductSKUVersion
     on sku_id = product_at_sale.sku_id
-    at sale.sold_at
+    at cast(sale.sold_at as date)
 
   join_many promotion_allocations: PromotionAllocation on line_item_id
 
@@ -507,28 +438,26 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
     sales is count(transaction_id)
     units_sold is sum(quantity)
     gross_sales is sum(gross_sales_amount)
-    discount_amount is sum(discount_amount)
+    total_discount_amount is sum(discount_amount)
     net_sales is sum(net_sales_amount)
     merchandise_cost is sum(merchandise_cost_amount)
     merchandising_margin is sum(margin_amount)
     tax_collected is sum(tax_amount)
 
-    promotion_discount is sum(promotion_allocations.allocation_amount)
-    vendor_funded_discount is sum(
-      case
-        when promotion_allocations.promotion is VendorFundedPromotion
-        then promotion_allocations.allocation_amount
-        else 0
-      end
+    promotion_discount is promotion_allocations.allocation_amount.sum()
+    vendor_funded_discount is promotion_allocations.sum(
+      pick promotion_allocations.allocation_amount
+      when promotion_allocations.promotion is VendorFundedPromotion
+      else 0
     )
 
-    returned_units is sum(returns.returned_quantity)
-    settled_returned_units is sum(
-      case when returns.return_status = 'settled' then returns.returned_quantity else 0 end
+    returned_units is returns.returned_quantity.sum()
+    settled_returned_units is returns.sum(
+      pick returns.returned_quantity when returns.return_status = "settled" else 0
     )
-    refund_amount is sum(returns.refund_amount)
-    settled_refund_amount is sum(
-      case when returns.return_status = 'settled' then returns.refund_amount else 0 end
+    total_refund_amount is returns.refund_amount.sum()
+    settled_refund_amount is returns.sum(
+      pick returns.refund_amount when returns.return_status = "settled" else 0
     )
     return_rate is returned_units / nullif(units_sold, 0)
     settled_return_rate is settled_returned_units / nullif(units_sold, 0)
@@ -546,7 +475,7 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
       sales
       units_sold
       gross_sales
-      discount_amount
+      total_discount_amount
       net_sales
       merchandising_margin
       settled_refund_amount
@@ -567,8 +496,78 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
       sale.average_loyalty_point_balance_at_sale
       net_sales
       merchandising_margin
-      refund_amount
+      total_refund_amount
   }
+}
+
+concept ReturnLine is event from duckdb.table('return_lines') {
+  description: "Returned item line linked back to the original sale line, including return status, quantity, refund, and settlement timing."
+
+  identity return_line_id :: string
+  occurrence_time: returned_at
+
+  join_one original_sale_line: SaleLine on original_line_item_id = line_item_id
+
+  field:
+    returned_at :: EventTimestamp
+    return_authorization_id :: string
+    return_channel :: ReturnChannel
+    return_status :: ReturnStatus writeable
+    returned_quantity :: UnitCount
+    refund_amount :: Dollars writeable
+    restocking_fee_amount :: Dollars writeable
+    reason_code :: string
+    settled_at :: EventTimestamp? writeable
+
+  measure:
+    return_authorizations is count(return_authorization_id)
+    returned_units is sum(returned_quantity)
+    settled_returned_units is sum(pick returned_quantity when return_status = "settled" else 0)
+    total_refund_amount is sum(refund_amount)
+    settled_refund_amount is sum(pick refund_amount when return_status = "settled" else 0)
+    restocking_fees is sum(restocking_fee_amount)
+
+  view: return_lifecycle is {
+    group_by:
+      returned_month is returned_at.month
+      return_channel
+      return_status
+      reason_code
+    aggregate:
+      return_authorizations
+      returned_units
+      total_refund_amount
+      restocking_fees
+  }
+
+  action settle_return {
+    subject: single
+
+    param:
+      approved_refund_amount :: Dollars
+      approved_restocking_fee_amount :: Dollars default 0
+
+    guard:
+      this.return_status in ['authorized', 'received', 'accepted']
+        else "Only authorized, received, or accepted return lines can be settled."
+
+    edit:
+      set return_status = "settled"
+      set refund_amount = approved_refund_amount
+      set restocking_fee_amount = approved_restocking_fee_amount
+      set settled_at = current_time
+
+    log as ReturnLineActionLog {
+      summary: "Settled return authorization ${this.return_authorization_id}"
+      include: approved_refund_amount, approved_restocking_fee_amount, current_user.id
+    }
+  }
+
+  validation:
+    settled_returns_have_settlement_time is {
+      description: "A settled return must have a settlement timestamp."
+      predicate: return_status != "settled" or settled_at is not null
+    }
 }
 
 concept InventoryPosition is situation from duckdb.table('inventory_snapshots') {
@@ -603,7 +602,7 @@ concept InventoryPosition is situation from duckdb.table('inventory_snapshots') 
     reserved_units_at_filter is max(reserved_units)
     damaged_units_at_filter is max(damaged_units)
     available_to_sell_at_filter is max(available_to_sell_units)
-    negative_on_hand_locations is count(case when is_negative_on_hand then inventory_snapshot_id end)
+    negative_on_hand_locations is count(inventory_snapshot_id) { where: is_negative_on_hand }
 }
 
 // ---------------------------------------------------------------------------
@@ -634,9 +633,6 @@ query: monthly_margin_and_returns is SaleLine -> {
   having: net_sales > 0
   nest:
     loyalty_margin_mix
-  index:
-    sale.store.region
-    product_at_sale.category_name
   order_by:
     sold_month desc
   limit: 24
@@ -646,7 +642,7 @@ query: recent_order_line_projection is SaleLine -> {
   // Malloy compatibility smoke test: deprecated project syntax is accepted and
   // emitted as select, while Malloy filter expressions pass through unchanged.
   where:
-    channel ? 'store' | 'web'
+    channel ? "store" | "web"
   project:
     line_item_id
     sold_at is sale.sold_at
@@ -667,7 +663,7 @@ query: inventory_exceptions is InventoryPosition -> {
   //   -> exception predicates: negative on hand, recalled, discontinued
   where:
     is_negative_on_hand
-    or product_at_snapshot.lifecycle_status in ('recalled', 'discontinued')
+    or product_at_snapshot.lifecycle_status = ("recalled" | "discontinued")
   group_by:
     snapshot_date
     store.store_code
@@ -747,29 +743,16 @@ query: denver_store_customer_count_on_2025_09_15 is Sale -> {
   //    if anonymous buyers repeated at the same rate as identified buyers."
   where:
     sold_date = @2025-09-15
-    and store.store_code = 'DEN-01'
+    and store.store_code = "DEN-01"
   aggregate:
     sales
     identified_customer_sales
     identified_customers
     unrecognized_cash_sales
     identified_sales_per_customer
-
-    // V1 rule: `name is expression` inside `aggregate:` creates a query-local
-    // generated measure on the temporary query source. The expression may
-    // reference visible measures, aggregate functions, or earlier aliases in
-    // this same aggregate block. It may not reference raw row-level fields
-    // unless they are inside an aggregate function.
-    max_possible_unique_customers is
-      identified_customers + unrecognized_cash_sales
-
-    // Legal because it references measures that are already visible above.
-    estimated_unrecognized_customers_same_repeat_rate is
-      unrecognized_cash_sales / nullif(identified_sales_per_customer, 0)
-
-    // Legal because it references an earlier query-local aggregate alias.
-    estimated_total_customers_same_repeat_rate is
-      identified_customers + estimated_unrecognized_customers_same_repeat_rate
+    max_possible_unique_customers
+    estimated_unrecognized_customers_same_repeat_rate
+    estimated_total_customers_same_repeat_rate
 }
 
 query: same_store_category_health is SaleLine -> {
