@@ -16,44 +16,36 @@ async function tempExamplePath(domain: string, fileName = "example.semlang"): Pr
   const sourceDir = path.join(root, "examples", domain);
   const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), `semlang-mcp-${domain}-`));
   for (const name of ["example.semlang", "example_with_lens.semlang", "schema.sql", "sample_data.sql"]) {
-    const source = path.join(sourceDir, name);
-    try {
-      await fs.copyFile(source, path.join(targetDir, name));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    await fs.copyFile(path.join(sourceDir, name), path.join(targetDir, name));
   }
-  const databasePath = await prepareExampleDuckDb(targetDir);
-  await fs.writeFile(path.join(targetDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(targetDir, databasePath), null, 2));
+  await prepareExampleDuckDb(targetDir);
+  await fs.writeFile(path.join(targetDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(targetDir), null, 2));
   return path.join(targetDir, fileName);
 }
 
-async function prepareExampleDuckDb(projectDir: string): Promise<string | undefined> {
+async function prepareExampleDuckDb(projectDir: string): Promise<void> {
   const schemaPath = path.join(projectDir, "schema.sql");
   const samplePath = path.join(projectDir, "sample_data.sql");
-  try {
-    const [schema, sampleData] = await Promise.all([
-      fs.readFile(schemaPath, "utf8"),
-      fs.readFile(samplePath, "utf8")
-    ]);
-    const databasePath = path.join(projectDir, "warehouse.duckdb");
-    await execFileAsync("duckdb", [databasePath, "-c", `${schema}\n${sampleData}`], {
-      cwd: projectDir,
-      maxBuffer: 10 * 1024 * 1024
-    });
-    return databasePath;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
+  const [schema, sampleData] = await Promise.all([
+    fs.readFile(schemaPath, "utf8"),
+    fs.readFile(samplePath, "utf8")
+  ]);
+  await execFileAsync("duckdb", [duckDbDatabasePath(projectDir), "-c", `${schema}\n${sampleData}`], {
+    cwd: projectDir,
+    maxBuffer: 10 * 1024 * 1024
+  });
 }
 
-function duckDbMalloyConfig(projectDir: string, databasePath?: string): Record<string, unknown> {
+function duckDbDatabasePath(projectDir: string): string {
+  return path.join(projectDir, "warehouse.duckdb");
+}
+
+function duckDbMalloyConfig(projectDir: string): Record<string, unknown> {
   return {
     connections: {
       duckdb: {
         is: "duckdb",
-        ...(databasePath ? { databasePath } : {}),
+        databasePath: duckDbDatabasePath(projectDir),
         workingDirectory: projectDir,
         extensionDirectory: path.join(projectDir, ".duckdb-extensions")
       }
@@ -133,15 +125,6 @@ describe("SemLang MCP example narratives", () => {
   it("captures Malloy project and config context when setting the ontology source", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({
-      "malloy-config.json": JSON.stringify({
-        connections: {
-          warehouse: {
-            is: "duckdb",
-            databasePath: "./warehouse.duckdb",
-            workingDirectory: { config: "rootDirectory" }
-          }
-        }
-      }, null, 2),
       "model.semlang": `
 package mcp.project_context
 
@@ -155,6 +138,16 @@ concept Order is event from warehouse.table('orders') {
     });
     const modelPath = path.join(projectDir, "model.semlang");
     const configPath = path.join(projectDir, "malloy-config.json");
+    await fs.writeFile(configPath, JSON.stringify({
+      connections: {
+        warehouse: {
+          is: "duckdb",
+          databasePath: duckDbDatabasePath(projectDir),
+          workingDirectory: projectDir,
+          extensionDirectory: path.join(projectDir, ".duckdb-extensions")
+        }
+      }
+    }, null, 2));
 
     const source = await mcp.tools.set_ontology_source({
       path: modelPath,
