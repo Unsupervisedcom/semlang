@@ -6,7 +6,7 @@ import type { Diagnostic } from "../src/types.js";
 // declarations, invalid syntax, stage safety, include/lens cycles, temporal
 // misuse, and aggregate alias diagnostics.
 // 05.01.001, 05.01.002, 05.01.003, 05.01.004, 05.01.005, 05.01.006, 05.01.007, 05.01.008
-// 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.02.001, 05.02.002, 05.02.003
+// 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.01.014, 05.02.001, 05.02.002, 05.02.003
 // 05.02.004, 05.02.005, 05.02.006
 
 function source(lines: string[]): string {
@@ -184,8 +184,8 @@ describe("compiler diagnostics", () => {
     });
   });
 
-  it("reports globally ambiguous role names", async () => {
-    const result = await compileSemLang(source([
+  it("allows duplicate role short names and reports ambiguous bare role tests", async () => {
+    const ambiguous = await compileSemLang(source([
       "package bad.roles",
       "concept Customer is kind from duckdb.table('customers') {",
       "  identity customer_id :: string",
@@ -193,15 +193,48 @@ describe("compiler diagnostics", () => {
       "}",
       "concept Account is kind from duckdb.table('accounts') {",
       "  identity account_id :: string",
+      "  field:",
+      "    customer_id :: string",
+      "  join_one customer: Customer on customer_id",
       "  role Active when account_id is not null",
+      "}",
+      "concept Sale is event from duckdb.table('sales') {",
+      "  identity sale_id :: string",
+      "}",
+      "query: q is Sale -> {",
+      "  where: sale_id is Active",
+      "  aggregate:",
+      "    rows is count()",
       "}"
     ]));
 
-    expectDiagnostic(result, "DUPLICATE_ROLE", {
-      message: /Duplicate global role Active on Account; already declared on Customer/,
-      line: 8,
+    expectDiagnostic(ambiguous, "AMBIGUOUS_ROLE", {
+      message: /Ambiguous role Active; use a qualified role name/,
+      line: 17,
       column: 3
     });
+
+    const pathInferred = await compileSemLang(source([
+      "package good.roles",
+      "concept Customer is kind from duckdb.table('customers') {",
+      "  identity customer_id :: string",
+      "  role Active when customer_id is not null",
+      "}",
+      "concept Account is kind from duckdb.table('accounts') {",
+      "  identity account_id :: string",
+      "  field:",
+      "    customer_id :: string",
+      "  join_one customer: Customer on customer_id",
+      "  role Active when account_id is not null",
+      "}",
+      "query: q is Account -> {",
+      "  where: customer is Active",
+      "  aggregate:",
+      "    rows is count()",
+      "}"
+    ]));
+
+    expect(pathInferred.diagnostics).toEqual([]);
   });
 
   it("reports bad lenses with the query or lens line that caused the failure", async () => {

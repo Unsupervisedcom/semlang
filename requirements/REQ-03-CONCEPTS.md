@@ -61,7 +61,7 @@ Joins declare analytical relationships and semantic participation between concep
 - 03.05.004: `join_cross` MUST NOT use `with`.
 - 03.05.005: A `?` marker after the join name MUST mark optional participation metadata.
 - 03.05.006: Optional participation metadata MUST NOT by itself change the emitted Malloy join kind.
-- 03.05.007: Join targets MUST resolve to a concept or role.
+- 03.05.007: Join targets MUST resolve to a concept, a qualified role name, or an unambiguous role short name.
 - 03.05.008: When a join target names a role, the compiler MUST resolve that role to its base concept.
 - 03.05.009: `with` joins MUST require a resolvable target identity when the target concept is known.
 - 03.05.010: `with` joins MUST validate that the source concept has the named foreign-key field.
@@ -99,8 +99,13 @@ Roles name reusable predicates over a concept. Role tests lower to those predica
 - 03.08.002: Role predicates MUST be validated against the owning concept.
 - 03.08.003: The compiler MUST preserve role declarations in the semantic model.
 - 03.08.004: The compiler MUST lower role predicates to boolean Malloy dimensions where supported.
-- 03.08.005: `path is RoleName` tests MUST lower by substituting the role predicate with field references prefixed by `path`.
+- 03.08.005: `path is RoleName` and `path is Concept.RoleName` tests MUST lower by substituting the role predicate with field references prefixed by `path`.
 - 03.08.006: The compiler MUST report unresolved role tests.
+- 03.08.007: The canonical name of a role MUST be its owning concept name, a dot, and its local role name, such as `Customer.Active`.
+- 03.08.008: Multiple concepts MAY declare roles with the same local name; such roles MUST remain distinct by qualified name.
+- 03.08.009: Bare role names in role tests SHOULD resolve through the tested path's concept when that concept can be inferred.
+- 03.08.010: A role MAY declare a string `label` and string-array `aliases` metadata for search and presentation.
+- 03.08.011: Role labels and aliases MUST NOT participate in semantic name resolution unless a later requirement explicitly defines that behavior.
 
 ## 03.09 Validations
 

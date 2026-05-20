@@ -73,6 +73,16 @@ concept SaleStatus is situation from sales_by_status {
 
 Use explicit connection names such as `duckdb.table('sales')`; unqualified `table('sales')` is not valid SemLang source syntax.
 
+Top-level `ignored` declarations record source expressions that were reviewed and deliberately excluded from the ontology:
+
+```semlang
+ignored duckdb.table('staging_customer_raw') {
+  reason: "Staging table; canonical data lives in dim_customer"
+}
+```
+
+`reason` is required. Ignored declarations are metadata only: they do not produce concepts, fields, sources, queries, or any Malloy output. Tooling can read them from the resolved semantic model and JSON Schema metadata to distinguish deliberately excluded tables from tables that have not yet been modeled.
+
 V1 concept stereotypes are:
 
 - `kind`: identity-bearing sortal such as `Customer` or `Store`.
@@ -128,16 +138,23 @@ If the target valid time is `period(start, end)`, this lowers to `expression >= 
 Roles are named predicates over a concept:
 
 ```semlang
-role LoyaltyCustomer when loyalty_member_id is not null
+role Loyalty when loyalty_member_id is not null {
+  label: "Loyalty Customer"
+  aliases: "Rewards Customer", "Member Customer"
+}
 ```
 
 Roles are usable in expressions:
 
 ```semlang
-customer is LoyaltyCustomer
+customer is Customer.Loyalty
 ```
 
-During Malloy emission, role tests lower to their predicates with the correct path prefix. A join target may name a role; V1 resolves it to the role's base concept and applies the role predicate as part of validation and expression lowering.
+The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`. Bare role names are also accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`. If a bare role name is ambiguous, use the qualified form.
+
+Role `label` and `aliases` metadata support discovery and presentation. Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
+
+During Malloy emission, role tests lower to their predicates with the correct path prefix. A join target may name a role, including a qualified role such as `Customer.Loyalty`; V1 resolves it to the role's base concept and applies the role predicate as part of validation and expression lowering.
 
 ## Dimensions, Measures, Views, and Queries
 

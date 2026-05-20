@@ -95,7 +95,7 @@ This audit compares SemLang's current compiler surface with the official Malloy 
 | Foreign-key `with` joins | Malloy can join through a target `primary_key` with `join_one: target with foreign_key`. | Supported | SemLang parses and emits Malloy `with` joins, validates the source expression, and requires a target identity where the target concept is known. |
 | Boolean `on` joins | Malloy joins can use explicit boolean `on` expressions. | Supported | SemLang supports `on` expressions and prefixes simple right-side field references during lowering. |
 | Join aliases | Malloy can alias a joined source with `is`. | Supported | SemLang join names act as aliases and emit `join_one: alias is target_source`. |
-| Inline join sources | Malloy can join an inline table/source expression. | Not supported | SemLang joins target known concepts or global role names only. |
+| Inline join sources | Malloy can join an inline table/source expression. | Not supported | SemLang joins target known concepts, qualified role names, or unambiguous role short names only. |
 | Optional participation marker | SemLang has `?` on joins; Malloy documents left outer joins rather than an optional marker. | Partial | SemLang parses `?` as semantic metadata, but the emitted Malloy join is unchanged. |
 | Joined field paths | Malloy fields from joined sources are referenced with dotted paths. | Supported | SemLang validates and emits dotted paths through declared joins. |
 | Joined source measures | Malloy can use measures from joined sources while preserving aggregate correctness. | Supported | SemLang can reference joined measures such as `customer.some_measure`; Malloy performs the aggregate semantics after emission. |
@@ -217,7 +217,7 @@ This audit compares SemLang's current compiler surface with the official Malloy 
 | Packages | Malloy models do not require a SemLang-style package declaration. | Supported | SemLang requires exactly one `package` declaration. |
 | Concepts | Malloy's closest unit is a source. | Supported | SemLang concepts lower to Malloy sources with semantic stereotypes kept in the SemLang model. |
 | Concept stereotypes | Malloy does not model `kind`, `event`, `situation`, `relator`, or `phase`. | Supported | SemLang parses and validates these stereotypes, then emits ordinary Malloy sources. |
-| Roles | Malloy does not have SemLang role predicates. | Supported | SemLang roles lower to dimensions and role tests lower to predicates. |
+| Roles | Malloy does not have SemLang role predicates. | Supported | SemLang concept-local roles lower to dimensions; qualified or path-inferred role tests lower to predicates. |
 | Temporal axes | Malloy has date/time expressions but not SemLang temporal-axis declarations. | Supported | SemLang parses temporal axes and lowers valid-time `at` joins to period containment predicates. |
 | Lenses | Malloy has source/view refinement; SemLang adds query-time semantic overlays. | Supported | SemLang applies lenses to a cloned semantic model for a query and emits lens-local Malloy sources. |
 | Validations | Malloy can express filters, but not SemLang validation blocks as a first-class construct. | Partial | SemLang parses and validates validation predicates but does not emit analytical Malloy for validation execution. |

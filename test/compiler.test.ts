@@ -5,9 +5,10 @@ import { compileFile, compileSemLang, parseSemLang } from "../src/index.js";
 
 // Requirement coverage: type parsing, type validation, JSON Schema export,
 // file/source forms, concept members, analytics/lenses, and read lowering.
-// 01.01.001, 01.01.002, 01.01.003, 01.01.004, 01.01.005, 01.01.006, 01.01.007, 01.02.001
+// 01.01.001, 01.01.002, 01.01.003, 01.01.004, 01.01.005, 01.01.006, 01.01.007, 01.01.008
+// 01.02.001
 // 01.02.002, 01.02.003, 01.02.004, 01.02.005, 01.02.006, 01.02.007, 01.02.008, 01.02.009
-// 01.02.010, 01.02.011, 01.02.012, 01.02.013, 01.03.001, 01.03.002
+// 01.02.010, 01.02.011, 01.02.012, 01.02.013, 01.02.014, 01.03.001, 01.03.002
 // 02.01.001, 02.01.002, 02.01.003, 02.01.004, 02.01.005, 02.01.006, 02.01.007, 02.01.008
 // 02.01.009, 02.02.001, 02.02.002, 02.02.003, 02.02.004, 02.02.005, 02.02.006, 02.03.001
 // 02.03.002, 02.03.003, 02.03.004, 02.03.005, 02.03.006, 02.03.007, 02.03.008, 02.03.009
@@ -19,7 +20,8 @@ import { compileFile, compileSemLang, parseSemLang } from "../src/index.js";
 // 03.05.008, 03.05.009, 03.05.010, 03.05.011, 03.05.012, 03.06.001, 03.06.002, 03.06.003
 // 03.06.004, 03.06.005, 03.06.006, 03.06.007, 03.06.008, 03.07.001, 03.07.002, 03.07.003
 // 03.07.004, 03.07.005, 03.08.001, 03.08.002, 03.08.003, 03.08.004, 03.08.005, 03.08.006
-// 03.09.001, 03.09.002, 03.09.003, 03.09.004, 03.09.005, 03.09.006, 03.09.007, 03.10.001
+// 03.08.007, 03.08.008, 03.08.009, 03.08.010, 03.08.011, 03.09.001, 03.09.002, 03.09.003
+// 03.09.004, 03.09.005, 03.09.006, 03.09.007, 03.10.001
 // 03.10.002, 03.10.003, 03.10.004
 // 04.01.001, 04.01.002, 04.01.003, 04.01.004, 04.01.005, 04.01.006, 04.01.007, 04.02.001
 // 04.02.002, 04.02.003, 04.02.004, 04.02.005, 04.02.006, 04.03.001, 04.03.002, 04.03.003
@@ -232,6 +234,65 @@ concept SaleStatus is situation from sales_by_status {
     expect(result.malloy).toContain("limit: 3");
     expect(result.malloy).toContain("source: sale_status is sales_by_status extend");
     expect(result.malloy!.indexOf("query: sales_by_status")).toBeLessThan(result.malloy!.indexOf("source: sale_status is sales_by_status extend"));
+  });
+
+  it("preserves ignored sources as metadata without emitting Malloy", async () => {
+    const result = await compileSemLang(`
+package ignored.sources
+
+ignored duckdb.table('staging_customer_raw') {
+  reason: "Staging table; canonical data lives in dim_customer"
+}
+
+concept Customer is kind from duckdb.table('dim_customer') {
+  identity customer_id :: string
+}
+`);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ast?.ignored).toHaveLength(1);
+    expect(result.model?.ignored).toHaveLength(1);
+    expect(result.model?.ignored[0]).toMatchObject({
+      reason: "\"Staging table; canonical data lives in dim_customer\"",
+      source: {
+        kind: "table",
+        connection: "duckdb",
+        path: "staging_customer_raw",
+        expression: "duckdb.table('staging_customer_raw')"
+      }
+    });
+    expect(result.malloy).not.toContain("staging_customer_raw");
+    expect(result.malloy).toContain("source: dim_customer is duckdb.table('dim_customer') extend");
+    expect(result.jsonSchema?.["x-semlang-ignored-sources"]).toEqual([{
+      source: "duckdb.table('staging_customer_raw')",
+      sourceKind: "table",
+      reason: "Staging table; canonical data lives in dim_customer",
+      metadata: {
+        reason: "Staging table; canonical data lives in dim_customer"
+      }
+    }]);
+  });
+
+  it("diagnoses ignored sources without reasons, duplicates, and modeled sources", async () => {
+    const result = await compileSemLang(`
+package ignored.invalid
+
+ignored duckdb.table('customers') {
+}
+
+ignored duckdb.table('customers') {
+  reason: "duplicate"
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+}
+`);
+    expect(result.model).toBeUndefined();
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(expect.arrayContaining([
+      "MISSING_IGNORED_REASON",
+      "DUPLICATE_IGNORED_SOURCE",
+      "IGNORED_SOURCE_MODELED"
+    ]));
   });
 
   it("supports query/view compatibility clauses for having, project, nest, index, and view references", async () => {
@@ -466,7 +527,7 @@ type: CustomerId is string {
 }
 
 type: CustomerStatus is string {
-  enum: ['active', 'paused', 'closed']
+  enum: "active", "paused", "closed"
   scale_type: nominal
 }
 
@@ -517,6 +578,55 @@ concept Customer is kind from duckdb.table('customers') {
     });
   });
 
+  it("03.08.007 supports qualified role names plus role labels and alias metadata", async () => {
+    const result = await compileSemLang(`
+package roles.qualified
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  field:
+    status :: string
+  role Active when status = 'active' {
+    label: "Active Customer"
+    aliases: "Current Customer", "Open Customer"
+  }
+}
+
+concept Account is kind from duckdb.table('accounts') {
+  identity account_id :: string
+  field:
+    customer_id :: string
+    status :: string
+  join_one customer: Customer on customer_id
+  role Active when status = 'open'
+}
+
+query: active_customers is Account -> {
+  where: customer is Customer.Active
+  select:
+    account_id
+}
+`);
+    expect(result.diagnostics).toEqual([]);
+    const customerRole = result.model?.concepts.get("Customer")?.roles[0];
+    expect(customerRole).toMatchObject({
+      name: "Active",
+      label: "Active Customer",
+      aliases: ["Current Customer", "Open Customer"]
+    });
+    expect(result.malloy).toContain("is_active is status = 'active'");
+    expect(result.malloy).toContain("where: (customer.status = 'active')");
+
+    const defs = result.jsonSchema?.$defs as Record<string, any>;
+    expect(defs["concept.Customer"]["x-semlang-roles"][0]).toMatchObject({
+      name: "Active",
+      qualifiedName: "Customer.Active",
+      label: "Active Customer",
+      aliases: ["Current Customer", "Open Customer"],
+      predicate: "status = 'active'"
+    });
+  });
+
   it("01.01.005 diagnoses legacy and malformed type metadata", async () => {
     const result = await compileSemLang(`
 package bad.type_metadata
@@ -526,7 +636,7 @@ type: Status is string {
 }
 
 type: BrokenEnum is string {
-  enum: 'active'
+  enum: { value: 'active' }
 }
 
 concept A is kind from duckdb.table('a') {

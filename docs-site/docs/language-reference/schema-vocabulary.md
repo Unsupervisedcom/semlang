@@ -81,7 +81,7 @@ Concept row schemas export under `$defs` names beginning with `concept.`:
 }
 ```
 
-Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata.
+Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata. Role metadata includes the local name, qualified name, predicate, optional label, and aliases.
 
 ## CLI
 

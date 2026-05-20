@@ -1,6 +1,7 @@
 import path from "node:path";
 import { parseSemLang } from "./parser.js";
-import { validateTypeMetadataEntry } from "./schema-metadata.js";
+import { buildRoleIndex, findRoleOnConcept, roleBaseNames, type RoleIndex, type RoleResolution } from "./roles.js";
+import { parseMetadataLiteral, validateTypeMetadataEntry } from "./schema-metadata.js";
 import {
   emptyMembers,
   type ActionDecl,
@@ -55,6 +56,7 @@ export async function resolveSemLang(ast: SemLangAst, options: CompileOptions = 
   const model: SemanticModel = {
     packageName: ast.packageName,
     files: loaded.map((item) => item.filePath).filter(Boolean) as string[],
+    ignored: [],
     sources: new Map(),
     types: new Map(),
     concepts: new Map(),
@@ -99,6 +101,7 @@ async function loadAstGraph(
 }
 
 function mergeAst(model: SemanticModel, ast: SemLangAst, diagnostics: Diagnostic[]) {
+  model.ignored.push(...ast.ignored);
   for (const source of ast.sources) {
     addUnique(model.sources, source.name, source, diagnostics, "DUPLICATE_SOURCE", `Duplicate source ${source.name}.`, source.location);
   }
@@ -106,7 +109,7 @@ function mergeAst(model: SemanticModel, ast: SemLangAst, diagnostics: Diagnostic
     addUnique(model.types, type.name, type, diagnostics, "DUPLICATE_TYPE", `Duplicate type ${type.name}.`, type.location);
   }
   for (const concept of ast.concepts) {
-    const resolved: ResolvedConcept = { ...concept, sourceName: defaultConceptSourceName(concept), roleBaseNames: new Set(concept.roles.map((role) => role.name)) };
+    const resolved: ResolvedConcept = { ...concept, sourceName: defaultConceptSourceName(concept), roleBaseNames: roleBaseNames(concept.name, concept.roles) };
     addUnique(model.concepts, concept.name, resolved, diagnostics, "DUPLICATE_CONCEPT", `Duplicate concept ${concept.name}.`, concept.location);
   }
   for (const lens of ast.lenses) {
@@ -127,7 +130,8 @@ function addUnique<T>(map: Map<string, T>, key: string, value: T, diagnostics: D
 }
 
 function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
-  const roleIndex = buildRoleIndex(model, diagnostics);
+  const roleIndex = buildRoleIndex(model);
+  validateIgnoredDecls(model, diagnostics);
 
   for (const type of model.types.values()) {
     if (!primitiveTypes.has(type.base)) {
@@ -174,7 +178,7 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
   for (const query of model.queries) {
     const queryModel = applyQueryLenses(model, query, diagnostics);
     if (!queryModel) continue;
-    const queryRoleIndex = buildRoleIndex(queryModel, diagnostics);
+    const queryRoleIndex = buildRoleIndex(queryModel);
     for (const concept of queryModel.concepts.values()) {
       validateConceptMembers(queryModel, queryRoleIndex, concept, concept, diagnostics);
     }
@@ -188,6 +192,44 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
       continue;
     }
     validateQueryBody(queryModel, queryRoleIndex, root, query, diagnostics);
+  }
+}
+
+function validateIgnoredDecls(model: SemanticModel, diagnostics: Diagnostic[]) {
+  const seen = new Set<string>();
+  const modeledSources = new Set([
+    ...[...model.sources.values()].map((source) => source.source.expression),
+    ...[...model.concepts.values()].map((concept) => concept.source.expression)
+  ]);
+  for (const ignored of model.ignored) {
+    const reason = ignored.reason === undefined ? "" : parseMetadataLiteral(ignored.reason);
+    if (!reason) {
+      diagnostics.push({
+        severity: "error",
+        code: "MISSING_IGNORED_REASON",
+        message: `Ignored source ${ignored.source.expression} must declare a reason.`,
+        location: ignored.location
+      });
+    }
+    if (seen.has(ignored.source.expression)) {
+      diagnostics.push({
+        severity: "error",
+        code: "DUPLICATE_IGNORED_SOURCE",
+        message: `Duplicate ignored source ${ignored.source.expression}.`,
+        location: ignored.location
+      });
+    } else {
+      seen.add(ignored.source.expression);
+    }
+    if (modeledSources.has(ignored.source.expression)) {
+      diagnostics.push({
+        severity: "error",
+        code: "IGNORED_SOURCE_MODELED",
+        message: `Ignored source ${ignored.source.expression} is also modeled.`,
+        location: ignored.location
+      });
+    }
+    validateSourceExpression(model, ignored.source, diagnostics);
   }
 }
 
@@ -210,7 +252,7 @@ function sourceExpressionConcept(model: SemanticModel, source: SourceExpression)
   return source.kind === "reference" ? model.concepts.get(source.name) : undefined;
 }
 
-function validateConceptMembers(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, owningConcept: ResolvedConcept, concept: ConceptDecl, diagnostics: Diagnostic[]) {
+function validateConceptMembers(model: SemanticModel, roleIndex: RoleIndex, owningConcept: ResolvedConcept, concept: ConceptDecl, diagnostics: Diagnostic[]) {
   const seenFields = new Set<string>();
   const seenJoins = new Set<string>();
   const seenRoles = new Set<string>();
@@ -225,9 +267,16 @@ function validateConceptMembers(model: SemanticModel, roleIndex: Map<string, Res
   }
   for (const join of concept.joins) {
     checkDuplicate(seenJoins, join.name, "DUPLICATE_JOIN", `Duplicate join ${join.name} on ${owningConcept.name}.`, join.location, diagnostics);
-    const target = model.concepts.get(join.target) ?? roleIndex.get(join.target);
+    const target = joinTargetConcept(model, roleIndex, join.target);
     if (!target) {
-      diagnostics.push({ severity: "error", code: "UNKNOWN_JOIN_TARGET", message: `Join ${join.name} targets unknown concept or role ${join.target}.`, location: join.location });
+      diagnostics.push({
+        severity: "error",
+        code: roleIndex.ambiguousShortNames.has(join.target) ? "AMBIGUOUS_ROLE" : "UNKNOWN_JOIN_TARGET",
+        message: roleIndex.ambiguousShortNames.has(join.target)
+          ? `Ambiguous role ${join.target}; use a qualified role name.`
+          : `Join ${join.name} targets unknown concept or role ${join.target}.`,
+        location: join.location
+      });
       continue;
     }
     if (join.at && !target.temporal.some((axis) => axis.axis === "valid_time")) {
@@ -400,7 +449,7 @@ function validateWriteMappings(mappings: { kind: string; sql?: string; location:
   }
 }
 
-function validateQueryBody(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, root: ResolvedConcept, query: Pick<QueryDecl, "name" | "body" | "location">, diagnostics: Diagnostic[]) {
+function validateQueryBody(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, query: Pick<QueryDecl, "name" | "body" | "location">, diagnostics: Diagnostic[]) {
   if (query.body.where) validateExpression(model, roleIndex, root, query.body.where.expression, query.body.where.location, diagnostics, { allowUnknownBare: false });
   for (const select of query.body.select) validateExpression(model, roleIndex, root, select.expression, select.location, diagnostics, { allowUnknownBare: false });
   for (const group of query.body.groupBy) validateExpression(model, roleIndex, root, group.expression, group.location, diagnostics, { allowUnknownBare: false });
@@ -452,7 +501,7 @@ function validateQueryBody(model: SemanticModel, roleIndex: Map<string, Resolved
 
 function validateOrderBy(
   model: SemanticModel,
-  roleIndex: Map<string, ResolvedConcept>,
+  roleIndex: RoleIndex,
   root: ResolvedConcept,
   order: { expression: string; location: Diagnostic["location"] },
   visibleAggregates: Set<string>,
@@ -462,7 +511,7 @@ function validateOrderBy(
   validateExpression(model, roleIndex, root, expression, order.location, diagnostics, { allowUnknownBare: true, visibleAggregates });
 }
 
-function validatePathOrKnownAggregate(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, root: ResolvedConcept, expression: string, location: Diagnostic["location"], diagnostics: Diagnostic[]) {
+function validatePathOrKnownAggregate(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, expression: string, location: Diagnostic["location"], diagnostics: Diagnostic[]) {
   const name = lastSegment(expression);
   if (root.measures.some((measure) => measure.name === name)) return;
   validateExpression(model, roleIndex, root, expression, location, diagnostics, { allowUnknownBare: false });
@@ -470,7 +519,7 @@ function validatePathOrKnownAggregate(model: SemanticModel, roleIndex: Map<strin
 
 function validateJoinWith(
   model: SemanticModel,
-  roleIndex: Map<string, ResolvedConcept>,
+  roleIndex: RoleIndex,
   source: ResolvedConcept,
   target: ResolvedConcept,
   join: JoinDecl,
@@ -503,21 +552,30 @@ function validateJoinWith(
 
 function validateExpression(
   model: SemanticModel,
-  roleIndex: Map<string, ResolvedConcept>,
+  roleIndex: RoleIndex,
   root: ResolvedConcept,
   expression: string,
   location: Diagnostic["location"],
   diagnostics: Diagnostic[],
   options: { allowUnknownBare: boolean; visibleAggregates?: Set<string> }
 ) {
-  for (const roleName of roleTests(expression)) {
-    if (!roleIndex.has(roleName)) {
-      diagnostics.push({ severity: "error", code: "UNKNOWN_ROLE", message: `Unknown role ${roleName}.`, location });
+  for (const test of roleTests(expression)) {
+    if (!resolveRoleTest(model, roleIndex, root, test)) {
+      if (roleIndex.ambiguousShortNames.has(test.roleName)) {
+        diagnostics.push({
+          severity: "error",
+          code: "AMBIGUOUS_ROLE",
+          message: `Ambiguous role ${test.roleName}; use a qualified role name such as ${matchingQualifiedRoleNames(roleIndex, test.roleName).join(" or ")}.`,
+          location
+        });
+      } else {
+        diagnostics.push({ severity: "error", code: "UNKNOWN_ROLE", message: `Unknown role ${test.roleName}.`, location });
+      }
     }
   }
   for (const token of expressionPaths(expression)) {
     if (options.visibleAggregates?.has(token)) continue;
-    if (roleIndex.has(token) || allowedFunction(token) || expressionKeywords.has(token)) continue;
+    if (roleIndex.byName.has(token) || roleIndex.byQualifiedName.has(token) || allowedFunction(token) || expressionKeywords.has(token)) continue;
     const resolution = resolveExpressionPath(model, roleIndex, root, token, expression);
     if (!resolution && !(options.allowUnknownBare && !token.includes("."))) {
       diagnostics.push({ severity: "error", code: "UNKNOWN_PATH", message: `Unknown path ${token} from ${root.name}.`, location });
@@ -576,7 +634,7 @@ function mergeMembers(concept: ResolvedConcept, members: ConceptMembers) {
   concept.fields.push(...members.fields);
   concept.joins.push(...members.joins);
   concept.roles.push(...members.roles);
-  concept.roleBaseNames = new Set(concept.roles.map((role) => role.name));
+  concept.roleBaseNames = roleBaseNames(concept.name, concept.roles);
   concept.dimensions.push(...members.dimensions);
   concept.measures.push(...members.measures);
   concept.views.push(...members.views);
@@ -590,6 +648,7 @@ function cloneModel(model: SemanticModel): SemanticModel {
   return {
     packageName: model.packageName,
     files: [...model.files],
+    ignored: [...model.ignored],
     sources: new Map(model.sources),
     types: new Map(model.types),
     lenses: new Map(model.lenses),
@@ -616,27 +675,7 @@ function cloneConcept(concept: ResolvedConcept): ResolvedConcept {
   };
 }
 
-function buildRoleIndex(model: SemanticModel, diagnostics?: Diagnostic[]): Map<string, ResolvedConcept> {
-  const index = new Map<string, ResolvedConcept>();
-  for (const concept of model.concepts.values()) {
-    for (const role of concept.roles) {
-      const existing = index.get(role.name);
-      if (existing && existing.name !== concept.name) {
-        diagnostics?.push({
-          severity: "error",
-          code: "DUPLICATE_ROLE",
-          message: `Duplicate global role ${role.name} on ${concept.name}; already declared on ${existing.name}.`,
-          location: role.location
-        });
-        continue;
-      }
-      index.set(role.name, concept);
-    }
-  }
-  return index;
-}
-
-function resolvePath(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, root: ResolvedConcept, pathText: string): boolean {
+function resolvePath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string): boolean {
   if (/^\d/.test(pathText)) return true;
   const segments = pathText.split(".");
   let current: ResolvedConcept | undefined = root;
@@ -646,7 +685,7 @@ function resolvePath(model: SemanticModel, roleIndex: Map<string, ResolvedConcep
     if (!current) return false;
     const join: JoinDecl | undefined = current.joins.find((candidate) => candidate.name === segment);
     if (join) {
-      current = model.concepts.get(join.target) ?? roleIndex.get(join.target);
+      current = joinTargetConcept(model, roleIndex, join.target);
       continue;
     }
     const hasMember = current.identities.some((field) => field.name === segment)
@@ -663,7 +702,7 @@ function resolvePath(model: SemanticModel, roleIndex: Map<string, ResolvedConcep
   return true;
 }
 
-function resolveExpressionPath(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, root: ResolvedConcept, pathText: string, expression: string): boolean {
+function resolveExpressionPath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string, expression: string): boolean {
   const segments = pathText.split(".");
   const last = segments.at(-1)?.toLowerCase();
   if (last && aggregateFunctions.has(last) && isMethodCall(expression, pathText)) {
@@ -673,7 +712,7 @@ function resolveExpressionPath(model: SemanticModel, roleIndex: Map<string, Reso
   return resolvePath(model, roleIndex, root, pathText);
 }
 
-function resolveAggregateLocalityPath(model: SemanticModel, roleIndex: Map<string, ResolvedConcept>, root: ResolvedConcept, pathText: string): boolean {
+function resolveAggregateLocalityPath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string): boolean {
   if (!pathText) return true;
   if (pathText === root.name || pathText === root.sourceName) return true;
   if (model.sources.has(pathText) || model.concepts.has(pathText)) return true;
@@ -698,8 +737,41 @@ function expressionPaths(expression: string): string[] {
   });
 }
 
-function roleTests(expression: string): string[] {
-  return [...stripStrings(expression).matchAll(/\bis\s+([A-Z][A-Za-z0-9_]*)\b/g)].map((match) => match[1]!);
+function roleTests(expression: string): Array<{ path: string; roleName: string }> {
+  return [...stripStrings(expression).matchAll(/\b([A-Za-z_][A-Za-z0-9_.]*|this)\s+is\s+([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)?)\b/g)]
+    .map((match) => ({ path: match[1]!, roleName: match[2]! }));
+}
+
+function resolveRoleTest(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, test: { path: string; roleName: string }): RoleResolution | undefined {
+  if (test.roleName.includes(".")) return roleIndex.byQualifiedName.get(test.roleName);
+  const pathConcept = conceptForPath(model, roleIndex, root, test.path);
+  return findRoleOnConcept(pathConcept, test.roleName) ?? roleIndex.byName.get(test.roleName);
+}
+
+function conceptForPath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string): ResolvedConcept | undefined {
+  if (pathText === "this") return root;
+  const segments = pathText.split(".");
+  let current: ResolvedConcept | undefined = root;
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i]!;
+    if (!current) return undefined;
+    if (i === 0 && (segment === current.name || segment === current.sourceName)) continue;
+    const join = current.joins.find((candidate) => candidate.name === segment);
+    if (!join) return i === segments.length - 1 ? current : undefined;
+    current = joinTargetConcept(model, roleIndex, join.target);
+  }
+  return current;
+}
+
+function joinTargetConcept(model: SemanticModel, roleIndex: RoleIndex, target: string): ResolvedConcept | undefined {
+  return model.concepts.get(target) ?? roleIndex.byQualifiedName.get(target)?.concept ?? roleIndex.byName.get(target)?.concept;
+}
+
+function matchingQualifiedRoleNames(roleIndex: RoleIndex, roleName: string): string[] {
+  const names = [...roleIndex.byQualifiedName.values()]
+    .filter((resolution) => resolution.role.name === roleName)
+    .map((resolution) => resolution.qualifiedName);
+  return names.length > 0 ? names : [roleName];
 }
 
 function stripStrings(expression: string): string {

@@ -1,4 +1,5 @@
 import { applyQueryLenses } from "./resolver.js";
+import { buildRoleIndex, findRoleOnConcept, type RoleIndex, type RoleResolution } from "./roles.js";
 import type {
   Diagnostic,
   JoinDecl,
@@ -110,7 +111,9 @@ function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: M
 }
 
 function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl, sourceNames: Map<string, string>): string[] {
-  const targetConcept = model.concepts.get(join.target) ?? roleTarget(model, join.target);
+  const roleIndex = buildRoleIndex(model);
+  const targetRole = roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target);
+  const targetConcept = model.concepts.get(join.target) ?? targetRole?.concept;
   const targetSource = targetConcept ? sourceNames.get(targetConcept.name) ?? targetConcept.sourceName : join.target;
   const lines = [`${join.kind}: ${join.name} is ${targetSource}`];
   if (join.with) {
@@ -129,9 +132,8 @@ function emitJoin(model: SemanticModel, source: ResolvedConcept, join: JoinDecl,
   const firstOn = onParts[0];
   if (firstOn) lines.push(`  on ${firstOn}`);
   for (const part of onParts.slice(1)) lines.push(`  and ${part}`);
-  if (targetConcept && targetConcept.name !== join.target) {
-    const role = targetConcept.roles.find((candidate) => candidate.name === join.target);
-    if (role && onParts.length > 0) lines.push(`  and ${prefixRolePredicate(model, targetConcept, role.predicate, join.name)}`);
+  if (targetRole && onParts.length > 0) {
+    lines.push(`  and ${prefixRolePredicate(model, targetRole.concept, targetRole.role.predicate, join.name)}`);
   }
   return lines;
 }
@@ -219,18 +221,13 @@ function wrapDefinition(text: string, indentSpaces: number): string[] {
 }
 
 export function lowerExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
-  let lowered = expression;
-  for (const concept of model.concepts.values()) {
-    for (const role of concept.roles) {
-      const roleName = role.name;
-      const pattern = new RegExp(`\\b([A-Za-z_][A-Za-z0-9_.]*|this)\\s+is\\s+${roleName}\\b`, "g");
-      lowered = lowered.replace(pattern, (_match, path: string) => {
-        if (path === "this") return `(${lowerExpression(model, root, role.predicate)})`;
-        return `(${prefixRolePredicate(model, concept, role.predicate, path)})`;
-      });
-    }
-  }
-  return lowered;
+  const roleIndex = buildRoleIndex(model);
+  return expression.replace(/\b([A-Za-z_][A-Za-z0-9_.]*|this)\s+is\s+([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)?)\b/g, (match, path: string, roleName: string) => {
+    const resolution = resolveRoleTest(model, roleIndex, root, path, roleName);
+    if (!resolution) return match;
+    if (path === "this") return `(${lowerExpression(model, root, resolution.role.predicate)})`;
+    return `(${prefixRolePredicate(model, resolution.concept, resolution.role.predicate, path)})`;
+  });
 }
 
 function lowerOrderByExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
@@ -324,15 +321,29 @@ function periodAxis(axis: TemporalAxisDecl | undefined): { start: string; end: s
   return match ? { start: match[1]!.trim(), end: match[2]!.trim() } : undefined;
 }
 
-function roleTarget(model: SemanticModel, roleName: string): ResolvedConcept | undefined {
-  for (const concept of model.concepts.values()) {
-    if (concept.roles.some((role) => role.name === roleName)) return concept;
-  }
-  return undefined;
-}
-
 function roleDimensionName(roleName: string): string {
   return `is_${roleName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}`;
+}
+
+function resolveRoleTest(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, path: string, roleName: string): RoleResolution | undefined {
+  if (roleName.includes(".")) return roleIndex.byQualifiedName.get(roleName);
+  const pathConcept = conceptForPath(model, roleIndex, root, path);
+  return findRoleOnConcept(pathConcept, roleName) ?? roleIndex.byName.get(roleName);
+}
+
+function conceptForPath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedConcept, pathText: string): ResolvedConcept | undefined {
+  if (pathText === "this") return root;
+  const segments = pathText.split(".");
+  let current: ResolvedConcept | undefined = root;
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i]!;
+    if (!current) return undefined;
+    if (i === 0 && (segment === current.name || segment === current.sourceName)) continue;
+    const join: JoinDecl | undefined = current.joins.find((candidate) => candidate.name === segment);
+    if (!join) return i === segments.length - 1 ? current : undefined;
+    current = model.concepts.get(join.target) ?? roleIndex.byQualifiedName.get(join.target)?.concept ?? roleIndex.byName.get(join.target)?.concept;
+  }
+  return current;
 }
 
 function formatAnnotation(model: SemanticModel, concept: ResolvedConcept, expression: string): string | undefined {

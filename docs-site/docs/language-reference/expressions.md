@@ -32,16 +32,16 @@ Definitions can wrap onto continuation lines when the expression is long.
 
 ## Role Tests
 
-Roles are tested with `is RoleName`:
+Roles are tested with `is RoleName` or the qualified `is Concept.RoleName` form:
 
 ```semlang
-role LoyaltyCustomer when loyalty_member_id is not null
+role Loyalty when loyalty_member_id is not null
 
 dimension:
-  loyalty_segment is case when customer is LoyaltyCustomer then 'Loyalty' else 'Other' end
+  loyalty_segment is case when customer is Customer.Loyalty then 'Loyalty' else 'Other' end
 ```
 
-During lowering, the role test is replaced by the role predicate. If the test uses a path such as `customer is LoyaltyCustomer`, field references inside the predicate are prefixed with that path.
+During lowering, the role test is replaced by the role predicate. If the test uses a path such as `customer is Customer.Loyalty`, field references inside the predicate are prefixed with that path. Bare role names can be used when the tested path identifies the owning concept, such as `customer is Loyalty`.
 
 ## Join Conditions
 

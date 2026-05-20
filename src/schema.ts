@@ -1,4 +1,5 @@
-import { jsonSchemaMetadataKeywords, semlangTypeMetadataKeywords, parseMetadataLiteral } from "./schema-metadata.js";
+import { jsonSchemaMetadataKeywords, semlangTypeMetadataKeywords, parseMetadataLiteral, parseMetadataValue } from "./schema-metadata.js";
+import { qualifiedRoleName } from "./roles.js";
 import type {
   DefinitionDecl,
   Diagnostic,
@@ -53,9 +54,16 @@ export function emitJsonSchema(model: SemanticModel, options: JsonSchemaEmitOpti
     type: "object",
     $defs: defs,
     "x-semlang-package": model.packageName,
-    "x-semlang-files": model.files
+    "x-semlang-files": model.files,
+    "x-semlang-ignored-sources": model.ignored.map((ignored) => ({
+      source: ignored.source.expression,
+      sourceKind: ignored.source.kind,
+      reason: ignored.reason ? stripQuoted(ignored.reason) : undefined,
+      metadata: Object.fromEntries(ignored.metadata.map((entry) => [entry.key, parseMetadataValue(entry)]))
+    }))
   };
   if (!options.id) delete schema.$id;
+  if (model.ignored.length === 0) delete schema["x-semlang-ignored-sources"];
   return { schema, diagnostics };
 }
 
@@ -64,7 +72,7 @@ function emitTypeSchema(type: TypeDecl): Record<string, unknown> {
   schema.title = type.name;
 
   for (const entry of type.metadata) {
-    const value = parseMetadataLiteral(entry.value);
+    const value = parseMetadataValue(entry);
     if (jsonSchemaMetadataKeywords.has(entry.key)) {
       schema[entry.key] = value;
     } else if (semlangTypeMetadataKeywords.has(entry.key)) {
@@ -117,6 +125,9 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
   }));
   if (concept.roles.length > 0) schema["x-semlang-roles"] = concept.roles.map((role) => ({
     name: role.name,
+    qualifiedName: qualifiedRoleName(concept.name, role.name),
+    label: role.label ?? undefined,
+    aliases: role.aliases,
     predicate: role.predicate
   }));
   if (concept.temporal.length > 0) schema["x-semlang-temporal"] = concept.temporal.map((axis) => ({

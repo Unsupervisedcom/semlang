@@ -17,6 +17,7 @@ Semantic types name value domains over primitive source values. The compiler val
 - 01.01.005: The compiler MUST reject legacy `allowed_values` type metadata; authors MUST use `enum`.
 - 01.01.006: The compiler MUST reject legacy type-level `semantics` metadata; authors MUST use JSON Schema-style `description`.
 - 01.01.007: The compiler MUST parse and validate recognized JSON Schema-style type metadata before emitting a model or JSON Schema artifact.
+- 01.01.008: Array-valued metadata MAY be written as a bracketed array literal or as a top-level comma-separated list of values; the compiler MUST normalize both forms to arrays in emitted artifacts.
 
 ## 01.02 JSON Schema Exporting
 
@@ -35,6 +36,7 @@ The JSON Schema exporter projects semantic types and concept row shapes into a p
 - 01.02.011: Ontological metadata that has no standard JSON Schema keyword MUST export under `x-semlang-*` extension keywords.
 - 01.02.012: Joins, roles, temporal axes, concept filters, validations, dimensions, and measures MUST NOT be represented as native JSON Schema validation keywords unless the compiler can preserve their semantics exactly; they MUST export as `x-semlang-*` metadata.
 - 01.02.013: The CLI MUST allow callers to emit the JSON Schema artifact.
+- 01.02.014: Role JSON Schema metadata MUST preserve the role local name, qualified name, predicate, label, and aliases.
 
 ## 01.03 Requirement Traceability
 

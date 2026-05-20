@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
+import { qualifiedRoleName } from "./roles.js";
 import type {
   ActionDecl,
   ActionEditDecl,
@@ -166,7 +167,7 @@ export function createSemLangMcp(): SemLangMcpApi {
     const roleName = stringValue(args.role ?? args.name);
     const conceptName = stringValue(args.concept);
     const roles = roleDescriptions(model).filter((role) =>
-      (!roleName || role.name === roleName) && (!conceptName || role.concept === conceptName)
+      (!roleName || role.name === roleName || role.qualifiedName === roleName) && (!conceptName || role.concept === conceptName)
     );
     return resolved({ ok: roles.length > 0, roles: jsonSafe(roles), error: roles.length === 0 ? "No matching role found." : null });
   }
@@ -1124,12 +1125,19 @@ function modelSummary(model: SemanticModel) {
     packageName: model.packageName,
     files: model.files,
     counts: {
+      ignored: model.ignored.length,
       sources: model.sources.size,
       types: model.types.size,
       concepts: model.concepts.size,
       lenses: model.lenses.size,
       queries: model.queries.length
     },
+    ignored: model.ignored.map((ignored) => ({
+      source: ignored.source.expression,
+      sourceKind: ignored.source.kind,
+      reason: ignored.reason ?? null,
+      location: ignored.location
+    })),
     sources: [...model.sources.keys()],
     types: [...model.types.keys()],
     concepts: [...model.concepts.keys()],
@@ -1264,6 +1272,9 @@ function roleDescriptions(model: SemanticModel) {
     concept.roles.map((role) => ({
       concept: concept.name,
       name: role.name,
+      qualifiedName: qualifiedRoleName(concept.name, role.name),
+      label: role.label ?? null,
+      aliases: role.aliases,
       predicate: role.predicate,
       location: role.location
     }))
@@ -1274,12 +1285,13 @@ function resolveEntities(model: SemanticModel, name: string) {
   const lower = name.toLowerCase();
   const matches: Array<Record<string, unknown>> = [];
   const include = (candidate: string) => !name || candidate.toLowerCase() === lower || candidate.toLowerCase().includes(lower);
+  for (const ignored of model.ignored) if (include(ignored.source.expression) || include(ignored.reason ?? "")) matches.push({ kind: "ignored", name: ignored.source.expression, ignored });
   for (const [sourceName, source] of model.sources) if (include(sourceName)) matches.push({ kind: "source", name: sourceName, source });
   for (const [typeName, type] of model.types) if (include(typeName)) matches.push({ kind: "type", name: typeName, type });
   for (const [conceptName, concept] of model.concepts) {
     if (include(conceptName)) matches.push({ kind: "concept", name: conceptName, concept: conceptSummary(concept) });
     for (const member of memberSearchItems(concept)) {
-      if (include(member.name)) matches.push({ kind: member.kind, name: member.name, concept: conceptName, value: member.value });
+      if (include(member.name) || include(member.text)) matches.push({ kind: member.kind, name: member.name, concept: conceptName, value: member.value });
     }
   }
   for (const [lensName, lens] of model.lenses) if (include(lensName)) matches.push({ kind: "lens", name: lensName, lens: describeLensPlain(lens) });
@@ -1313,7 +1325,13 @@ async function resolveBusinessEntity(model: SemanticModel, filePath: string | un
         expression: "expression" in field ? field.expression : null
       })),
       rows,
-      roles: concept.roles.map((role) => ({ name: role.name, predicate: role.predicate }))
+      roles: concept.roles.map((role) => ({
+        name: role.name,
+        qualifiedName: qualifiedRoleName(concept.name, role.name),
+        label: role.label ?? null,
+        aliases: role.aliases,
+        predicate: role.predicate
+      }))
     };
   }));
   return {
@@ -1387,8 +1405,14 @@ function searchModel(model: SemanticModel, text: string, limit: number) {
     lenses: query.lenses,
     text: `${query.name} ${query.root} ${query.lenses.join(" ")} ${queryBodySearchText(query.body)}`
   })), tokens, limit);
+  const ignored = scored(model.ignored.map((ignoredSource) => ({
+    source: ignoredSource.source.expression,
+    sourceKind: ignoredSource.source.kind,
+    reason: ignoredSource.reason ?? null,
+    text: `${ignoredSource.source.expression} ${ignoredSource.reason ?? ""} ${ignoredSource.metadata.map((entry) => `${entry.key} ${entry.value}`).join(" ")}`
+  })), tokens, limit);
   const lenses = scoreLenses(model, text, limit);
-  return { concepts, metrics, members, queries, lenses };
+  return { concepts, metrics, members, queries, lenses, ignored };
 }
 
 function scoreLenses(model: SemanticModel, text: string, limit: number) {
@@ -1424,7 +1448,17 @@ function memberSearchItems(concept: ResolvedConcept) {
     ...concept.identities.map((value) => ({ kind: "identity", name: value.name, text: value.typeName, value })),
     ...concept.fields.map((value) => ({ kind: "field", name: value.name, text: value.typeName, value })),
     ...concept.joins.map((value) => ({ kind: "join", name: value.name, text: `${value.target} ${value.on} ${value.at ?? ""}`, value })),
-    ...concept.roles.map((value) => ({ kind: "role", name: value.name, text: value.predicate, value })),
+    ...concept.roles.map((value) => ({
+      kind: "role",
+      name: value.name,
+      text: `${qualifiedRoleName(concept.name, value.name)} ${value.label ?? ""} ${value.aliases.join(" ")} ${value.predicate}`,
+      value: {
+        ...value,
+        qualifiedName: qualifiedRoleName(concept.name, value.name),
+        label: value.label ?? null,
+        aliases: value.aliases
+      }
+    })),
     ...concept.dimensions.map((value) => ({ kind: "dimension", name: value.name, text: value.expression, value })),
     ...concept.measures.map((value) => ({ kind: "measure", name: value.name, text: value.expression, value })),
     ...concept.validations.map((value) => ({ kind: "validation", name: value.name, text: `${value.description ?? ""} ${value.predicate ?? ""}`, value })),
@@ -1439,7 +1473,7 @@ function conceptMembersSearchText(members: ResolvedConcept | LensDecl["refinemen
     members.identities.map((item) => `${item.name} ${item.typeName}`).join(" "),
     members.fields.map((item) => `${item.name} ${item.typeName}`).join(" "),
     members.joins.map((item) => `${item.name} ${item.target} ${item.on} ${item.at ?? ""}`).join(" "),
-    members.roles.map((item) => `${item.name} ${item.predicate}`).join(" "),
+    members.roles.map((item) => `${item.name} ${"sourceName" in members ? qualifiedRoleName(members.name, item.name) : ""} ${item.label ?? ""} ${item.aliases.join(" ")} ${item.predicate}`).join(" "),
     members.dimensions.map((item) => `${item.name} ${item.expression}`).join(" "),
     members.measures.map((item) => `${item.name} ${item.expression}`).join(" "),
     members.validations.map((item) => `${item.name} ${item.description ?? ""} ${item.predicate ?? ""}`).join(" "),
@@ -1592,7 +1626,12 @@ function conceptSummary(concept: ResolvedConcept) {
     identities: concept.identities.map((item) => item.name),
     fields: concept.fields.map((item) => item.name),
     joins: concept.joins.map((item) => item.name),
-    roles: concept.roles.map((item) => item.name),
+    roles: concept.roles.map((item) => ({
+      name: item.name,
+      qualifiedName: qualifiedRoleName(concept.name, item.name),
+      label: item.label ?? null,
+      aliases: item.aliases
+    })),
     dimensions: concept.dimensions.map((item) => item.name),
     measures: concept.measures.map((item) => item.name),
     views: concept.views.map((item) => item.name),

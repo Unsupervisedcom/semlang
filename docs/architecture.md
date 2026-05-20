@@ -39,7 +39,7 @@ The implementation keeps the stages separate even where the resolver currently o
 
 ## Parse Stage
 
-The parser in `src/parser.ts` is a pragmatic line/block parser rather than a full grammar-driven parser. It recognizes top-level package, include, type, concept, lens, and query declarations. Concept and refinement bodies are parsed into common member structures so normal concepts and lens refinements share the same declaration shape.
+The parser in `src/parser.ts` is a pragmatic line/block parser rather than a full grammar-driven parser. It recognizes top-level package, include, ignored, source, type, concept, lens, and query declarations. Concept and refinement bodies are parsed into common member structures so normal concepts and lens refinements share the same declaration shape.
 
 Parser responsibilities:
 
@@ -56,13 +56,14 @@ Resolution lives in `src/resolver.ts`. `resolveSemLang` first loads the include 
 
 After loading, `mergeAst` builds a `SemanticModel`:
 
+- Ignored source declarations are appended to `model.ignored` as metadata-only declarations.
 - Types are stored in `model.types`.
 - Concepts are stored in `model.concepts` as `ResolvedConcept` values.
 - Lenses are stored in `model.lenses`.
 - Queries are appended to `model.queries`.
 - Duplicate package-level names are diagnosed during merge.
 
-The current compiler uses compiler names directly as model keys. There is not yet a namespace system beyond package-level includes, so added language features should be careful about symbol visibility and collision behavior.
+The current compiler uses compiler names directly as model keys for package-level declarations. Roles are concept-local: each role has a canonical qualified name such as `Customer.Active`, while short role names are resolved through the tested path when possible. There is not yet a general import alias model beyond file includes, so added language features should still be careful about symbol visibility and collision behavior.
 
 ## Validate Stage
 
@@ -70,6 +71,7 @@ Validation currently runs inside `validateModel` in the resolver. It validates t
 
 Validation responsibilities:
 
+- Require reasons for ignored source declarations and reject duplicate ignored source expressions or ignored sources that are also modeled.
 - Check primitive and semantic type references.
 - Check duplicate fields, joins, roles, dimensions, measures, views, queries, lenses, and package-level declarations.
 - Resolve join targets against concepts and roles.
@@ -162,7 +164,7 @@ The current compiler is deliberately V1-shaped:
 
 - Parsing is line/block based, so nested expression syntax is mostly preserved as strings rather than parsed into expression ASTs.
 - Expression validation is heuristic and does not fully understand Malloy or SQL precedence, function signatures, quoted identifiers, or every legal expression form.
-- There is no explicit namespace or import alias model beyond file includes and package-level duplicate checks.
+- There is no general import alias model beyond file includes and package-level duplicate checks; role names have a narrow concept-qualified namespace.
 - Lenses append refinements; they do not support removing, overriding, or relaxing earlier declarations or filters.
 - Lens-added type name conflicts are currently ignored during application if the type already exists.
 - The semantic model uses mutable arrays and maps internally, so cloning is required before query-time overlays.

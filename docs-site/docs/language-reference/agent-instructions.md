@@ -20,7 +20,7 @@ SemLang is best understood as Malloy with a semantic ontology layer. Keep Malloy
 - `type:` declarations give primitive values semantic meaning, such as `Dollars`, `CustomerId`, or `BusinessDate`.
 - `concept X is kind/event/situation/relator/phase ...` names what a row means, not just where it is stored.
 - `identity` declares the semantic key and lowers to Malloy `primary_key`.
-- `role Name when predicate` names a meaningful classification when the name adds business meaning. Do not create roles that only restate an existing filter.
+- `role Name when predicate` names a meaningful classification when the name adds business meaning. Its canonical name is `Concept.Name`; use optional `label` and `aliases` metadata for business-language discovery.
 - Temporal axes such as `occurrence_time:` and `valid_time:` document event time and valid-time state.
 - Temporal joins can use `at expression` instead of repeating period containment predicates.
 - `validation:` declarations are data-quality rules. They are not query filters.

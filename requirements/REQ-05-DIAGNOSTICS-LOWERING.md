@@ -23,6 +23,7 @@ The compiler should prefer precise diagnostics over guessing. When a construct c
 - 05.01.011: The compiler MUST report invalid lens refinements.
 - 05.01.012: The compiler MUST report aggregate aliases that reference unknown fields.
 - 05.01.013: The compiler MUST report aggregate aliases that reference raw row-level fields outside aggregate functions.
+- 05.01.014: The compiler MUST report ambiguous bare role references when the role short name is declared on multiple concepts and the tested path does not identify one owning concept.
 
 ## 05.02 Compilation Stage Safety
 

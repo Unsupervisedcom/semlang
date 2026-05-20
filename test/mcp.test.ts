@@ -76,6 +76,86 @@ function rowWith(rows: unknown, expected: Record<string, unknown>): Record<strin
 }
 
 describe("SemLang MCP example narratives", () => {
+  it("surfaces ignored sources in context and semantic search", async () => {
+    const mcp = createSemLangMcp();
+
+    const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.ignored_sources
+
+ignored duckdb.table('legacy_ticket_log') {
+  reason: "Deprecated -- replaced by event_transactions as of 2025-Q3"
+}
+
+concept EventTransaction is event from duckdb.table('event_transactions') {
+  identity event_id :: string
+}
+`
+    });
+    expectOk(source);
+    const context = asObject(source.context);
+    expect(records(context.ignored)[0]).toMatchObject({
+      source: "duckdb.table('legacy_ticket_log')",
+      sourceKind: "table",
+      reason: "\"Deprecated -- replaced by event_transactions as of 2025-Q3\""
+    });
+
+    const search = await mcp.tools.semantic_search_terms({ question: "legacy ticket log deprecated" });
+    expectOk(search);
+    expect(records(search.ignored)[0]).toMatchObject({
+      source: "duckdb.table('legacy_ticket_log')",
+      reason: "\"Deprecated -- replaced by event_transactions as of 2025-Q3\""
+    });
+  });
+
+  it("surfaces role qualified names, labels, and aliases in ontology search tools", async () => {
+    const mcp = createSemLangMcp();
+
+    const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.role_aliases
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  field:
+    status :: string
+  role Active when status = 'active' {
+    label: "Active Customer"
+    aliases: "Current Customer", "Open Customer"
+  }
+}
+`
+    });
+    expectOk(source);
+
+    const role = await mcp.tools.ontology_describe_role({ role: "Customer.Active" });
+    expectOk(role);
+    expect(records(role.roles)[0]).toMatchObject({
+      concept: "Customer",
+      name: "Active",
+      qualifiedName: "Customer.Active",
+      label: "Active Customer",
+      aliases: ["Current Customer", "Open Customer"],
+      predicate: "status = 'active'"
+    });
+
+    const search = await mcp.tools.semantic_search_terms({ question: "current customer" });
+    expectOk(search);
+    const roleMatch = records(search.members).find((member) => member.kind === "role");
+    expect(roleMatch).toMatchObject({
+      name: "Active",
+      concept: "Customer",
+      matchedTerms: expect.arrayContaining(["current", "customer"])
+    });
+
+    const entity = await mcp.tools.catalog_resolve_entity({ name: "Open Customer" });
+    expectOk(entity);
+    expect(records(entity.matches).find((match) => match.kind === "role")).toMatchObject({
+      name: "Active",
+      concept: "Customer"
+    });
+  });
+
   it("walks the retail base ontology from search to generated Malloy", async () => {
     const mcp = createSemLangMcp();
 

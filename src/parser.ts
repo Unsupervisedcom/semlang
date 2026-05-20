@@ -1,4 +1,5 @@
 import { lexSemLang } from "./lexer.js";
+import { parseMetadataLiteral, parseMetadataStringArray } from "./schema-metadata.js";
 import {
   collectBraceBlock,
   countNetBraces,
@@ -23,6 +24,7 @@ import {
   type DefinitionDecl,
   type Diagnostic,
   type FieldDecl,
+  type IgnoredDecl,
   type IdentityField,
   type JoinDecl,
   type LensDecl,
@@ -34,6 +36,7 @@ import {
   type QueryItemDecl,
   type QueryNestDecl,
   type RefinementDecl,
+  type RoleDecl,
   type SourceDecl,
   type SourceExpression,
   type SourceLocation,
@@ -66,6 +69,7 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
     packageName,
     filePath: options.filePath,
     includes: [],
+    ignored: [],
     sources: [],
     types: [],
     concepts: [],
@@ -107,6 +111,15 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
       diagnoseUnclosedBlock(block, options.filePath, diagnostics);
       const parsed = parseType(block.header, block.body, options.filePath, diagnostics);
       if (parsed) ast.types.push(parsed);
+      i = block.end;
+      continue;
+    }
+
+    if (/^ignored\b/.test(trimmed)) {
+      const block = collectDeclarationBlock(lines, i);
+      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
+      const parsed = parseIgnored(block.header, block.body, options.filePath, diagnostics);
+      if (parsed) ast.ignored.push(parsed);
       i = block.end;
       continue;
     }
@@ -199,6 +212,24 @@ function parseTypeMetadata(body: SourceLine[], file: string | undefined): Metada
     });
   }
   return metadata;
+}
+
+function parseIgnored(header: SourceLine, body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): IgnoredDecl | undefined {
+  const match = /^ignored\s+(.+?)\s*\{$/.exec(header.stripped.trim());
+  if (!match) {
+    diagnostics.push(error("INVALID_IGNORED_DECL", "Invalid ignored declaration.", file, header));
+    return undefined;
+  }
+  const source = parseSourceExpression(match[1]!, file, header, diagnostics);
+  if (!source) return undefined;
+  const metadata = parseMetadataEntries(body, file);
+  const reason = metadata.find((entry) => entry.key === "reason")?.value;
+  return {
+    source,
+    reason,
+    metadata,
+    location: location(file, header.line, header.text, "ignored")
+  };
 }
 
 function delimiterBalance(text: string): number {
@@ -539,10 +570,18 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     }
 
     if (/^role\b/.test(trimmed)) {
-      const collected = collectContinuation(lines, i, (next) => next.stripped.trim().startsWith("when "));
-      const parsed = parseRole(collected.lines, file, diagnostics);
-      if (parsed) members.roles.push(parsed);
-      i = collected.end;
+      if (trimmed.includes("{")) {
+        const block = collectBraceBlock(lines, i);
+        diagnoseUnclosedBlock(block, file, diagnostics);
+        const parsed = parseRole([block.header], block.body, file, diagnostics);
+        if (parsed) members.roles.push(parsed);
+        i = block.end;
+      } else {
+        const collected = collectContinuation(lines, i, (next) => next.stripped.trim().startsWith("when "));
+        const parsed = parseRole(collected.lines, [], file, diagnostics);
+        if (parsed) members.roles.push(parsed);
+        i = collected.end;
+      }
       continue;
     }
 
@@ -679,7 +718,7 @@ function parseTypedName(text: string, line: SourceLine, file: string | undefined
 
 function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): JoinDecl | undefined {
   const text = normalizeExpression(lines);
-  const match = /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(text);
+  const match = /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(text);
   if (!match) {
     diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
     return undefined;
@@ -706,14 +745,25 @@ function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: D
   };
 }
 
-function parseRole(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]) {
-  const text = normalizeExpression(lines);
+function parseRole(lines: SourceLine[], body: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): RoleDecl | undefined {
+  const text = normalizeExpression(lines).replace(/\s*\{\s*$/, "").trim();
   const match = /^role\s+([A-Za-z_][A-Za-z0-9_]*)\s+when\s+(.+)$/.exec(text);
   if (!match) {
     diagnostics.push(error("INVALID_ROLE", `Invalid role declaration: ${text}`, file, lines[0]!));
     return undefined;
   }
-  return { name: match[1]!, predicate: match[2]!.trim(), location: location(file, lines[0]!.line, lines[0]!.text, "role") };
+  const metadata = parseMetadataEntries(body, file);
+  const label = metadata.find((entry) => entry.key === "label")?.value;
+  const labelValue = label ? parseMetadataLiteral(label) : undefined;
+  const aliasesEntry = metadata.find((entry) => entry.key === "aliases");
+  return {
+    name: match[1]!,
+    predicate: match[2]!.trim(),
+    label: typeof labelValue === "string" ? labelValue : undefined,
+    aliases: aliasesEntry ? parseMetadataStringArray(aliasesEntry.value) : [],
+    metadata,
+    location: location(file, lines[0]!.line, lines[0]!.text, "role")
+  };
 }
 
 function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): DefinitionDecl[] {

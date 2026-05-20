@@ -128,13 +128,20 @@ If the target valid time is `period(start, end)`, lowering adds containment pred
 Roles are named predicates over a concept:
 
 ```semlang
-role LoyaltyCustomer when loyalty_member_id is not null
+role Loyalty when loyalty_member_id is not null {
+  label: "Loyalty Customer"
+  aliases: "Rewards Customer", "Member Customer"
+}
 ```
 
 Roles can be tested in expressions:
 
 ```semlang
-customer is LoyaltyCustomer
+customer is Customer.Loyalty
 ```
+
+The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`. Bare role names are accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`. If a bare role name is ambiguous, use the qualified form.
+
+Role `label` and `aliases` metadata support discovery and presentation. Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
 
 During Malloy emission, role tests lower to their predicates with the correct path prefix.

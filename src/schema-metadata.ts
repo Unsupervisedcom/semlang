@@ -70,6 +70,30 @@ export function parseMetadataLiteral(text: string): unknown {
   }
 }
 
+export function parseMetadataValue(entry: Pick<MetadataEntry, "key" | "value">): unknown {
+  return arrayValuedMetadataKeywords.has(entry.key) ? parseMetadataArrayValue(entry.value) : parseMetadataLiteral(entry.value);
+}
+
+export function parseMetadataStringArray(text: string): string[] {
+  const parsed = parseMetadataArrayValue(text);
+  const values = Array.isArray(parsed) ? parsed : [parsed];
+  return values.map((item) => typeof item === "string" ? item : String(item));
+}
+
+function parseMetadataArrayValue(text: string): unknown {
+  const trimmed = text.trim();
+  const parsed = parseMetadataLiteral(text);
+  if (Array.isArray(parsed)) return parsed;
+  if (trimmed.startsWith("{")) return parsed;
+  const parts = splitTopLevelComma(text);
+  if (parts.length <= 1) return isScalarMetadataValue(parsed) ? [parsed] : parsed;
+  return parts.map((part) => parseMetadataLiteral(part));
+}
+
+function isScalarMetadataValue(value: unknown): boolean {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
 export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | undefined {
   const replacement = legacyTypeMetadataReplacements.get(entry.key);
   if (entry.key === "format" && isJsonSchemaFormatValue(entry.value)) return undefined;
@@ -82,12 +106,12 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
     };
   }
   if (entry.key === "enum") {
-    const value = parseMetadataLiteral(entry.value);
+    const value = parseMetadataValue(entry);
     if (!Array.isArray(value)) {
       return {
         severity: "error",
         code: "INVALID_TYPE_METADATA",
-        message: "Type metadata enum must be an array literal.",
+        message: "Type metadata enum must be an array value.",
         location: entry.location
       };
     }
@@ -119,11 +143,11 @@ export function validateTypeMetadataEntry(entry: MetadataEntry): Diagnostic | un
       location: entry.location
     };
   }
-  if (arrayMetadataKeywords.has(entry.key) && !Array.isArray(parseMetadataLiteral(entry.value))) {
+  if (arrayMetadataKeywords.has(entry.key) && !Array.isArray(parseMetadataValue(entry))) {
     return {
       severity: "error",
       code: "INVALID_TYPE_METADATA",
-      message: `Type metadata ${entry.key} must be an array literal.`,
+      message: `Type metadata ${entry.key} must be an array value.`,
       location: entry.location
     };
   }
@@ -150,7 +174,32 @@ function unescapeSingleQuoted(text: string): string {
   return text.replace(/\\'/g, "'").replace(/\\\\/g, "\\");
 }
 
+function splitTopLevelComma(text: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: "'" | "\"" | "`" | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]!;
+    const prev = text[i - 1];
+    if ((char === "'" || char === "\"" || char === "`") && prev !== "\\") {
+      quote = quote === char ? undefined : quote ?? char;
+      continue;
+    }
+    if (quote) continue;
+    if (char === "[" || char === "{" || char === "(") depth += 1;
+    if (char === "]" || char === "}" || char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
 const numericMetadataKeywords = new Set(["multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum"]);
 const integerMetadataKeywords = new Set(["maxLength", "minLength", "maxItems", "minItems", "maxContains", "minContains", "maxProperties", "minProperties"]);
 const booleanMetadataKeywords = new Set(["deprecated", "readOnly", "writeOnly", "uniqueItems"]);
 const arrayMetadataKeywords = new Set(["examples", "required", "prefixItems"]);
+const arrayValuedMetadataKeywords = new Set(["enum", ...arrayMetadataKeywords]);

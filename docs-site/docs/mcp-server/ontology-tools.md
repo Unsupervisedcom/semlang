@@ -42,19 +42,19 @@ Returns the resolved action and write targets. When no action is supplied, or a 
 
 ## `ontology.describe_role`
 
-Describes a single role by role name and optional concept.
+Describes a single role by local or qualified role name and optional concept.
 
 ### Inputs
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `role` | string | Role name. |
+| `role` | string | Local role name or qualified role name such as `Customer.Active`. |
 | `name` | string | Alias for `role`. |
 | `concept` | string | Optional owning concept. |
 
 ### Output
 
-Returns matching roles with their owning concept and predicate.
+Returns matching roles with their owning concept, local name, qualified name, label, aliases, and predicate.
 
 ## `ontology.describe_roles`
 

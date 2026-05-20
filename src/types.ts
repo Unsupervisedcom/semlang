@@ -58,6 +58,7 @@ export interface SemLangAst {
   packageName: string;
   filePath?: string;
   includes: IncludeDecl[];
+  ignored: IgnoredDecl[];
   sources: SourceDecl[];
   types: TypeDecl[];
   concepts: ConceptDecl[];
@@ -115,6 +116,13 @@ export interface SourceDecl {
   location: SourceLocation;
 }
 
+export interface IgnoredDecl {
+  source: SourceExpression;
+  reason?: string;
+  metadata: MetadataEntry[];
+  location: SourceLocation;
+}
+
 export interface ConceptDecl {
   name: string;
   description?: string;
@@ -166,6 +174,9 @@ export interface JoinDecl {
 export interface RoleDecl {
   name: string;
   predicate: string;
+  label?: string;
+  aliases: string[];
+  metadata: MetadataEntry[];
   location: SourceLocation;
 }
 
@@ -357,6 +368,7 @@ export interface QueryDecl {
 export interface SemanticModel {
   packageName: string;
   files: string[];
+  ignored: IgnoredDecl[];
   sources: Map<string, SourceDecl>;
   types: Map<string, TypeDecl>;
   concepts: Map<string, ResolvedConcept>;
