@@ -2,8 +2,9 @@ source: stores is duckdb.table('stores') extend {
   primary_key: store_id
 
   dimension:
+    is_same_store is same_store_start_date is not null
     store_label is concat(store_code, ' - ', store_name)
-    is_same_store_eligible is same_store_start_date is not null
+    is_same_store_eligible is (same_store_start_date is not null)
 }
 
 source: customers is duckdb.table('customers') extend {
@@ -14,23 +15,24 @@ source: customers is duckdb.table('customers') extend {
 
   dimension:
     is_loyalty_customer is loyalty_member_id is not null
-    is_payment_card_recognized is loyalty_member_id is null and payment_card_hash is not null
-    recognition_method is case
-      when loyalty_member_id is not null then 'loyalty'
-      when payment_card_hash is not null then 'payment_card'
-      else 'unknown'
-    end
+    is_payment_card_recognized_customer is loyalty_member_id is null and payment_card_hash is not null
+    recognition_method is
+      case when (loyalty_member_id is not null) then 'loyalty' when (loyalty_member_id is null and payment_card_hash is not null) then 'payment_card' else 'unknown' end
 }
 
 source: loyalty_point_balance is duckdb.table('loyalty_point_balance') extend {
-  primary_key: concat(loyalty_member_id, '|', balance_date)
+  primary_key: __semlang_primary_key
 
   join_one: loyalty_customer is customers
     on loyalty_member_id = loyalty_customer.loyalty_member_id
+    and loyalty_customer.loyalty_member_id is not null
+
+  dimension:
+    __semlang_primary_key is concat(loyalty_member_id, '|', balance_date)
 
   measure:
     balance_days is count()
-    loyalty_members_with_balance is count(distinct loyalty_member_id)
+    loyalty_members_with_balance is count(loyalty_member_id)
     point_balance_at_filter is max(point_balance)
     average_point_balance is avg(point_balance)
 
@@ -49,14 +51,10 @@ source: product_skus is duckdb.table('product_skus') extend {
 }
 
 source: product_sku_history is duckdb.table('product_sku_history') extend {
-  primary_key: product_version_id
-
-  join_one: sku is product_skus
-    on sku_id = sku.sku_id
 
   dimension:
-    category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
     is_active_product is lifecycle_status = 'active'
+    category_path is concat(department, ' / ', category_name, ' / ', subcategory_name)
     category_at_event is category_name
 }
 
@@ -64,70 +62,43 @@ source: promotions is duckdb.table('promotions') extend {
   primary_key: promotion_id
 
   dimension:
-    is_vendor_funded is funding_source = 'vendor'
-}
-
-source: transactions is duckdb.table('transactions') extend {
-  primary_key: transaction_id
-
-  join_one: store is stores
-    on store_id = store.store_id
-
-  join_one: customer is customers
-    on customer_id = customer.customer_id
-
-  join_one: loyalty_points_at_sale is loyalty_point_balance
-    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
-    and sold_at.date = loyalty_points_at_sale.balance_date
-
-  join_many: lines is retail_line_items
-    on transaction_id = lines.transaction_id
-
-  dimension:
-    sold_date is sold_at.date
-    sold_month is sold_at.month
-    customer_recognition_method is case
-      when customer_id is null then 'unrecognized_cash'
-      when customer.loyalty_member_id is not null then 'loyalty'
-      when customer.payment_card_hash is not null then 'payment_card'
-      else 'known_other'
-    end
-    loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
-
-  measure:
-    sales is count()
-    loyalty_customers is count(distinct customer.loyalty_member_id)
-    identified_customers is count(distinct customer.customer_id)
-    identified_customer_sales is count(case when customer_id is not null then transaction_id end)
-    unrecognized_cash_sales is count(case when customer_id is null then transaction_id end)
-    identified_sales_per_customer is identified_customer_sales / nullif(identified_customers, 0)
-    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
+    is_vendor_funded_promotion is funding_source = 'vendor'
+    is_vendor_funded is (funding_source = 'vendor')
 }
 
 source: line_item_promotions is duckdb.table('line_item_promotions') extend {
-  primary_key: concat(line_item_id, '|', promotion_id)
+  primary_key: __semlang_primary_key
+
+  join_one: sale_line is retail_line_items
+    on line_item_id = sale_line.line_item_id
 
   join_one: promotion is promotions
     on promotion_id = promotion.promotion_id
+
+  dimension:
+    __semlang_primary_key is concat(line_item_id, '|', promotion_id)
 
   measure:
     # currency=usd2
     allocated_discount is sum(allocation_amount)
     # currency=usd2
-    vendor_funded_discount is sum(case when promotion.funding_source = 'vendor' then allocation_amount else 0 end)
+    vendor_funded_discount is
+      sum( case when (promotion.funding_source = 'vendor') then allocation_amount else 0 end )
     promotion_count is count()
 }
 
 source: return_lines is duckdb.table('return_lines') extend {
   primary_key: return_line_id
 
+  join_one: original_sale_line is retail_line_items
+    on original_line_item_id = original_sale_line.line_item_id
+
   measure:
-    return_authorizations is count(distinct return_authorization_id)
+    return_authorizations is count(return_authorization_id)
     returned_units is sum(returned_quantity)
     settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
     # currency=usd2
     refund_amount is sum(refund_amount)
-    # currency=usd2
     settled_refund_amount is sum(case when return_status = 'settled' then refund_amount else 0 end)
     # currency=usd2
     restocking_fees is sum(restocking_fee_amount)
@@ -143,6 +114,51 @@ source: return_lines is duckdb.table('return_lines') extend {
       returned_units
       refund_amount
       restocking_fees
+  }
+}
+
+source: transactions is duckdb.table('transactions') extend {
+  primary_key: transaction_id
+
+  join_one: store is stores
+    on store_id = store.store_id
+
+  join_one: customer is customers
+    on customer_id = customer.customer_id
+
+  join_one: loyalty_points_at_sale is loyalty_point_balance
+    on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id and sold_at.day = loyalty_points_at_sale.balance_date
+
+  join_many: lines is retail_line_items
+    on transaction_id = lines.transaction_id
+
+  dimension:
+    sold_date is sold_at.day
+    sold_month is sold_at.month
+    loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
+    customer_recognition_method is
+      case when customer is null then 'unrecognized_cash' when (customer.loyalty_member_id is not null) then 'loyalty' when (customer.loyalty_member_id is null and customer.payment_card_hash is not null) then 'payment_card' else 'known_other' end
+
+  measure:
+    sales is count()
+    loyalty_customers is
+      count(case when (customer.loyalty_member_id is not null) then customer.loyalty_member_id end)
+    identified_customers is count(customer.customer_id)
+    identified_customer_sales is count(case when customer is not null then transaction_id end)
+    unrecognized_cash_sales is count(case when customer is null then transaction_id end)
+    identified_sales_per_customer is identified_customer_sales / nullif(identified_customers, 0)
+    average_loyalty_point_balance_at_sale is avg(loyalty_points_at_sale.point_balance)
+
+  view: loyalty_sale_mix is {
+    group_by:
+      sold_month
+      customer_recognition_method
+      customer.pii_consent_status
+    aggregate:
+      sales
+      loyalty_customers
+      identified_customer_sales
+      average_loyalty_point_balance_at_sale
   }
 }
 
@@ -174,11 +190,11 @@ source: retail_line_items is duckdb.table('retail_line_items') extend {
     margin_amount is net_sales_amount - merchandise_cost_amount
     customer_recognition_method is sale.customer_recognition_method
     loyalty_point_balance_at_sale is sale.loyalty_point_balance_at_sale
-    is_return_window_open is sale.sold_at >= now() - interval('30 day')
+    is_return_window_open is sale.sold_at >= now - 30 days
 
   measure:
     line_items is count()
-    sales is count(distinct transaction_id)
+    sales is count(transaction_id)
     units_sold is sum(quantity)
     # currency=usd2
     gross_sales is sum(gross_sales_amount)
@@ -188,33 +204,20 @@ source: retail_line_items is duckdb.table('retail_line_items') extend {
     net_sales is sum(net_sales_amount)
     # currency=usd2
     merchandise_cost is sum(merchandise_cost_amount)
-    # currency=usd2
-    merchandising_margin is sum(net_sales_amount - merchandise_cost_amount)
+    merchandising_margin is sum(margin_amount)
     # currency=usd2
     tax_collected is sum(tax_amount)
-    # currency=usd2
     promotion_discount is sum(promotion_allocations.allocation_amount)
-    # currency=usd2
-    vendor_funded_discount is sum(
-      case
-        when promotion_allocations.promotion.funding_source = 'vendor'
-        then promotion_allocations.allocation_amount
-        else 0
-      end
-    )
+    vendor_funded_discount is
+      sum( case when (promotion_allocations.promotion.funding_source = 'vendor') then promotion_allocations.allocation_amount else 0 end )
     returned_units is sum(returns.returned_quantity)
-    settled_returned_units is sum(
-      case when returns.return_status = 'settled' then returns.returned_quantity else 0 end
-    )
-    # currency=usd2
+    settled_returned_units is
+      sum( case when returns.return_status = 'settled' then returns.returned_quantity else 0 end )
     refund_amount is sum(returns.refund_amount)
-    # currency=usd2
-    settled_refund_amount is sum(
-      case when returns.return_status = 'settled' then returns.refund_amount else 0 end
-    )
+    settled_refund_amount is
+      sum( case when returns.return_status = 'settled' then returns.refund_amount else 0 end )
     return_rate is returned_units / nullif(units_sold, 0)
     settled_return_rate is settled_returned_units / nullif(units_sold, 0)
-    # currency=usd2
     net_after_settled_refunds is net_sales - settled_refund_amount
 
   view: sales_by_region_category is {
@@ -252,40 +255,6 @@ source: retail_line_items is duckdb.table('retail_line_items') extend {
       merchandising_margin
       refund_amount
   }
-
-  view: promotion_performance is {
-    group_by:
-      sold_month
-      channel
-      promotion_allocations.promotion.promo_code
-      promotion_allocations.promotion.promotion_type
-      promotion_allocations.promotion.funding_source
-    aggregate:
-      units_sold
-      net_sales
-      promotion_discount
-      vendor_funded_discount
-      merchandising_margin
-      refund_amount
-  }
-
-  view: return_drilldown is {
-    group_by:
-      sold_month
-      sale.store.region
-      product_at_sale.category_name
-      returns.return_channel
-      returns.return_status
-      returns.reason_code
-    aggregate:
-      units_sold
-      returned_units
-      settled_returned_units
-      refund_amount
-      settled_refund_amount
-      return_rate
-      settled_return_rate
-  }
 }
 
 source: inventory_snapshots is duckdb.table('inventory_snapshots') extend {
@@ -312,37 +281,8 @@ source: inventory_snapshots is duckdb.table('inventory_snapshots') extend {
     on_order_units_at_filter is max(on_order_units)
     reserved_units_at_filter is max(reserved_units)
     damaged_units_at_filter is max(damaged_units)
-    available_to_sell_at_filter is max(on_hand_units - reserved_units - damaged_units)
-    negative_on_hand_locations is count(case when on_hand_units < 0 then inventory_snapshot_id end)
-
-  view: daily_inventory_by_store_sku is {
-    group_by:
-      snapshot_date
-      store.region
-      store.store_code
-      sku.sku_number
-      product_at_snapshot.category_name
-      product_at_snapshot.lifecycle_status
-    aggregate:
-      on_hand_units_at_filter
-      reserved_units_at_filter
-      damaged_units_at_filter
-      available_to_sell_at_filter
-      negative_on_hand_locations
-  }
-
-  view: category_inventory_snapshot is {
-    group_by:
-      snapshot_date
-      store.region
-      product_at_snapshot.department
-      product_at_snapshot.category_name
-    aggregate:
-      snapshot_rows
-      on_hand_units_at_filter
-      on_order_units_at_filter
-      available_to_sell_at_filter
-  }
+    available_to_sell_at_filter is max(available_to_sell_units)
+    negative_on_hand_locations is count(case when is_negative_on_hand then inventory_snapshot_id end)
 }
 
 query: monthly_margin_and_returns is retail_line_items -> {
@@ -361,7 +301,7 @@ query: monthly_margin_and_returns is retail_line_items -> {
     loyalty_margin_mix
   index:
     sale.store.region
-    product_category is product_at_sale.category_name
+    product_at_sale.category_name
   order_by:
     sold_month desc
   limit: 24
@@ -375,7 +315,7 @@ query: recent_order_line_projection is retail_line_items -> {
     channel
     product_at_sale.category_name
   order_by:
-    sale.sold_at desc
+    sold_at desc
   limit: 25
 }
 
@@ -391,4 +331,54 @@ query: inventory_exceptions is inventory_snapshots -> {
     on_hand_units_at_filter
     damaged_units_at_filter
     available_to_sell_at_filter
+}
+
+query: vendor_funded_return_exposure is retail_line_items -> {
+  where: (promotion_allocations.promotion.funding_source = 'vendor')
+  group_by:
+    sold_month
+    channel
+    sale.store.region
+    product_at_sale.department
+    product_at_sale.category_name
+    promotion_allocations.promotion.promo_code
+  aggregate:
+    units_sold
+    net_sales
+    vendor_funded_discount
+    merchandising_margin
+    returned_units
+    settled_refund_amount
+    settled_return_rate
+}
+
+query: denver_store_customer_count_on_2025_09_15 is transactions -> {
+  where: sold_date = @2025-09-15 and store.store_code = 'DEN-01'
+  aggregate:
+    sales
+    identified_customer_sales
+    identified_customers
+    unrecognized_cash_sales
+    identified_sales_per_customer
+    max_possible_unique_customers is identified_customers + unrecognized_cash_sales
+    estimated_unrecognized_customers_same_repeat_rate is
+      unrecognized_cash_sales / nullif(identified_sales_per_customer, 0)
+    estimated_total_customers_same_repeat_rate is
+      identified_customers + estimated_unrecognized_customers_same_repeat_rate
+}
+
+query: same_store_category_health is retail_line_items -> {
+  where: (sale.store.same_store_start_date is not null) and (product_at_sale.lifecycle_status = 'active')
+  group_by:
+    sold_month
+    sale.store.region
+    sale.store.market
+    product_at_sale.department
+    product_at_sale.category_name
+  aggregate:
+    sales
+    units_sold
+    net_sales
+    merchandising_margin
+    net_after_settled_refunds
 }

@@ -88,7 +88,7 @@ Lens filters compose by conjunction when multiple lenses or refinements apply.
 
 ```semlang
 aggregate:
-  identified_customers is count(distinct customer_id)
+  identified_customers is count(customer_id)
   max_possible_unique_customers is identified_customers + unrecognized_cash_sales
 ```
 

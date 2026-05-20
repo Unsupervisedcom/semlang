@@ -556,9 +556,9 @@ concept ProductionOrder is event from duckdb.table('production_orders') {
   role CancelledProductionOrder when order_status = 'cancelled'
 
   dimension:
-    started_date is started_at.date
+    started_date is started_at.day
     started_month is started_at.month
-    order_duration_hours is (completed_at - started_at) / interval('1 hour')
+    order_duration_hours is (completed_at - started_at) / 1 hours
     used_declared_bom_effectively is
       started_at >= bom_version.effective_from and started_at < bom_version.effective_to
     declared_bom_matches_time_effective_bom is bom_version_id = bom_version_at_start.bom_version_id
@@ -566,13 +566,13 @@ concept ProductionOrder is event from duckdb.table('production_orders') {
   measure:
     production_orders is count()
     planned_units is sum(planned_quantity)
-    completed_units is count(distinct units.serial_number)
-    released_units is count(distinct case when units.unit_status in ('released', 'shipped') then units.serial_number end)
-    consumed_supplier_lots is count(distinct lot_consumption.supplier_lot_id)
-    consumed_materials is count(distinct lot_consumption.material_id)
+    completed_units is count(units.serial_number)
+    released_units is count(case when units.unit_status in ('released', 'shipped') then units.serial_number end)
+    consumed_supplier_lots is count(lot_consumption.supplier_lot_id)
+    consumed_materials is count(lot_consumption.material_id)
     consumed_quantity is sum(lot_consumption.consumed_quantity)
-    defective_units is count(distinct defects.serial_number)
-    defect_rows is count(distinct defects.defect_id)
+    defective_units is count(defects.serial_number)
+    defect_rows is count(defects.defect_id)
     average_order_duration_hours is avg(order_duration_hours)
 
   view: production_by_bom_version is {
@@ -630,8 +630,8 @@ concept ProductionOrderLotConsumption is event from duckdb.table('production_ord
 
   measure:
     consumed_lot_links is count()
-    consumed_supplier_lots is count(distinct supplier_lot_id)
-    consumed_materials is count(distinct material_id)
+    consumed_supplier_lots is count(supplier_lot_id)
+    consumed_materials is count(material_id)
     consumed_quantity is sum(consumed_quantity)
     manual_consumption_links is count(case when this is ManualConsumptionAdjustment then consumption_id end)
 
@@ -684,7 +684,7 @@ concept SerializedUnit is kind from duckdb.table('serialized_units') {
   role NonconformingUnit when final_quality_disposition in ('rework_required', 'rejected')
 
   dimension:
-    completed_date is completed_at.date
+    completed_date is completed_at.day
     completed_month is completed_at.month
     was_shipped is this is ShippedUnit
     accepted_unit is this is AcceptedUnit
@@ -697,15 +697,15 @@ concept SerializedUnit is kind from duckdb.table('serialized_units') {
     held_units is count(case when this is HeldUnit then serial_number end)
     scrapped_units is count(case when this is ScrappedUnit then serial_number end)
     nonconforming_units is count(case when this is NonconformingUnit then serial_number end)
-    defective_units is count(distinct case when defects.defect_id is not null then serial_number end)
-    critical_defective_units is count(distinct case when defects.severity_level = 'critical' then serial_number end)
-    defect_rows is count(distinct defects.defect_id)
+    defective_units is count(case when defects.defect_id is not null then serial_number end)
+    critical_defective_units is count(case when defects.severity_level = 'critical' then serial_number end)
+    defect_rows is count(defects.defect_id)
     final_acceptance_rate is accepted_units / nullif(units_built, 0)
     defect_unit_rate is defective_units / nullif(units_built, 0)
-    warranty_claim_count is count(distinct warranty_claims.warranty_claim_id)
-    warranty_claimed_units is count(distinct warranty_claims.serial_number)
+    warranty_claim_count is count(warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(warranty_claims.serial_number)
     warranty_cost is sum(warranty_claims.claim_cost_amount)
-    recall_scope_rows is count(distinct recall_scope_rows.recall_unit_id)
+    recall_scope_rows is count(recall_scope_rows.recall_unit_id)
 
   view: unit_quality_by_bom_and_lot is {
     group_by:
@@ -753,18 +753,18 @@ concept Inspection is event from duckdb.table('inspections') {
   role ConditionalInspection when inspection_status = 'conditional'
 
   dimension:
-    inspection_date is performed_at.date
+    inspection_date is performed_at.day
     inspection_month is performed_at.month
     passed_first_pass is first_pass_flag = 1
 
   measure:
     inspection_rows is count()
-    inspected_units is count(distinct serial_number)
+    inspected_units is count(serial_number)
     passed_inspections is count(case when this is PassedInspection then inspection_id end)
     failed_inspections is count(case when this is FailedInspection then inspection_id end)
     conditional_inspections is count(case when this is ConditionalInspection then inspection_id end)
-    defect_rows is count(distinct defects.defect_id)
-    defective_units is count(distinct defects.serial_number)
+    defect_rows is count(defects.defect_id)
+    defective_units is count(defects.serial_number)
     first_pass_yield is avg(first_pass_flag)
     defect_rate is defective_units / nullif(inspected_units, 0)
     rework_hours is sum(defects.rework_hours)
@@ -815,13 +815,13 @@ concept InspectionDefect is event from duckdb.table('inspection_defects') {
   role SupplierChargebackDefect when defect_disposition = 'supplier_chargeback'
 
   dimension:
-    detected_date is detected_at.date
+    detected_date is detected_at.day
     detected_month is detected_at.month
     has_related_supplier_lot is related_supplier_lot_id is not null
 
   measure:
     defect_rows is count()
-    defective_units is count(distinct serial_number)
+    defective_units is count(serial_number)
     critical_defect_rows is count(case when this is CriticalDefect then defect_id end)
     major_defect_rows is count(case when this is MajorDefect then defect_id end)
     supplier_chargeback_rows is count(case when this is SupplierChargebackDefect then defect_id end)
@@ -864,13 +864,13 @@ concept Shipment is event from duckdb.table('shipments') {
   role ReturnedShipment when shipment_status = 'returned'
 
   dimension:
-    shipped_date is shipped_at.date
+    shipped_date is shipped_at.day
     shipped_month is shipped_at.month
 
   measure:
     shipments is count()
-    shipped_unit_rows is count(distinct units.shipment_unit_id)
-    shipped_units is count(distinct units.serial_number)
+    shipped_unit_rows is count(units.shipment_unit_id)
+    shipped_units is count(units.serial_number)
 }
 
 concept ShipmentUnit is relator from duckdb.table('shipment_units') {
@@ -888,7 +888,7 @@ concept ShipmentUnit is relator from duckdb.table('shipment_units') {
 
   measure:
     shipment_unit_rows is count()
-    shipped_units is count(distinct serial_number)
+    shipped_units is count(serial_number)
     exception_approved_units is count(case when this is ExceptionApprovedShipmentUnit then serial_number end)
 }
 
@@ -912,13 +912,13 @@ concept WarrantyClaim is event from duckdb.table('warranty_claims') {
   role OpenWarrantyClaim when claim_status = 'opened'
 
   dimension:
-    claim_date is claim_opened_at.date
+    claim_date is claim_opened_at.day
     claim_month is claim_opened_at.month
     is_approved_claim is this is ApprovedWarrantyClaim
 
   measure:
     warranty_claim_count is count()
-    claimed_units is count(distinct serial_number)
+    claimed_units is count(serial_number)
     approved_claims is count(case when this is ApprovedWarrantyClaim then warranty_claim_id end)
     open_claims is count(case when this is OpenWarrantyClaim then warranty_claim_id end)
     warranty_cost is sum(claim_cost_amount)
@@ -956,7 +956,7 @@ concept RecallCampaign is event from duckdb.table('recall_campaigns') {
   role RegulatoryReportableRecall when regulatory_report_required = 1
 
   dimension:
-    initiated_date is initiated_at.date
+    initiated_date is initiated_at.day
     initiated_month is initiated_at.month
     is_active_recall is this is ActiveRecallCampaign
     requires_regulatory_report is this is RegulatoryReportableRecall
@@ -964,9 +964,9 @@ concept RecallCampaign is event from duckdb.table('recall_campaigns') {
   measure:
     recall_campaigns is count()
     active_recall_campaigns is count(case when this is ActiveRecallCampaign then recall_campaign_id end)
-    affected_units is count(distinct affected_units.serial_number)
+    affected_units is count(affected_units.serial_number)
     open_scope_units is count(
-      distinct case when affected_units.affected_status in ('identified', 'notified') then affected_units.serial_number end
+      case when affected_units.affected_status in ('identified', 'notified') then affected_units.serial_number end
     )
 }
 
@@ -993,21 +993,21 @@ concept RecallAffectedUnit is relator from duckdb.table('recall_affected_units')
   role ExcludedRecallScopeItem when affected_status = 'excluded'
 
   dimension:
-    identified_date is identified_at.date
+    identified_date is identified_at.day
     identified_month is identified_at.month
     is_open_scope_item is this is OpenRecallScopeItem
     is_reportable_open_scope_item is (recall_campaign is RegulatoryReportableRecall) and (this is OpenRecallScopeItem)
 
   measure:
     affected_unit_rows is count()
-    affected_units is count(distinct serial_number)
-    shipped_affected_units is count(distinct shipment_unit_rows.serial_number)
-    notified_units is count(distinct case when affected_status = 'notified' then serial_number end)
-    remediated_units is count(distinct case when this is RemediatedRecallScopeItem then serial_number end)
-    open_scope_units is count(distinct case when this is OpenRecallScopeItem then serial_number end)
-    reportable_open_scope_units is count(distinct case when is_reportable_open_scope_item then serial_number end)
-    warranty_claim_count is count(distinct warranty_claims.warranty_claim_id)
-    warranty_claimed_units is count(distinct warranty_claims.serial_number)
+    affected_units is count(serial_number)
+    shipped_affected_units is count(shipment_unit_rows.serial_number)
+    notified_units is count(case when affected_status = 'notified' then serial_number end)
+    remediated_units is count(case when this is RemediatedRecallScopeItem then serial_number end)
+    open_scope_units is count(case when this is OpenRecallScopeItem then serial_number end)
+    reportable_open_scope_units is count(case when is_reportable_open_scope_item then serial_number end)
+    warranty_claim_count is count(warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(warranty_claims.serial_number)
     warranty_cost is sum(warranty_claims.claim_cost_amount)
 
   view: recall_scope_by_lot_model_region is {

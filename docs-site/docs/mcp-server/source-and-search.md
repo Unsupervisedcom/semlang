@@ -23,7 +23,9 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 | `sources` | string array | Multiple inline sources joined with blank lines. |
 | `basePath` | string | File path used for resolving includes when compiling inline source. |
 | `projectPath` | string | Malloy project root to associate with the MCP context. |
-| `configPath` | string | Explicit Malloy config file to associate with the MCP context. |
+| `configPath` | string | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
+
+When `configPath` / `malloyConfigPath` is omitted, `set_ontology_source` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
 
 ### Output
 

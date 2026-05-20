@@ -23,4 +23,4 @@ Call `set_ontology_source` first in each MCP session. All other tools read the c
 
 Tools return structured JSON. Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
 
-`query.run` executes through the Malloy SDK using the project/config context captured by `set_ontology_source`; when no config is available, it uses the default local `duckdb` connection. `action.invoke` is separate and remains a local DuckDB action adapter for supported action edits.
+`set_ontology_source` captures Malloy project/config context. It uses an explicit `configPath` / `malloyConfigPath` when supplied; otherwise it discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang file. If no config is found, the tool fails with a clear setup error. `query.run` executes through the Malloy SDK using that captured config. `action.invoke` is separate and remains a local DuckDB action adapter for supported action edits.

@@ -55,3 +55,16 @@ Named sources can be declared from a root source plus a query body. These source
 - 02.04.004: A source query rooted in a non-concept source MUST reject SemLang-only expression constructs that require concept context, such as role tests or semantic join-path validation, unless a later requirement defines structural validation for that source kind.
 - 02.04.005: When a concept is backed by a query result, the compiler MUST emit the query before emitting the concept source that extends it.
 - 02.04.006: Source-query bodies MUST support the same query-body clauses as concept-local views and queries where those clauses are otherwise valid.
+
+## 02.05 MCP Malloy Execution Config
+
+MCP query execution uses Malloy connection configuration captured when an ontology source is loaded. Connection names in SemLang source text remain model-level names, while connection engine types live in Malloy config.
+
+- 02.05.001: `set_ontology_source` MUST accept an explicit Malloy config path through `configPath` or `malloyConfigPath`, and that explicit path MAY use any JSON filename.
+- 02.05.002: When no explicit Malloy config path is supplied, `set_ontology_source` MUST discover `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
+- 02.05.003: When no explicit Malloy config path is supplied and discovery fails, `set_ontology_source` MUST return a clear setup error and MUST NOT synthesize an implicit fallback connection.
+- 02.05.004: `set_ontology_source` MUST store the resolved Malloy project directory, config path, and config source in MCP context for later query execution.
+- 02.05.005: `query.run` MUST execute generated Malloy through the Malloy SDK using the config context captured by `set_ontology_source`.
+- 02.05.006: SemLang source connection names MUST remain independent of Malloy config connection types; changing the execution engine SHOULD be a config change unless the model's connection name or table path intentionally changes.
+- 02.05.007: The MCP Malloy runtime MUST load/register connection packages for supported configured connection types before execution.
+- 02.05.008: If Malloy config uses an unsupported connection type, ontology source loading or `query.run` MUST return a clear diagnostic or execution error naming the unsupported type.

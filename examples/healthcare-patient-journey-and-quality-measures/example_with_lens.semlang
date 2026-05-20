@@ -116,8 +116,8 @@ lens: readmission_quality_operations is {
         )
 
     measure:
-      discharges_needing_transition_review is count(distinct case when needs_transition_review then stay_id end)
-      urgent_readmission_risk_discharges is count(distinct case when readmission_risk_band = 'urgent' then stay_id end)
+      discharges_needing_transition_review is count(case when needs_transition_review then stay_id end)
+      urgent_readmission_risk_discharges is count(case when readmission_risk_band = 'urgent' then stay_id end)
       average_los_for_review_queue is avg(case when needs_transition_review then length_of_stay_days end)
 
     view: transition_review_queue is {
@@ -415,7 +415,7 @@ query: a1c_poor_control_followup is LabResult with diabetes_registry_operations,
     is_poor_control_a1c
     and patient.has_verified_contact
   group_by:
-    resulted_at.date
+    resulted_at.day
     patient.patient_display_name
     patient.contact_phone
     facility.facility_name

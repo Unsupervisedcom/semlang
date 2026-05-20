@@ -68,7 +68,7 @@ Accepts the same query inputs as `query.validate`.
 
 Returns validation fields plus generated `malloy`, extracted `queryMalloy`, and an `execution` object.
 
-Execution uses the Malloy project/config context captured by `set_ontology_source`. If no config is available, `query.run` uses Malloy's default local `duckdb` connection. Named queries and temporary root/body queries are both eligible for execution.
+Execution uses the Malloy project/config context captured by `set_ontology_source`. Named queries and temporary root/body queries are both eligible for execution. If no config was explicitly supplied or discovered, `set_ontology_source` fails before queries are run.
 
 Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config. If a model references an unknown custom connection, `query.run` returns a clear Malloy execution error naming the missing connection. See [Malloy Connections](./malloy-connections.md).
 

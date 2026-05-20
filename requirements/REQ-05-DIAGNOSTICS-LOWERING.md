@@ -43,7 +43,7 @@ Accepted semantic model constructs lower to deterministic Malloy. The compiler m
 - 05.03.001: A concept source MUST lower to a Malloy `source` over its table, SQL, named source, concept, or query source expression.
 - 05.03.002: The emitted Malloy source expression MUST preserve the accepted source expression.
 - 05.03.003: A single identity MUST lower to Malloy `primary_key`.
-- 05.03.004: A composite identity MUST lower to a deterministic concatenated `primary_key`.
+- 05.03.004: A composite identity MUST lower to a deterministic generated dimension and a Malloy `primary_key` over that generated field.
 - 05.03.005: Source-backed fields MUST be assumed to exist in the source and MUST NOT emit field definitions by default.
 - 05.03.006: Derived dimensions and measures MUST emit into the appropriate Malloy source sections.
 - 05.03.007: Role predicates SHOULD lower to boolean dimensions.
@@ -78,12 +78,15 @@ Validations are preserved as model metadata in V1, but they are not analytical f
 - 05.06.002: Validation predicates MUST represent false rows or states as data-quality errors.
 - 05.06.003: V1 Malloy query emission MUST NOT emit validations into analytical queries by default.
 
-## 05.07 Lint Warnings
+## 05.07 Validation Lint Diagnostics
 
-Lint warnings identify likely model-quality problems without blocking successful compilation. They are intended for ontology validation surfaces rather than per-query validation.
+Validation lint diagnostics identify model-quality problems during ontology validation. Warnings are advisory, while lint errors block ontology source loading.
 
-- 05.07.001: Lint warnings MUST be opt-in and MUST NOT be emitted by default compile or query validation calls.
-- 05.07.002: Lint validation SHOULD warn when an `event` concept omits `occurrence_time` or a `situation` concept omits `observation_time`.
+- 05.07.001: Lint diagnostics MUST be opt-in and MUST NOT be emitted by default compile or query validation calls.
+- 05.07.002: Lint validation MUST error when an `event` concept omits `occurrence_time` or a `situation` concept omits `observation_time`.
 - 05.07.003: Lint validation SHOULD warn when a field's semantic type metadata identifies another modeled concept but the owning concept has no join to that target, excluding self-identifying fields and existing joins.
 - 05.07.004: Lint validation SHOULD warn when a field name matches a declared semantic type name after case and underscore normalization but the field is declared with a different type.
 - 05.07.005: Lint validation SHOULD warn when repeated identifier-like field names use inconsistent semantic types across concepts and at least one occurrence uses a modeled semantic type.
+- 05.07.006: Ontology source validation that enables lint warnings MUST also validate the full emitted Malloy model with the Malloy SDK and return actionable Malloy syntax, config, and warning problems as diagnostics.
+- 05.07.007: Malloy SDK validation errors MUST make ontology source loading fail, and ordinary query validation MUST NOT be used as the first place those model-wide errors appear.
+- 05.07.008: Ontology source loading MUST treat lint diagnostics with severity `error` as blocking and MUST treat lint diagnostics with severity `warning` as non-blocking.

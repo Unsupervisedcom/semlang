@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
-import { executeMalloyQuery } from "./malloy-execution.js";
+import { discoverMalloyConfigPath, executeMalloyQuery, validateMalloyModel } from "./malloy-execution.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
   ActionDecl,
@@ -38,6 +38,7 @@ export interface SemLangMcpContext {
   sourceKind?: "file" | "files" | "inline";
   projectDir?: string;
   malloyConfigPath?: string;
+  malloyConfigSource?: "explicit" | "discovered";
   duckDb?: ExampleDuckDbContext;
 }
 
@@ -119,7 +120,39 @@ export function createSemLangMcp(): SemLangMcpApi {
       return { ok: false, error: "Provide path/paths or source/sources." };
     }
 
+    let executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined;
     if (result.model) {
+      const resolvedExecutionContext = await resolveMalloyExecutionContext(
+        explicitProjectDir,
+        explicitMalloyConfigPath,
+        sourcePaths,
+        result.model.files
+      );
+      if (!resolvedExecutionContext.ok) {
+        return {
+          ok: false,
+          diagnostics: jsonSafe(result.diagnostics),
+          error: resolvedExecutionContext.error,
+          context: null
+        };
+      }
+      executionContext = resolvedExecutionContext;
+      if (result.malloy) {
+        const malloyDiagnostics = await validateMalloyModel({
+          malloy: result.malloy,
+          context: {
+            projectDir: executionContext.projectDir,
+            malloyConfigPath: executionContext.malloyConfigPath,
+            malloyConfigSource: executionContext.source,
+            modelFilePath: filePath
+          }
+        });
+        result.diagnostics.push(...malloyDiagnostics);
+      }
+    }
+
+    const ok = Boolean(result.model) && !hasErrors(result.diagnostics);
+    if (ok && result.model && executionContext) {
       context.compileResult = result;
       context.model = result.model;
       context.malloy = result.malloy;
@@ -127,19 +160,21 @@ export function createSemLangMcp(): SemLangMcpApi {
       context.filePath = filePath;
       context.sourcePaths = sourcePaths;
       context.sourceKind = sourceKind;
-      context.projectDir = resolveProjectDir(explicitProjectDir, explicitMalloyConfigPath, sourcePaths, result.model.files);
-      context.malloyConfigPath = explicitMalloyConfigPath ? path.resolve(explicitMalloyConfigPath) : undefined;
+      context.projectDir = executionContext.projectDir;
+      context.malloyConfigPath = executionContext.malloyConfigPath;
+      context.malloyConfigSource = executionContext.source;
       context.duckDb = undefined;
     }
 
     return {
-      ok: Boolean(result.model),
+      ok,
       diagnostics: jsonSafe(result.diagnostics),
-      context: result.model ? jsonSafe({
+      context: result.model && executionContext ? jsonSafe({
         ...modelSummary(result.model),
         execution: {
-          projectDir: context.projectDir ?? null,
-          malloyConfigPath: context.malloyConfigPath ?? null
+          projectDir: executionContext.projectDir,
+          malloyConfigPath: executionContext.malloyConfigPath,
+          malloyConfigSource: executionContext.source
         }
       }) : null
     };
@@ -542,6 +577,7 @@ async function executeQuery(context: SemLangMcpContext, args: Record<string, unk
     context: {
       projectDir,
       malloyConfigPath: context.malloyConfigPath,
+      malloyConfigSource: context.malloyConfigSource,
       modelFilePath: executionModelFilePath(context)
     }
   });
@@ -1092,14 +1128,46 @@ function modelSummary(model: SemanticModel) {
   };
 }
 
-function resolveProjectDir(
+type ResolvedMalloyExecutionContext =
+  | { ok: true; projectDir: string; malloyConfigPath: string; source: "explicit" | "discovered" }
+  | { ok: false; error: string };
+
+async function resolveMalloyExecutionContext(
   explicitProjectDir: string | undefined,
   malloyConfigPath: string | undefined,
   sourcePaths: string[],
   modelFiles: string[] = []
-): string {
-  if (explicitProjectDir) return path.resolve(explicitProjectDir);
-  return inferProjectDir(sourcePaths, modelFiles, malloyConfigPath);
+): Promise<ResolvedMalloyExecutionContext> {
+  if (malloyConfigPath) {
+    const resolvedConfigPath = path.resolve(malloyConfigPath);
+    return {
+      ok: true,
+      projectDir: explicitProjectDir ? path.resolve(explicitProjectDir) : path.dirname(resolvedConfigPath),
+      malloyConfigPath: resolvedConfigPath,
+      source: "explicit"
+    };
+  }
+
+  const startDir = inferConfigSearchStartDir(sourcePaths, modelFiles);
+  const ceilingDir = explicitProjectDir ? path.resolve(explicitProjectDir) : path.parse(startDir).root;
+  const discovered = await discoverMalloyConfigPath(startDir, ceilingDir);
+  if (discovered) {
+    return {
+      ok: true,
+      projectDir: explicitProjectDir ? path.resolve(explicitProjectDir) : path.dirname(discovered),
+      malloyConfigPath: discovered,
+      source: "discovered"
+    };
+  }
+
+  return {
+    ok: false,
+    error: [
+      "No Malloy config file was found for set_ontology_source.",
+      "Pass configPath or malloyConfigPath explicitly, or add malloy-config-local.json or malloy-config.json at or above the SemLang model directory.",
+      `Searched from ${startDir} up to ${ceilingDir}.`
+    ].join(" ")
+  };
 }
 
 function inferProjectDir(sourcePaths: string[] = [], modelFiles: string[] = [], malloyConfigPath?: string): string {
@@ -1108,6 +1176,14 @@ function inferProjectDir(sourcePaths: string[] = [], modelFiles: string[] = [], 
     .map((item) => path.resolve(item));
   if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
   if (malloyConfigPath) return path.dirname(path.resolve(malloyConfigPath));
+  return process.cwd();
+}
+
+function inferConfigSearchStartDir(sourcePaths: string[] = [], modelFiles: string[] = []): string {
+  const candidates = [...sourcePaths, ...modelFiles]
+    .filter((item) => item && !item.includes("__semlang_mcp_inline__") && !item.includes("__semlang_mcp_context__"))
+    .map((item) => path.resolve(item));
+  if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
   return process.cwd();
 }
 

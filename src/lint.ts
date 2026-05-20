@@ -23,7 +23,7 @@ function lintRequiredTemporalAxes(model: SemanticModel): Diagnostic[] {
     if (!requiredAxis || concept.temporal.some((axis) => axis.axis === requiredAxis)) continue;
     const article = concept.stereotype === "event" ? "an" : "a";
     diagnostics.push({
-      severity: "warning",
+      severity: "error",
       code: "MISSING_TEMPORAL_AXIS",
       message: `Concept ${concept.name} is ${article} ${concept.stereotype} but does not declare ${requiredAxis}.`,
       location: concept.location

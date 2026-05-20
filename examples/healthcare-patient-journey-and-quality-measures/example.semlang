@@ -208,7 +208,7 @@ concept Patient is kind from duckdb.table('patients') {
   validation:
     birth_date_before_death is {
       description: "A patient death timestamp cannot be before the recorded birth date."
-      predicate: deceased_at is null or deceased_at.date >= birth_date
+      predicate: deceased_at is null or deceased_at.day >= birth_date
     }
 }
 
@@ -242,7 +242,7 @@ concept Facility is kind from duckdb.table('facilities') {
 
 concept Provider is kind from duckdb.table('providers') {
   identity provider_id :: ProviderId
-  valid_time: period(active_from, coalesce(active_to, date '9999-12-31'))
+  valid_time: period(active_from, coalesce(active_to, @9999-12-31))
 
   field:
     npi :: string unique
@@ -297,7 +297,7 @@ concept PayerCoverageInterval is situation from duckdb.table('payer_coverage_int
 
   measure:
     coverage_intervals is count()
-    covered_patients is count(distinct patient_id)
+    covered_patients is count(patient_id)
     primary_coverage_intervals is count(case when this is PrimaryCoverage then coverage_interval_id end)
 
   validation:
@@ -344,13 +344,13 @@ concept Encounter is event from duckdb.table('encounters') {
   role InpatientEncounter when encounter_type = 'inpatient'
 
   dimension:
-    encounter_date is admit_at.date
+    encounter_date is admit_at.day
     encounter_month is admit_at.month
     is_hospital_encounter is this is HospitalEncounter
 
   measure:
     encounters is count()
-    patients_seen is count(distinct patient_id)
+    patients_seen is count(patient_id)
     inpatient_encounters is count(case when this is InpatientEncounter then encounter_id end)
     emergency_encounters is count(case when encounter_type = 'emergency' then encounter_id end)
     outpatient_encounters is count(case when encounter_type = 'outpatient' then encounter_id end)
@@ -444,9 +444,9 @@ concept InpatientStay is event from duckdb.table('inpatient_stays') {
     mortality_exclusions is count(case when this is MortalityExclusion then stay_id end)
     total_length_of_stay_days is sum(length_of_stay_days)
     average_length_of_stay_days is avg(length_of_stay_days)
-    readmissions_30d is count(distinct readmissions.readmission_event_id)
+    readmissions_30d is count(readmissions.readmission_event_id)
     unplanned_readmissions_30d is count(
-      distinct case when not readmissions.planned_readmission_flag then readmissions.readmission_event_id end
+      case when not readmissions.planned_readmission_flag then readmissions.readmission_event_id end
     )
     readmission_rate_30d is unplanned_readmissions_30d / nullif(eligible_index_discharges, 0)
 
@@ -527,8 +527,8 @@ concept DiagnosisInterval is situation from duckdb.table('diagnosis_intervals') 
 
   measure:
     diagnosis_intervals is count()
-    diagnosed_patients is count(distinct patient_id)
-    diabetes_patients is count(distinct case when this is DiabetesDiagnosis then patient_id end)
+    diagnosed_patients is count(patient_id)
+    diabetes_patients is count(case when this is DiabetesDiagnosis then patient_id end)
     encounter_coded_diagnoses is count(case when this is EncounterCodedDiagnosis then diagnosis_interval_id end)
 
   view: diagnosis_cohorts is {
@@ -595,7 +595,7 @@ concept LabResult is event from duckdb.table('lab_results') {
 
   measure:
     lab_results is count()
-    patients_with_labs is count(distinct patient_id)
+    patients_with_labs is count(patient_id)
     abnormal_results is count(case when this is AbnormalResult then lab_result_id end)
     abnormal_result_rate is abnormal_results / nullif(lab_results, 0)
     average_result_value is avg(result_value)

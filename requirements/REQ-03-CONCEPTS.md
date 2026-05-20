@@ -37,7 +37,7 @@ Identities declare source-backed keys for concepts. They also drive Malloy prima
 - 03.03.002: Composite identities MUST be expressed as comma-separated typed names.
 - 03.03.003: Identity types MUST resolve according to the type resolution requirements in `REQ-01-TYPES.md`.
 - 03.03.004: A single identity MUST lower to a Malloy `primary_key` over that field.
-- 03.03.005: A composite identity MUST lower to a deterministic concatenated primary key.
+- 03.03.005: A composite identity MUST lower to a deterministic generated dimension and a Malloy primary key over that generated field.
 - 03.03.006: Identity field locations SHOULD be preserved for diagnostics.
 
 ## 03.04 Fields

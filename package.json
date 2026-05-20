@@ -17,6 +17,7 @@
     "docs:build": "npm --prefix docs-site run build"
   },
   "dependencies": {
+    "@malloydata/db-databricks": "^0.0.395",
     "@malloydata/db-duckdb": "^0.0.395",
     "@malloydata/malloy": "^0.0.395",
     "@modelcontextprotocol/sdk": "^1.29.0",

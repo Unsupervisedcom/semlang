@@ -247,7 +247,7 @@ concept LegalCustomer is kind from duckdb.table('legal_customers') {
 
   measure:
     legal_customers is count()
-    relationship_groups is count(distinct relationship_group_label)
+    relationship_groups is count(relationship_group_label)
     restricted_customers is count(case when this is RestrictedCustomer then legal_customer_id end)
 
   validation:
@@ -435,7 +435,7 @@ concept CollateralValuation is situation from duckdb.table('collateral_valuation
   dimension:
     valuation_month is valuation_date.month
     haircut_amount is gross_collateral_value - net_collateral_value
-    is_current_open_ended is valid_to = date '9999-12-31'
+    is_current_open_ended is valid_to = @9999-12-31
 
   measure:
     valuations is count()
@@ -475,7 +475,7 @@ concept CollateralValuation is situation from duckdb.table('collateral_valuation
 concept LoanCollateralLink is relator from duckdb.table('loan_collateral_links') {
   // Many-to-many pledge path between loans and collateral assets.
   identity loan_id :: LoanId, collateral_asset_id :: CollateralAssetId, effective_from :: BusinessDate
-  valid_time: period(effective_from, coalesce(effective_to, date '9999-12-31'))
+  valid_time: period(effective_from, coalesce(effective_to, @9999-12-31))
 
   join_one loan: Loan on loan_id
   join_one collateral_asset: CollateralAsset on collateral_asset_id
@@ -530,7 +530,7 @@ concept LoanCollateralLink is relator from duckdb.table('loan_collateral_links')
 
 concept Guarantee is relator from duckdb.table('guarantees') {
   identity guarantee_id :: string
-  valid_time: period(effective_from, coalesce(effective_to, date '9999-12-31'))
+  valid_time: period(effective_from, coalesce(effective_to, @9999-12-31))
 
   join_one loan: Loan on loan_id
   join_one guarantor: LegalCustomer on guarantor_customer_id = legal_customer_id
@@ -618,8 +618,8 @@ concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
     is_open_review is this is OpenReview
     is_overdue_review is this is OverdueReview
     has_covenant_pressure is this is CovenantBreachReview
-    submitted_date is submitted_at.date
-    approved_date is approved_at.date
+    submitted_date is submitted_at.day
+    approved_date is approved_at.day
 
   measure:
     reviews is count()
@@ -909,9 +909,9 @@ concept LoanExposureSnapshot is situation from duckdb.table('loan_exposure_snaps
 
   measure:
     snapshot_rows is count()
-    loans_reported is count(distinct loan_id)
-    facilities_reported is count(distinct facility_id)
-    customers_reported is count(distinct legal_customer_id)
+    loans_reported is count(loan_id)
+    facilities_reported is count(facility_id)
+    customers_reported is count(legal_customer_id)
     outstanding_principal is sum(outstanding_principal_amount)
     accrued_interest is sum(accrued_interest_amount)
     undrawn_commitment is sum(undrawn_commitment_amount)
@@ -925,9 +925,9 @@ concept LoanExposureSnapshot is situation from duckdb.table('loan_exposure_snaps
     average_days_past_due is avg(days_past_due)
     average_exposure_loss_rate is avg(exposure_loss_rate)
 
-    active_guarantee_count is count(distinct active_guarantees.guarantee_id)
-    active_collateral_link_count is count(distinct active_collateral_links.collateral_asset_id)
-    model_score_rows is count(distinct model_scores.model_score_snapshot_id)
+    active_guarantee_count is count(active_guarantees.guarantee_id)
+    active_collateral_link_count is count(active_collateral_links.collateral_asset_id)
+    model_score_rows is count(model_scores.model_score_snapshot_id)
     active_guarantee_support is sum(active_guarantees.supported_amount)
     active_collateral_secured_cap is sum(active_collateral_links.secured_amount_cap)
 
@@ -1035,11 +1035,11 @@ concept ReviewDocument is situation from duckdb.table('review_documents') {
   dimension:
     is_received_document is this is ReceivedDocument
     is_gap_document is this is GapDocument
-    received_date is received_at.date
+    received_date is received_at.day
 
   measure:
     review_documents is count()
-    reviews_with_documents is count(distinct review_id)
+    reviews_with_documents is count(review_id)
     received_documents is count(case when this is ReceivedDocument then review_document_id end)
     accepted_documents is count(case when this is AcceptedDocument then review_document_id end)
     gap_documents is count(case when this is GapDocument then review_document_id end)

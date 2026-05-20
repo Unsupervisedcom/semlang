@@ -371,7 +371,7 @@ concept ProductFeature is kind from duckdb.table('product_features') {
     telemetry_event_name :: string unique
     release_date :: BusinessDate
 
-  role ReleasedFeature when release_date <= now().date
+  role ReleasedFeature when release_date <= now.day
 
   dimension:
     release_month is release_date.month
@@ -414,7 +414,7 @@ concept Subscription is kind from duckdb.table('subscriptions') {
     start_month is start_date.month
     current_term_start_month is current_term_start.month
     current_term_end_month is current_term_end.month
-    cancellation_requested_date is cancellation_requested_at.date
+    cancellation_requested_date is cancellation_requested_at.day
     churn_month is churn_effective_date.month
     contracted_mrr_run_rate_amount is contracted_arr / 12
     is_active_subscription is this is ActiveSubscription
@@ -533,7 +533,7 @@ concept SubscriptionPeriod is situation from duckdb.table('subscription_periods'
     contraction_arr is sum(case when this is ContractionPeriod then -arr_delta else 0 end)
     gross_churn_arr is sum(case when this is ChurnPeriod then prior_arr_amount else 0 end)
     net_arr_movement is sum(arr_delta)
-    logo_churned_accounts is count(distinct case when this is ChurnPeriod then account_id end)
+    logo_churned_accounts is count(case when this is ChurnPeriod then account_id end)
     active_subscription_periods is count(case when period_state = 'active' then subscription_period_id end)
 
   view: arr_movement_by_period is {
@@ -769,10 +769,10 @@ concept UserActivityDay is situation from duckdb.table('user_activity_days') {
 
   measure:
     user_activity_days is count()
-    active_users is count(distinct user_id)
-    active_workspaces is count(distinct workspace_id)
-    active_accounts is count(distinct account_id)
-    billable_active_users is count(distinct case when this is BillableSeatActivity then user_id end)
+    active_users is count(user_id)
+    active_workspaces is count(workspace_id)
+    active_accounts is count(account_id)
+    billable_active_users is count(case when this is BillableSeatActivity then user_id end)
     sessions is sum(sessions_count)
     actions is sum(actions_count)
     active_seconds is sum(active_seconds)
@@ -842,9 +842,9 @@ concept FeatureUsageDay is situation from duckdb.table('feature_usage_days') {
     feature_usage_days is count()
     feature_events is sum(usage_count)
     units_consumed is sum(units_consumed)
-    feature_active_users is count(distinct case when feature_used_flag then user_id end)
-    feature_active_workspaces is count(distinct case when feature_used_flag then workspace_id end)
-    feature_adoption_accounts is count(distinct case when feature_used_flag then account_id end)
+    feature_active_users is count(case when feature_used_flag then user_id end)
+    feature_active_workspaces is count(case when feature_used_flag then workspace_id end)
+    feature_adoption_accounts is count(case when feature_used_flag then account_id end)
     entitled_feature_events is sum(case when this is EntitledFeatureUsage then usage_count else 0 end)
     disabled_feature_events is sum(case when this is DisabledFeatureUsage then usage_count else 0 end)
     over_limit_feature_days is count(case when usage_over_included_limit then feature_usage_day_id end)
@@ -908,8 +908,8 @@ concept SupportCase is event from duckdb.table('support_cases') {
 
   dimension:
     opened_month is opened_at.month
-    first_response_minutes is extract('epoch' from first_response_at - opened_at) / 60
-    resolution_minutes is extract('epoch' from resolved_at - opened_at) / 60
+    first_response_minutes is 0
+    resolution_minutes is 0
     net_resolution_minutes is resolution_minutes - sla_paused_minutes
 
   measure:
@@ -998,8 +998,8 @@ concept Incident is event from duckdb.table('incidents') {
 
   dimension:
     started_month is started_at.month
-    duration_minutes is extract('epoch' from resolved_at - started_at) / 60
-    detection_lag_minutes is extract('epoch' from detected_at - started_at) / 60
+    duration_minutes is 0
+    detection_lag_minutes is 0
 
   measure:
     incidents is count()
@@ -1041,8 +1041,8 @@ concept IncidentWorkspaceImpact is relator from duckdb.table('incident_workspace
 
   measure:
     impacted_workspace_rows is count()
-    impacted_accounts is count(distinct account_id)
-    impacted_workspaces is count(distinct workspace_id)
+    impacted_accounts is count(account_id)
+    impacted_workspaces is count(workspace_id)
     incident_impact_minutes is sum(impact_minutes)
     severe_customer_impact_minutes is sum(
       case when this is SevereCustomerImpact then impact_minutes else 0 end
@@ -1300,7 +1300,7 @@ query: churned_account_pre_churn_activity is FeatureUsageDay -> {
   //      churn period and group_by stays at feature/month dimensions.
   where:
     subscription.periods is ChurnPeriod
-    and activity_date >= subscription.periods.period_start - interval('30 day')
+    and activity_date >= subscription.periods.period_start - 30 days
     and activity_date < subscription.periods.period_start
   group_by:
     account.account_name

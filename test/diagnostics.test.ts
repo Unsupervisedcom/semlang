@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/types.js";
 // misuse, and aggregate alias diagnostics.
 // 05.01.001, 05.01.002, 05.01.003, 05.01.004, 05.01.005, 05.01.006, 05.01.007, 05.01.008
 // 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.01.014, 05.02.001, 05.02.002, 05.02.003
-// 05.07.001, 05.07.002, 05.07.003, 05.07.004, 05.07.005
+// 05.07.001, 05.07.002, 05.07.003, 05.07.004, 05.07.005, 05.07.008
 // 05.02.004, 05.02.005, 05.02.006
 
 function source(lines: string[]): string {
@@ -382,7 +382,7 @@ describe("compiler diagnostics", () => {
     });
   });
 
-  it("emits lint warnings only when requested", async () => {
+  it("emits lint diagnostics only when requested", async () => {
     const missingTemporalAxes = source([
       "package warn.temporal_axes",
       "concept Sale is event from duckdb.table('sales') {",
@@ -401,7 +401,7 @@ describe("compiler diagnostics", () => {
 
     const missing = await compileSemLang(missingTemporalAxes, { lintWarnings: true });
 
-    expectWarning(missing, "MISSING_TEMPORAL_AXIS", {
+    expectDiagnostic(missing, "MISSING_TEMPORAL_AXIS", {
       message: /Concept Sale is an event but does not declare occurrence_time/,
       line: 2,
       column: 1

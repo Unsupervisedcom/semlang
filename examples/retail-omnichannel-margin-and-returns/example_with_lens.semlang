@@ -269,7 +269,7 @@ query: pii_customer_service_returns is ReturnLine with with_pii -> {
     return_status in ('authorized', 'received')
     and original_sale_line.sale.customer_has_verified_pii
   group_by:
-    returned_at.date
+    returned_at.day
     return_authorization_id
     original_sale_line.sale.customer_display_name
     original_sale_line.sale.customer_contact_email
@@ -288,7 +288,7 @@ query: western_pii_customer_service_returns is ReturnLine with western_region, w
     return_status in ('authorized', 'received')
     and original_sale_line.sale.customer_has_verified_pii
   group_by:
-    returned_at.date
+    returned_at.day
     return_authorization_id
     original_sale_line.sale.customer_display_name
     original_sale_line.sale.customer_contact_email

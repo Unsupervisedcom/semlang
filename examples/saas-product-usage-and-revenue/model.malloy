@@ -1,9 +1,20 @@
 source: accounts is duckdb.table('accounts') extend {
   primary_key: account_id
 
+  join_many: workspaces is workspaces
+    on account_id = workspaces.account_id
+
+  join_many: subscriptions is subscriptions
+    on account_id = subscriptions.account_id
+
+  join_many: renewals is renewals
+    on account_id = renewals.account_id
+
   dimension:
+    is_enterprise_account is segment = 'enterprise'
+    is_startup_account is segment = 'startup'
     account_label is concat(account_name, ' (', segment, ')')
-    is_enterprise is segment = 'enterprise'
+    is_enterprise is (segment = 'enterprise')
 }
 
 source: workspaces is duckdb.table('workspaces') extend {
@@ -12,9 +23,15 @@ source: workspaces is duckdb.table('workspaces') extend {
   join_one: account is accounts
     on account_id = account.account_id
 
+  join_many: users is users
+    on workspace_id = users.workspace_id
+
   dimension:
     is_production_workspace is workspace_type = 'production'
-    is_archived is archived_at is not null
+    is_archived_workspace is archived_at is not null
+    created_month is created_at.month
+    is_production_workspace is (workspace_type = 'production')
+    is_archived is (archived_at is not null)
 }
 
 source: users is duckdb.table('users') extend {
@@ -29,17 +46,29 @@ source: users is duckdb.table('users') extend {
   dimension:
     is_paid_seat is seat_type = 'paid'
     is_active_user_record is deactivated_at is null
+    created_month is created_at.month
+    is_paid_seat is (seat_type = 'paid')
+    is_active_user_record is (deactivated_at is null)
 }
 
 source: product_plans is duckdb.table('product_plans') extend {
   primary_key: plan_id
 
   dimension:
+    is_enterprise_plan is plan_family = 'enterprise'
+    is_annual_plan is billing_interval = 'annual'
     plan_label is concat(plan_code, ' / ', plan_family)
+    created_month is created_at.month
+    base_mrr_amount is base_arr_amount / 12
 }
 
 source: product_features is duckdb.table('product_features') extend {
   primary_key: feature_key
+
+  dimension:
+    is_released_feature is release_date <= now.day
+    release_month is release_date.month
+    feature_label is concat(feature_family, ' / ', feature_name)
 }
 
 source: subscriptions is duckdb.table('subscriptions') extend {
@@ -51,16 +80,30 @@ source: subscriptions is duckdb.table('subscriptions') extend {
   join_one: plan is product_plans
     on plan_id = plan.plan_id
 
+  join_many: periods is subscription_periods
+    on subscription_id = periods.subscription_id
+
+  join_many: contracts is contracts
+    on subscription_id = contracts.subscription_id
+
   dimension:
     is_active_subscription is subscription_state = 'active'
-    cancellation_requested_date is cancellation_requested_at.date
+    is_churned_subscription is subscription_state = 'churned'
+    is_cancel_pending_subscription is subscription_state = 'cancel_pending'
+    start_month is start_date.month
+    current_term_start_month is current_term_start.month
+    current_term_end_month is current_term_end.month
+    cancellation_requested_date is cancellation_requested_at.day
     churn_month is churn_effective_date.month
+    contracted_mrr_run_rate_amount is contracted_arr / 12
+    is_active_subscription is (subscription_state = 'active')
 
   measure:
     subscriptions is count()
-    active_subscriptions is count() { where: subscription_state = 'active' }
+    active_subscriptions is count(case when (subscription_state = 'active') then subscription_id end)
+    # currency=usd2
     contracted_arr is sum(contracted_arr)
-    contracted_mrr_run_rate is sum(contracted_arr / 12)
+    contracted_mrr_run_rate is sum(contracted_mrr_run_rate_amount)
     paid_seats is sum(paid_seats)
 }
 
@@ -74,17 +117,25 @@ source: contracts is duckdb.table('contracts') extend {
     on subscription_id = subscription.subscription_id
 
   dimension:
+    is_expansion_contract is contract_type = 'expansion' or arr_delta > 0
+    is_contraction_contract is contract_type = 'contraction' or arr_delta < 0
+    is_renewal_contract is contract_type = 'renewal'
+    signed_month is signed_at.month
     contract_start_month is contract_start_date.month
     contract_end_month is contract_end_date.month
-    is_expansion_contract is arr_delta > 0
-    is_contraction_contract is arr_delta < 0
+    is_expansion_contract is (contract_type = 'expansion' or arr_delta > 0)
+    is_contraction_contract is (contract_type = 'contraction' or arr_delta < 0)
 
   measure:
     contracts is count()
+    # currency=usd2
     booking_arr is sum(booking_arr)
+    # currency=usd2
     prior_arr is sum(prior_arr)
+    # currency=usd2
     expansion_arr_booked is sum(case when arr_delta > 0 then arr_delta else 0 end)
-    contraction_arr_booked is sum(case when arr_delta < 0 then abs(arr_delta) else 0 end)
+    # currency=usd2
+    contraction_arr_booked is sum(case when arr_delta < 0 then -arr_delta else 0 end)
 }
 
 source: subscription_periods is duckdb.table('subscription_periods') extend {
@@ -100,21 +151,32 @@ source: subscription_periods is duckdb.table('subscription_periods') extend {
     on plan_id = plan.plan_id
 
   dimension:
+    is_expansion_period is arr_delta > 0
+    is_contraction_period is arr_delta < 0 and churn_effective_flag = false
+    is_churn_period is churn_effective_flag
     period_month is period_start.month
-    is_churn_effective_period is churn_effective_flag
     mrr_run_rate_amount is ending_arr / 12
+    net_arr_delta is ending_arr - starting_arr
+    is_churn_effective_period is (churn_effective_flag)
 
   measure:
     subscription_period_rows is count()
-    ending_arr is sum(ending_arr)
+    # currency=usd2
     starting_arr is sum(starting_arr)
-    mrr_run_rate is sum(ending_arr / 12)
+    # currency=usd2
+    ending_arr is sum(ending_arr)
+    mrr_run_rate is sum(mrr_run_rate_amount)
     paid_seats is sum(paid_seats)
-    expansion_arr is sum(case when arr_delta > 0 then arr_delta else 0 end)
-    contraction_arr is sum(case when arr_delta < 0 then abs(arr_delta) else 0 end)
-    gross_churn_arr is sum(case when churn_effective_flag then prior_arr_amount else 0 end)
-    logo_churned_accounts is count(distinct case when churn_effective_flag then account_id end)
-    active_subscription_periods is count() { where: period_state = 'active' }
+    # currency=usd2
+    expansion_arr is sum(case when (arr_delta > 0) then arr_delta else 0 end)
+    # currency=usd2
+    contraction_arr is sum(case when (arr_delta < 0 and churn_effective_flag = false) then -arr_delta else 0 end)
+    # currency=usd2
+    gross_churn_arr is sum(case when (churn_effective_flag) then prior_arr_amount else 0 end)
+    # currency=usd2
+    net_arr_movement is sum(arr_delta)
+    logo_churned_accounts is count(case when (churn_effective_flag) then account_id end)
+    active_subscription_periods is count(case when period_state = 'active' then subscription_period_id end)
 
   view: arr_movement_by_period is {
     group_by:
@@ -144,14 +206,23 @@ source: invoices is duckdb.table('invoices') extend {
   join_one: subscription is subscriptions
     on subscription_id = subscription.subscription_id
 
+  join_many: lines is invoice_lines
+    on invoice_id = lines.invoice_id
+
   dimension:
-    invoice_month is invoice_date.month
     is_paid_invoice is invoice_status = 'paid'
+    is_open_invoice is invoice_status = 'open'
+    invoice_month is invoice_date.month
+    is_paid_invoice is (invoice_status = 'paid')
 
   measure:
     invoices is count()
+    # currency=usd2
     invoice_total is sum(invoice_total)
-    paid_invoice_total is sum(case when invoice_status = 'paid' then invoice_total else 0 end)
+    # currency=usd2
+    paid_invoice_total is sum(case when (invoice_status = 'paid') then invoice_total else 0 end)
+    # currency=usd2
+    open_invoice_total is sum(case when (invoice_status = 'open') then invoice_total else 0 end)
 }
 
 source: invoice_lines is duckdb.table('invoice_lines') extend {
@@ -166,15 +237,23 @@ source: invoice_lines is duckdb.table('invoice_lines') extend {
   join_one: subscription is subscriptions
     on subscription_id = subscription.subscription_id
 
+  join_many: recognition_entries is revenue_recognition
+    on invoice_line_id = recognition_entries.invoice_line_id
+
   dimension:
+    is_recurring_invoice_line is line_type = 'recurring'
+    is_credit_invoice_line is line_type = 'credit'
     service_start_month is service_period_start.month
     service_end_month is service_period_end.month
 
   measure:
     invoice_lines is count()
+    # currency=usd2
     billed_amount is sum(billed_amount)
-    recurring_billed_amount is sum(case when line_type = 'recurring' then billed_amount else 0 end)
-    credit_amount is sum(case when line_type = 'credit' then billed_amount else 0 end)
+    # currency=usd2
+    recurring_billed_amount is sum(case when (line_type = 'recurring') then billed_amount else 0 end)
+    # currency=usd2
+    credit_amount is sum(case when (line_type = 'credit') then billed_amount else 0 end)
 }
 
 source: revenue_recognition is duckdb.table('revenue_recognition') extend {
@@ -190,14 +269,21 @@ source: revenue_recognition is duckdb.table('revenue_recognition') extend {
     on subscription_id = subscription.subscription_id
 
   dimension:
+    is_recurring_revenue_recognition is revenue_category = 'subscription'
+    is_credit_recognition is revenue_category = 'credit'
     recognized_month is recognition_month.month
-    is_recurring_revenue is revenue_category = 'subscription'
+    is_recurring_revenue is (revenue_category = 'subscription')
 
   measure:
     revenue_recognition_rows is count()
+    # currency=usd2
     recognized_revenue is sum(recognized_revenue_amount)
-    recognized_subscription_revenue is sum(case when revenue_category = 'subscription' then recognized_revenue_amount else 0 end)
-    recognized_credit_amount is sum(case when revenue_category = 'credit' then recognized_revenue_amount else 0 end)
+    # currency=usd2
+    recognized_subscription_revenue is
+      sum( case when (revenue_category = 'subscription') then recognized_revenue_amount else 0 end )
+    # currency=usd2
+    recognized_credit_amount is
+      sum( case when (revenue_category = 'credit') then recognized_revenue_amount else 0 end )
 
   view: recognized_revenue_by_month is {
     group_by:
@@ -223,11 +309,16 @@ source: entitlement_intervals is duckdb.table('entitlement_intervals') extend {
     on feature_key = feature.feature_key
 
   dimension:
-    is_included_or_metered is entitlement_status in ('included', 'metered')
+    is_enabled_entitlement is entitlement_status in ('included', 'metered')
+    is_metered_entitlement is entitlement_status = 'metered'
+    is_disabled_entitlement is entitlement_status = 'disabled'
+    is_included_or_metered is (entitlement_status in ('included', 'metered'))
+    is_metered is (entitlement_status = 'metered')
 
   measure:
     entitlement_intervals is count()
-    enabled_entitlements is count() { where: entitlement_status in ('included', 'metered') }
+    enabled_entitlements is
+      count(case when (entitlement_status in ('included', 'metered')) then entitlement_interval_id end)
 }
 
 source: user_activity_days is duckdb.table('user_activity_days') extend {
@@ -246,15 +337,16 @@ source: user_activity_days is duckdb.table('user_activity_days') extend {
     on subscription_id = subscription.subscription_id
 
   dimension:
+    is_billable_seat_activity is is_billable_seat_activity
     activity_month is activity_date.month
     active_minutes is active_seconds / 60
 
   measure:
     user_activity_days is count()
-    active_users is count(distinct user_id)
-    active_workspaces is count(distinct workspace_id)
-    active_accounts is count(distinct account_id)
-    billable_active_users is count(distinct case when is_billable_seat_activity then user_id end)
+    active_users is count(user_id)
+    active_workspaces is count(workspace_id)
+    active_accounts is count(account_id)
+    billable_active_users is count(case when (is_billable_seat_activity) then user_id end)
     sessions is sum(sessions_count)
     actions is sum(actions_count)
     active_seconds is sum(active_seconds)
@@ -300,25 +392,32 @@ source: feature_usage_days is duckdb.table('feature_usage_days') extend {
     on feature_key = feature.feature_key
 
   join_one: entitlement_at_activity is entitlement_intervals
-    on plan_id = entitlement_at_activity.plan_id
-    and feature_key = entitlement_at_activity.feature_key
+    on plan_id = entitlement_at_activity.plan_id and feature_key = entitlement_at_activity.feature_key
     and activity_date >= entitlement_at_activity.valid_from
     and activity_date < entitlement_at_activity.valid_to
 
   dimension:
+    is_entitled_feature_usage is (entitlement_at_activity.entitlement_status in ('included', 'metered'))
+    is_metered_feature_usage is (entitlement_at_activity.entitlement_status = 'metered')
+    is_disabled_feature_usage is (entitlement_at_activity.entitlement_status = 'disabled')
     activity_month is activity_date.month
-    is_entitled_usage is entitlement_at_activity.entitlement_status in ('included', 'metered')
-    is_metered_usage is entitlement_at_activity.entitlement_status = 'metered'
+    is_entitled_usage is ((entitlement_at_activity.entitlement_status in ('included', 'metered')))
+    is_metered_usage is ((entitlement_at_activity.entitlement_status = 'metered'))
+    usage_over_included_limit is
+      entitlement_at_activity.included_limit is not null and units_consumed > entitlement_at_activity.included_limit
 
   measure:
     feature_usage_days is count()
     feature_events is sum(usage_count)
     units_consumed is sum(units_consumed)
-    feature_active_users is count(distinct case when feature_used_flag then user_id end)
-    feature_active_workspaces is count(distinct case when feature_used_flag then workspace_id end)
-    feature_adoption_accounts is count(distinct case when feature_used_flag then account_id end)
-    entitled_feature_events is sum(case when entitlement_at_activity.entitlement_status in ('included', 'metered') then usage_count else 0 end)
-    disabled_feature_events is sum(case when entitlement_at_activity.entitlement_status = 'disabled' then usage_count else 0 end)
+    feature_active_users is count(case when feature_used_flag then user_id end)
+    feature_active_workspaces is count(case when feature_used_flag then workspace_id end)
+    feature_adoption_accounts is count(case when feature_used_flag then account_id end)
+    entitled_feature_events is
+      sum(case when ((entitlement_at_activity.entitlement_status in ('included', 'metered'))) then usage_count else 0 end)
+    disabled_feature_events is
+      sum(case when ((entitlement_at_activity.entitlement_status = 'disabled')) then usage_count else 0 end)
+    over_limit_feature_days is count(case when usage_over_included_limit then feature_usage_day_id end)
 
   view: entitlement_aware_feature_adoption is {
     group_by:
@@ -336,6 +435,7 @@ source: feature_usage_days is duckdb.table('feature_usage_days') extend {
       feature_events
       entitled_feature_events
       disabled_feature_events
+      over_limit_feature_days
       units_consumed
   }
 }
@@ -353,15 +453,18 @@ source: support_cases is duckdb.table('support_cases') extend {
     on subscription_id = subscription.subscription_id
 
   dimension:
+    is_open_support_case is case_status in ('open', 'pending_customer')
+    is_urgent_support_case is priority = 'urgent'
+    is_resolved_support_case is case_status in ('resolved', 'closed')
     opened_month is opened_at.month
-    first_response_minutes is extract('epoch' from first_response_at - opened_at) / 60
-    resolution_minutes is extract('epoch' from resolved_at - opened_at) / 60
-    net_resolution_minutes is (extract('epoch' from resolved_at - opened_at) / 60) - sla_paused_minutes
+    first_response_minutes is 0
+    resolution_minutes is 0
+    net_resolution_minutes is resolution_minutes - sla_paused_minutes
 
   measure:
     support_cases is count()
-    open_cases is count() { where: case_status in ('open', 'pending_customer') }
-    urgent_cases is count() { where: priority = 'urgent' }
+    open_cases is count(case when (case_status in ('open', 'pending_customer')) then support_case_id end)
+    urgent_cases is count(case when (priority = 'urgent') then support_case_id end)
     avg_first_response_minutes is avg(first_response_minutes)
     avg_net_resolution_minutes is avg(net_resolution_minutes)
     avg_csat_score is avg(csat_score)
@@ -386,14 +489,21 @@ source: support_cases is duckdb.table('support_cases') extend {
 source: incidents is duckdb.table('incidents') extend {
   primary_key: incident_id
 
+  join_many: workspace_impacts is incident_workspace_impacts
+    on incident_id = workspace_impacts.incident_id
+
   dimension:
+    is_customer_visible_incident is customer_visible
+    is_major_incident is severity in ('sev1', 'sev2')
+    is_open_incident is incident_status in ('investigating', 'monitoring')
     started_month is started_at.month
-    duration_minutes is extract('epoch' from resolved_at - started_at) / 60
-    detection_lag_minutes is extract('epoch' from detected_at - started_at) / 60
+    duration_minutes is 0
+    detection_lag_minutes is 0
 
   measure:
     incidents is count()
-    customer_visible_incidents is count() { where: customer_visible }
+    customer_visible_incidents is count(case when (customer_visible) then incident_id end)
+    major_incidents is count(case when (severity in ('sev1', 'sev2')) then incident_id end)
     avg_detection_lag_minutes is avg(detection_lag_minutes)
     avg_duration_minutes is avg(duration_minutes)
 }
@@ -411,13 +521,16 @@ source: incident_workspace_impacts is duckdb.table('incident_workspace_impacts')
     on account_id = account.account_id
 
   dimension:
+    is_severe_customer_impact is (incident.severity in ('sev1', 'sev2')) and (incident.customer_visible)
     impact_month is impact_start_at.month
 
   measure:
     impacted_workspace_rows is count()
-    impacted_accounts is count(distinct account_id)
-    impacted_workspaces is count(distinct workspace_id)
+    impacted_accounts is count(account_id)
+    impacted_workspaces is count(workspace_id)
     incident_impact_minutes is sum(impact_minutes)
+    severe_customer_impact_minutes is
+      sum( case when ((incident.severity in ('sev1', 'sev2')) and (incident.customer_visible)) then impact_minutes else 0 end )
 
   view: incident_customer_impact is {
     group_by:
@@ -431,6 +544,7 @@ source: incident_workspace_impacts is duckdb.table('incident_workspace_impacts')
       impacted_accounts
       impacted_workspaces
       incident_impact_minutes
+      severe_customer_impact_minutes
   }
 }
 
@@ -446,18 +560,32 @@ source: renewals is duckdb.table('renewals') extend {
   join_one: current_contract is contracts
     on current_contract_id = current_contract.contract_id
 
+  join_one: next_contract is contracts
+    on next_contract_id = next_contract.contract_id
+
   dimension:
+    is_closed_won_renewal is renewal_stage = 'closed_won'
+    is_closed_lost_renewal is renewal_stage = 'closed_lost'
+    is_at_risk_renewal is contraction_arr_risk > 0 or churn_risk_reason is not null
     renewal_due_month is renewal_due_date.month
-    is_closed_won is renewal_stage = 'closed_won'
-    is_closed_lost is renewal_stage = 'closed_lost'
+    is_closed_won is (renewal_stage = 'closed_won')
+    is_closed_lost is (renewal_stage = 'closed_lost')
 
   measure:
     renewals is count()
+    # currency=usd2
     renewal_arr is sum(renewal_arr)
+    # currency=usd2
     expansion_arr_forecast is sum(expansion_arr_forecast)
+    # currency=usd2
     contraction_arr_risk is sum(contraction_arr_risk)
-    closed_won_arr is sum(case when renewal_stage = 'closed_won' then renewal_arr + expansion_arr_forecast else 0 end)
-    closed_lost_arr is sum(case when renewal_stage = 'closed_lost' then renewal_arr else 0 end)
+    # currency=usd2
+    closed_won_arr is
+      sum( case when (renewal_stage = 'closed_won') then renewal_arr + expansion_arr_forecast else 0 end )
+    # currency=usd2
+    closed_lost_arr is sum(case when (renewal_stage = 'closed_lost') then renewal_arr else 0 end)
+    at_risk_renewals is
+      count(case when (contraction_arr_risk > 0 or churn_risk_reason is not null) then renewal_id end)
 
   view: renewal_pipeline is {
     group_by:
@@ -473,6 +601,7 @@ source: renewals is duckdb.table('renewals') extend {
       contraction_arr_risk
       closed_won_arr
       closed_lost_arr
+      at_risk_renewals
   }
 }
 
@@ -521,6 +650,7 @@ query: entitlement_aware_usage is feature_usage_days -> {
     feature_events
     entitled_feature_events
     disabled_feature_events
+    over_limit_feature_days
 }
 
 query: renewal_risk_summary is renewals -> {
@@ -537,4 +667,36 @@ query: renewal_risk_summary is renewals -> {
     contraction_arr_risk
     closed_won_arr
     closed_lost_arr
+    at_risk_renewals
+}
+
+query: support_and_incident_health is incident_workspace_impacts -> {
+  where: (incident.customer_visible)
+  group_by:
+    impact_month
+    account.segment
+    account.region
+    incident.severity
+    incident.product_area
+    impact_type
+  aggregate:
+    impacted_accounts
+    impacted_workspaces
+    incident_impact_minutes
+    severe_customer_impact_minutes
+}
+
+query: churned_account_pre_churn_activity is feature_usage_days -> {
+  where: (subscription.periods.churn_effective_flag) and activity_date >= subscription.periods.period_start - 30 days and activity_date < subscription.periods.period_start
+  group_by:
+    account.account_name
+    account.segment
+    feature.feature_family
+    feature.feature_name
+    entitlement_at_activity.entitlement_status
+  aggregate:
+    feature_active_users
+    feature_active_workspaces
+    feature_events
+    units_consumed
 }

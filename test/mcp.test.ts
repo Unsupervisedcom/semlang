@@ -4,10 +4,13 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../src/index.js";
 
 const root = path.resolve(import.meta.dirname, "..");
+const execFileAsync = promisify(execFile);
 
 async function tempExamplePath(domain: string, fileName = "example.semlang"): Promise<string> {
   const sourceDir = path.join(root, "examples", domain);
@@ -20,7 +23,51 @@ async function tempExamplePath(domain: string, fileName = "example.semlang"): Pr
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
+  const databasePath = await prepareExampleDuckDb(targetDir);
+  await fs.writeFile(path.join(targetDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(targetDir, databasePath), null, 2));
   return path.join(targetDir, fileName);
+}
+
+async function prepareExampleDuckDb(projectDir: string): Promise<string | undefined> {
+  const schemaPath = path.join(projectDir, "schema.sql");
+  const samplePath = path.join(projectDir, "sample_data.sql");
+  try {
+    const [schema, sampleData] = await Promise.all([
+      fs.readFile(schemaPath, "utf8"),
+      fs.readFile(samplePath, "utf8")
+    ]);
+    const databasePath = path.join(projectDir, "warehouse.duckdb");
+    await execFileAsync("duckdb", [databasePath, "-c", `${schema}\n${sampleData}`], {
+      cwd: projectDir,
+      maxBuffer: 10 * 1024 * 1024
+    });
+    return databasePath;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+function duckDbMalloyConfig(projectDir: string, databasePath?: string): Record<string, unknown> {
+  return {
+    connections: {
+      duckdb: {
+        is: "duckdb",
+        ...(databasePath ? { databasePath } : {}),
+        workingDirectory: projectDir,
+        extensionDirectory: path.join(projectDir, ".duckdb-extensions")
+      }
+    }
+  };
+}
+
+async function setInlineOntology(mcp: ReturnType<typeof createSemLangMcp>, source: string): Promise<Record<string, unknown>> {
+  const projectDir = await writeTempProject({});
+  await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+  return mcp.tools.set_ontology_source({
+    basePath: path.join(projectDir, "inline.semlang"),
+    source
+  });
 }
 
 async function writeTempProject(files: Record<string, string>): Promise<string> {
@@ -79,6 +126,10 @@ function pathResult(response: Record<string, unknown>, target: string): Record<s
 }
 
 describe("SemLang MCP example narratives", () => {
+  // 02.05.001, 02.05.002, 02.05.003, 02.05.004, 02.05.005,
+  // 02.05.006, 02.05.007, and 02.05.008: MCP captures explicit or
+  // discovered Malloy config, preserves model connection names, and reports
+  // missing config or unsupported connection engines clearly.
   it("captures Malloy project and config context when setting the ontology source", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({
@@ -119,10 +170,66 @@ concept Order is event from warehouse.table('orders') {
     });
   });
 
-  it("runs temporary queries through Malloy execution with the default DuckDB connection", async () => {
+  it("discovers Malloy config above the SemLang model directory", async () => {
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2),
+      "semlang/model.semlang": `
+package mcp.parent_config
+
+concept Order is event from duckdb.table('orders') {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+}
+`
+    });
+    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+
+    const source = await mcp.tools.set_ontology_source({
+      path: path.join(projectDir, "semlang", "model.semlang")
+    });
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        projectDir,
+        malloyConfigPath: path.join(projectDir, "malloy-config.json"),
+        malloyConfigSource: "discovered"
+      }
+    });
+  });
+
+  it("fails clearly when no Malloy config path is supplied and discovery finds no config", async () => {
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools.set_ontology_source({
+      source: `
+package mcp.missing_config
+
+concept Sale is event from duckdb.table('sales') {
+  identity sale_id :: string
+  field:
+    sold_at :: timestamp
+  occurrence_time: sold_at
+}
+`
+    });
+
+    expect(source.ok).toBe(false);
+    expect(text(source.error)).toContain("No Malloy config file was found for set_ontology_source.");
+    expect(text(source.error)).toContain("Pass configPath or malloyConfigPath explicitly");
+  });
+
+  it("runs temporary queries through Malloy execution with a configured DuckDB connection", async () => {
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2)
+    });
+    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+
+    const source = await mcp.tools.set_ontology_source({
+      basePath: path.join(projectDir, "inline.semlang"),
       source: `
 package mcp.default_duckdb
 
@@ -146,6 +253,9 @@ concept InlineOrder is event from duckdb.sql("""
 `
     });
     expectOk(source);
+    expect(asObject(asObject(source.context).execution)).toMatchObject({
+      malloyConfigSource: "discovered"
+    });
 
     const run = await mcp.tools.query_run({
       root: "InlineOrder",
@@ -167,12 +277,59 @@ concept InlineOrder is event from duckdb.sql("""
     });
   });
 
-  it("returns a clear error for unknown custom Malloy connections", async () => {
+  it("blocks ontology source loading when emitted Malloy references an unknown source connection", async () => {
     const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2),
+      "model.semlang": `
+package mcp.unknown_connection
+
+concept WarehouseOrder is event from warehouse.sql("""
+  select 'O-1' as order_id, timestamp '2026-01-01 00:00:00' as ordered_at
+""") {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+
+  measure:
+    order_count is count()
+}
+
+query: warehouse_order_count is WarehouseOrder -> {
+  aggregate:
+    order_count
+}
+`
+    });
+    await fs.writeFile(path.join(projectDir, "malloy-config.json"), JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
 
     const source = await mcp.tools.set_ontology_source({
-      source: `
-package mcp.unknown_connection
+      path: path.join(projectDir, "model.semlang")
+    });
+    expect(source.ok).toBe(false);
+    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        code: "MALLOY_VALIDATION_ERROR",
+        message: expect.stringContaining("warehouse")
+      })
+    ]));
+  });
+
+  it("returns a clear error for configured connection engines without registered packages", async () => {
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify({
+        connections: {
+          warehouse: {
+            is: "not_registered",
+            host: "example.invalid"
+          }
+        }
+      }, null, 2),
+      "model.semlang": `
+package mcp.unknown_engine
 
 concept WarehouseOrder is event from warehouse.table('orders') {
   identity order_id :: string
@@ -190,23 +347,24 @@ query: warehouse_order_count is WarehouseOrder -> {
 }
 `
     });
-    expectOk(source);
 
-    const run = await mcp.tools.query_run({ query: "warehouse_order_count" });
-    expectQuery(run, "warehouse_order_count", "WarehouseOrder");
-    expect(asObject(run.execution)).toMatchObject({
-      ok: false,
-      engine: "malloy",
-      error: expect.stringContaining("No connection named \"warehouse\"")
+    const source = await mcp.tools.set_ontology_source({
+      path: path.join(projectDir, "model.semlang")
     });
-    expect(text(asObject(run.execution).error)).toContain("warehouse");
+    expect(source.ok).toBe(false);
+    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        code: "MALLOY_VALIDATION_ERROR",
+        message: expect.stringContaining('Malloy connection type "not_registered" is configured')
+      })
+    ]));
   });
 
   it("surfaces ignored sources in context and semantic search", async () => {
     const mcp = createSemLangMcp();
 
-    const source = await mcp.tools.set_ontology_source({
-      source: `
+    const source = await setInlineOntology(mcp, `
 package mcp.ignored_sources
 
 ignored duckdb.table('legacy_ticket_log') {
@@ -220,7 +378,7 @@ concept EventTransaction is event from duckdb.table('event_transactions') {
   occurrence_time: occurred_at
 }
 `
-    });
+    );
     expectOk(source);
     const context = asObject(source.context);
     expect(records(context.ignored)[0]).toMatchObject({
@@ -240,8 +398,7 @@ concept EventTransaction is event from duckdb.table('event_transactions') {
   it("surfaces role qualified names, labels, and aliases in ontology search tools", async () => {
     const mcp = createSemLangMcp();
 
-    const source = await mcp.tools.set_ontology_source({
-      source: `
+    const source = await setInlineOntology(mcp, `
 package mcp.role_aliases
 
 concept Customer is kind from duckdb.table('customers') {
@@ -254,7 +411,7 @@ concept Customer is kind from duckdb.table('customers') {
   }
 }
 `
-    });
+    );
     expectOk(source);
 
     const role = await mcp.tools.ontology_describe_role({ role: "Customer.Active" });
@@ -290,24 +447,95 @@ concept Customer is kind from duckdb.table('customers') {
     // not be repeated by ordinary query validation.
     const mcp = createSemLangMcp();
 
-    const source = await mcp.tools.set_ontology_source({
-      source: `
+    const source = await setInlineOntology(mcp, `
 package mcp.lint_warnings
+
+type: CustomerId is string {
+  identifies: Customer
+}
+
+type: AccountId is string {
+  identifies: Account
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: CustomerId
+}
+
+concept Account is kind from duckdb.table('accounts') {
+  identity account_id :: AccountId
+  field:
+    customer_id :: CustomerId
+}
+`
+    );
+    expect(source.ok).toBe(true);
+    expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_JOIN_CANDIDATE");
+
+    const validated = await mcp.tools.query_validate({
+      root: "Account",
+      aggregate: ["count()"]
+    });
+    expectOk(validated);
+    expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_JOIN_CANDIDATE");
+  });
+
+  it("blocks ontology source loading for lint errors", async () => {
+    // 05.07.002 and 05.07.008: lint errors are validation-surface diagnostics
+    // and must block ontology source loading.
+    const mcp = createSemLangMcp();
+
+    const source = await setInlineOntology(mcp, `
+package mcp.lint_errors
 
 concept Sale is event from duckdb.table('sales') {
   identity sale_id :: string
 }
 `
-    });
-    expect(source.ok).toBe(true);
-    expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_TEMPORAL_AXIS");
+    );
 
-    const validated = await mcp.tools.query_validate({
-      root: "Sale",
-      aggregate: ["count()"]
-    });
-    expectOk(validated);
-    expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_TEMPORAL_AXIS");
+    expect(source.ok).toBe(false);
+    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        code: "MISSING_TEMPORAL_AXIS"
+      })
+    ]));
+  });
+
+  it("returns Malloy SDK validation diagnostics when setting ontology source but not during query validation", async () => {
+    // 05.07.006 and 05.07.007: ontology loading validates the full emitted
+    // Malloy model and fails before bad generated Malloy reaches query use.
+    const mcp = createSemLangMcp();
+
+    const source = await setInlineOntology(mcp, `
+package mcp.malloy_validation
+
+concept Account is kind from duckdb.sql("""
+  select 'A1' as account_id, date '2026-05-01' as last_order_date
+""") {
+  identity account_id :: string
+  field:
+    last_order_date :: date
+
+  dimension:
+    days_since_last_order is days(now() - last_order_date)
+}
+
+query: account_recency is Account -> {
+  group_by:
+    days_since_last_order
+}
+`
+    );
+    expect(source.ok).toBe(false);
+    expect(records(source.diagnostics)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        code: "MALLOY_VALIDATION_ERROR",
+        message: expect.stringContaining("Malloy validation")
+      })
+    ]));
   });
 
   it("walks the retail base ontology from search to generated Malloy", async () => {
@@ -354,7 +582,7 @@ concept Sale is event from duckdb.table('sales') {
     expect(validatedQuery.lenses).toEqual([]);
 
     // After validation, query.run should generate Malloy and execute it through
-    // the Malloy runtime using the configured/default DuckDB connection.
+    // the Malloy runtime using the discovered DuckDB connection.
     const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
     expectQuery(run, "monthly_margin_and_returns", "SaleLine");
     expect(text(run.malloy)).toContain("source: retail_line_items is duckdb.table('retail_line_items') extend");

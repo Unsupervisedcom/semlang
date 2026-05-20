@@ -2,23 +2,28 @@ source: patients is duckdb.table('patients') extend {
   primary_key: patient_id
 
   dimension:
-    is_deceased is deceased_at is not null
+    is_deceased_patient is deceased_at is not null
+    is_deceased is (deceased_at is not null)
 }
 
 source: facilities is duckdb.table('facilities') extend {
   primary_key: facility_id
 
   dimension:
+    is_hospital_facility is facility_type in ('acute_care_hospital', 'critical_access_hospital')
+    is_ambulatory_facility is facility_type = 'ambulatory_clinic'
     facility_label is concat(facility_code, ' - ', facility_name)
-    is_hospital is facility_type in ('acute_care_hospital', 'critical_access_hospital')
+    is_hospital is (facility_type in ('acute_care_hospital', 'critical_access_hospital'))
 }
 
 source: providers is duckdb.table('providers') extend {
   primary_key: provider_id
 
   dimension:
+    is_physician_provider is provider_type = 'physician'
+    is_hospitalist_group is provider_type = 'hospitalist_group'
     provider_label is concat(provider_name, ' / ', specialty)
-    is_physician is provider_type = 'physician'
+    is_physician is (provider_type = 'physician')
 }
 
 source: payer_coverage_intervals is duckdb.table('payer_coverage_intervals') extend {
@@ -28,13 +33,15 @@ source: payer_coverage_intervals is duckdb.table('payer_coverage_intervals') ext
     on patient_id = patient.patient_id
 
   dimension:
+    is_primary_coverage is is_primary
+    is_public_coverage is payer_type in ('medicare', 'medicaid')
     coverage_key is concat(patient_id, '|', payer_name, '|', plan_name)
-    is_public_payer is payer_type in ('medicare', 'medicaid')
+    is_public_payer is (payer_type in ('medicare', 'medicaid'))
 
   measure:
     coverage_intervals is count()
-    covered_patients is count(distinct patient_id)
-    primary_coverage_intervals is count(case when is_primary then coverage_interval_id end)
+    covered_patients is count(patient_id)
+    primary_coverage_intervals is count(case when (is_primary) then coverage_interval_id end)
 }
 
 source: encounters is duckdb.table('encounters') extend {
@@ -50,20 +57,21 @@ source: encounters is duckdb.table('encounters') extend {
     on attending_provider_id = attending_provider.provider_id
 
   join_one: coverage_at_admit is payer_coverage_intervals
-    on patient_id = coverage_at_admit.patient_id
+    on patient_id = coverage_at_admit.patient_id and (coverage_at_admit.is_primary)
     and admit_at >= coverage_at_admit.coverage_start_date
     and admit_at < coverage_at_admit.coverage_end_date
-    and coverage_at_admit.is_primary
 
   dimension:
-    encounter_date is admit_at.date
-    encounter_month is admit_at.month
     is_hospital_encounter is encounter_type in ('inpatient', 'emergency', 'observation')
+    is_inpatient_encounter is encounter_type = 'inpatient'
+    encounter_date is admit_at.day
+    encounter_month is admit_at.month
+    is_hospital_encounter is (encounter_type in ('inpatient', 'emergency', 'observation'))
 
   measure:
     encounters is count()
-    patients_seen is count(distinct patient_id)
-    inpatient_encounters is count(case when encounter_type = 'inpatient' then encounter_id end)
+    patients_seen is count(patient_id)
+    inpatient_encounters is count(case when (encounter_type = 'inpatient') then encounter_id end)
     emergency_encounters is count(case when encounter_type = 'emergency' then encounter_id end)
     outpatient_encounters is count(case when encounter_type = 'outpatient' then encounter_id end)
 
@@ -84,20 +92,6 @@ source: encounters is duckdb.table('encounters') extend {
   }
 }
 
-source: readmission_events is duckdb.table('readmission_events') extend {
-  primary_key: readmission_event_id
-
-  join_one: patient is patients
-    on patient_id = patient.patient_id
-
-  measure:
-    readmission_events is count()
-    unplanned_readmissions is count(case when not planned_readmission_flag then readmission_event_id end)
-    planned_readmissions is count(case when planned_readmission_flag then readmission_event_id end)
-    same_facility_readmissions is count(case when same_facility_flag then readmission_event_id end)
-    average_days_to_readmit is avg(days_after_discharge)
-}
-
 source: inpatient_stays is duckdb.table('inpatient_stays') extend {
   primary_key: stay_id
 
@@ -114,28 +108,40 @@ source: inpatient_stays is duckdb.table('inpatient_stays') extend {
     on attending_provider_id = attending_provider.provider_id
 
   join_one: coverage_at_discharge is payer_coverage_intervals
-    on patient_id = coverage_at_discharge.patient_id
+    on patient_id = coverage_at_discharge.patient_id and (coverage_at_discharge.is_primary)
     and discharge_date >= coverage_at_discharge.coverage_start_date
     and discharge_date < coverage_at_discharge.coverage_end_date
-    and coverage_at_discharge.is_primary
+
+  join_many: diagnoses_at_discharge is diagnosis_intervals
+    on patient_id = diagnoses_at_discharge.patient_id
+    and discharge_date >= diagnoses_at_discharge.clinical_valid_start
+    and discharge_date < diagnoses_at_discharge.clinical_valid_end
 
   join_many: readmissions is readmission_events
     on stay_id = readmissions.index_stay_id
 
+  join_many: measure_population_rows is quality_measure_populations
+    on stay_id = measure_population_rows.stay_id
+
   dimension:
+    is_eligible_index_discharge is index_stay_eligible_flag and not mortality_exclusion_flag
+    is_planned_admission is planned_admission_flag
+    is_mortality_exclusion is mortality_exclusion_flag
     discharge_month is discharge_at.month
-    eligible_denominator_discharge is index_stay_eligible_flag and not mortality_exclusion_flag
+    eligible_denominator_discharge is (index_stay_eligible_flag and not mortality_exclusion_flag)
 
   measure:
     inpatient_stays is count()
     discharges is count()
-    eligible_index_discharges is count(case when index_stay_eligible_flag and not mortality_exclusion_flag then stay_id end)
-    planned_index_admissions is count(case when planned_admission_flag then stay_id end)
-    mortality_exclusions is count(case when mortality_exclusion_flag then stay_id end)
+    eligible_index_discharges is
+      count(case when (index_stay_eligible_flag and not mortality_exclusion_flag) then stay_id end)
+    planned_index_admissions is count(case when (planned_admission_flag) then stay_id end)
+    mortality_exclusions is count(case when (mortality_exclusion_flag) then stay_id end)
     total_length_of_stay_days is sum(length_of_stay_days)
     average_length_of_stay_days is avg(length_of_stay_days)
-    readmissions_30d is readmissions.count()
-    unplanned_readmissions_30d is readmissions.count(case when not planned_readmission_flag then readmission_event_id end)
+    readmissions_30d is count(readmissions.readmission_event_id)
+    unplanned_readmissions_30d is
+      count( case when not readmissions.planned_readmission_flag then readmissions.readmission_event_id end )
     readmission_rate_30d is unplanned_readmissions_30d / nullif(eligible_index_discharges, 0)
 
   view: discharge_denominator is {
@@ -180,15 +186,20 @@ source: diagnosis_intervals is duckdb.table('diagnosis_intervals') extend {
     on encounter_id = encounter.encounter_id
 
   dimension:
-    clinical_valid_month is clinical_valid_start.month
     is_diabetes_diagnosis is diagnosis_code in ('E10', 'E10.9', 'E11', 'E11.9', 'E11.65')
-    is_problem_list_source is source_system = 'ehr_problem_list'
+    is_problem_list_diagnosis is source_system = 'ehr_problem_list'
+    is_encounter_coded_diagnosis is source_system = 'encounter_coding'
+    clinical_valid_month is clinical_valid_start.month
+    is_diabetes_diagnosis is (diagnosis_code in ('E10', 'E10.9', 'E11', 'E11.9', 'E11.65'))
+    is_problem_list_source is (source_system = 'ehr_problem_list')
 
   measure:
     diagnosis_intervals is count()
-    diagnosed_patients is count(distinct patient_id)
-    diabetes_patients is count(distinct case when is_diabetes_diagnosis then patient_id end)
-    encounter_coded_diagnoses is count(case when source_system = 'encounter_coding' then diagnosis_interval_id end)
+    diagnosed_patients is count(patient_id)
+    diabetes_patients is
+      count(case when (diagnosis_code in ('E10', 'E10.9', 'E11', 'E11.9', 'E11.65')) then patient_id end)
+    encounter_coded_diagnoses is
+      count(case when (source_system = 'encounter_coding') then diagnosis_interval_id end)
 
   view: diagnosis_cohorts is {
     group_by:
@@ -219,14 +230,21 @@ source: lab_results is duckdb.table('lab_results') extend {
   join_one: facility is facilities
     on facility_id = facility.facility_id
 
+  join_many: active_diagnoses is diagnosis_intervals
+    on patient_id = active_diagnoses.patient_id
+    and resulted_at >= active_diagnoses.clinical_valid_start
+    and resulted_at < active_diagnoses.clinical_valid_end
+
   dimension:
+    is_abnormal_result is abnormal_flag
+    is_a1c_result is test_code = 'A1C'
     resulted_month is resulted_at.month
     result_context is concat(test_code, ' ', result_unit)
 
   measure:
     lab_results is count()
-    patients_with_labs is count(distinct patient_id)
-    abnormal_results is count(case when abnormal_flag then lab_result_id end)
+    patients_with_labs is count(patient_id)
+    abnormal_results is count(case when (abnormal_flag) then lab_result_id end)
     abnormal_result_rate is abnormal_results / nullif(lab_results, 0)
     average_result_value is avg(result_value)
     average_turnaround_minutes is avg(turnaround_minutes)
@@ -258,18 +276,25 @@ source: claims is duckdb.table('claims') extend {
     on patient_id = patient.patient_id
 
   dimension:
+    is_denied_claim is claim_status = 'denied' or denied_amount > 0
+    is_paid_claim is claim_status in ('paid', 'partially_paid')
     submitted_month is claim_submitted_at.month
-    has_denial is claim_status = 'denied' or denied_amount > 0
+    has_denial is (claim_status = 'denied' or denied_amount > 0)
 
   measure:
     claims is count()
-    denied_claims is count(case when has_denial then claim_id end)
-    paid_claims is count(case when claim_status in ('paid', 'partially_paid') then claim_id end)
+    denied_claims is count(case when (claim_status = 'denied' or denied_amount > 0) then claim_id end)
+    paid_claims is count(case when (claim_status in ('paid', 'partially_paid')) then claim_id end)
+    # currency=usd2
     billed_amount is sum(billed_amount)
+    # currency=usd2
     allowed_amount is sum(allowed_amount)
+    # currency=usd2
     paid_amount is sum(paid_amount)
+    # currency=usd2
     denied_amount is sum(denied_amount)
     denial_rate is denied_claims / nullif(claims, 0)
+    # currency=usd2
     collection_rate is paid_amount / nullif(allowed_amount, 0)
 
   view: payer_claim_outcomes is {
@@ -292,6 +317,30 @@ source: claims is duckdb.table('claims') extend {
   }
 }
 
+source: readmission_events is duckdb.table('readmission_events') extend {
+  primary_key: readmission_event_id
+
+  join_one: index_stay is inpatient_stays
+    on index_stay_id = index_stay.stay_id
+
+  join_one: readmission_stay is inpatient_stays
+    on readmission_stay_id = readmission_stay.stay_id
+
+  join_one: patient is patients
+    on patient_id = patient.patient_id
+
+  dimension:
+    is_unplanned_readmission is not planned_readmission_flag
+    is_same_facility_readmission is same_facility_flag
+
+  measure:
+    readmission_events is count()
+    unplanned_readmissions is count(case when (not planned_readmission_flag) then readmission_event_id end)
+    planned_readmissions is count(case when planned_readmission_flag then readmission_event_id end)
+    same_facility_readmissions is count(case when (same_facility_flag) then readmission_event_id end)
+    average_days_to_readmit is avg(days_after_discharge)
+}
+
 source: quality_measure_populations is duckdb.table('quality_measure_populations') extend {
   primary_key: population_member_id
 
@@ -308,16 +357,21 @@ source: quality_measure_populations is duckdb.table('quality_measure_populations
     on provider_id = provider.provider_id
 
   dimension:
+    is_effective_denominator_member is denominator_flag and not exclusion_flag and not exception_flag
+    is_numerator_member is numerator_flag and denominator_flag and not exclusion_flag and not exception_flag
+    is_excluded_member is exclusion_flag
     measurement_period_label is concat(measure_version, ' ', measure_id)
-    effective_denominator_member is denominator_flag and not exclusion_flag and not exception_flag
+    effective_denominator_member is (denominator_flag and not exclusion_flag and not exception_flag)
 
   measure:
     population_rows is count()
     denominator_members is count(case when denominator_flag then population_member_id end)
-    exclusion_members is count(case when exclusion_flag then population_member_id end)
+    exclusion_members is count(case when (exclusion_flag) then population_member_id end)
     exception_members is count(case when exception_flag then population_member_id end)
-    effective_denominator_members is count(case when denominator_flag and not exclusion_flag and not exception_flag then population_member_id end)
-    numerator_members is count(case when numerator_flag and denominator_flag and not exclusion_flag and not exception_flag then population_member_id end)
+    effective_denominator_members is
+      count(case when (denominator_flag and not exclusion_flag and not exception_flag) then population_member_id end)
+    numerator_members is
+      count(case when (numerator_flag and denominator_flag and not exclusion_flag and not exception_flag) then population_member_id end)
     measure_rate is numerator_members / nullif(effective_denominator_members, 0)
 
   view: quality_measure_scorecard is {
@@ -398,4 +452,35 @@ query: payer_denial_and_coverage is claims -> {
     denied_amount
     denial_rate
     collection_rate
+}
+
+query: diabetes_a1c_followup is lab_results -> {
+  where: (test_code = 'A1C') and (active_diagnoses.diagnosis_code in ('E10', 'E10.9', 'E11', 'E11.9', 'E11.65'))
+  group_by:
+    resulted_month
+    facility.facility_name
+    encounter.service_line
+    result_unit
+  aggregate:
+    patients_with_labs
+    lab_results
+    abnormal_results
+    abnormal_result_rate
+    average_result_value
+    average_turnaround_minutes
+}
+
+query: discharge_diagnosis_denominator_audit is inpatient_stays -> {
+  where: eligible_denominator_discharge and diagnoses_at_discharge.diagnosis_code in ('J18.9', 'I50.23')
+  group_by:
+    discharge_month
+    facility.facility_name
+    service_line
+    diagnoses_at_discharge.diagnosis_code
+    diagnoses_at_discharge.diagnosis_description
+  aggregate:
+    eligible_index_discharges
+    unplanned_readmissions_30d
+    readmission_rate_30d
+    average_length_of_stay_days
 }

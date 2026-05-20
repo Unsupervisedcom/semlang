@@ -111,11 +111,11 @@ lens: active_recall_response is {
         else 'standard'
       end
 
-      containment_age_days is (now() - identified_at) / interval('1 day')
+      containment_age_days is (now - identified_at) / 1 days
 
     measure:
-      regulatory_hot_units is count(distinct case when priority_band = 'regulatory_hot' then serial_number end)
-      expedite_units is count(distinct case when priority_band = 'expedite' then serial_number end)
+      regulatory_hot_units is count(case when priority_band = 'regulatory_hot' then serial_number end)
+      expedite_units is count(case when priority_band = 'expedite' then serial_number end)
 
     view: active_recall_work_queue is {
       group_by:
@@ -213,8 +213,8 @@ lens: quality_operations is {
       end
 
     measure:
-      escalation_units is count(distinct case when quality_risk_band = 'escalate' then serial_number end)
-      containment_units is count(distinct case when quality_risk_band = 'contain' then serial_number end)
+      escalation_units is count(case when quality_risk_band = 'escalate' then serial_number end)
+      containment_units is count(case when quality_risk_band = 'contain' then serial_number end)
 
     view: quality_risk_by_bom_and_lot is {
       group_by:

@@ -232,7 +232,7 @@ concept LoyaltyPointBalance is situation from duckdb.table('loyalty_point_balanc
 
   measure:
     balance_days is count()
-    loyalty_members_with_balance is count(distinct loyalty_member_id)
+    loyalty_members_with_balance is count(loyalty_member_id)
     point_balance_at_filter is max(point_balance)
     average_point_balance is avg(point_balance)
 
@@ -351,7 +351,7 @@ concept ReturnLine is event from duckdb.table('return_lines') {
     settled_at :: EventTimestamp? writeable
 
   measure:
-    return_authorizations is count(distinct return_authorization_id)
+    return_authorizations is count(return_authorization_id)
     returned_units is sum(returned_quantity)
     settled_returned_units is sum(case when return_status = 'settled' then returned_quantity else 0 end)
     refund_amount is sum(refund_amount)
@@ -415,7 +415,7 @@ concept Sale is event from duckdb.table('transactions') {
 
   join_one loyalty_points_at_sale?: LoyaltyPointBalance
     on customer.loyalty_member_id = loyalty_points_at_sale.loyalty_member_id
-    and sold_at.date = loyalty_points_at_sale.balance_date
+    and sold_at.day = loyalty_points_at_sale.balance_date
 
   join_many lines: SaleLine on transaction_id
 
@@ -427,7 +427,7 @@ concept Sale is event from duckdb.table('transactions') {
     fulfillment_method :: FulfillmentMethod
 
   dimension:
-    sold_date is sold_at.date
+    sold_date is sold_at.day
     sold_month is sold_at.month
     loyalty_point_balance_at_sale is loyalty_points_at_sale.point_balance
 
@@ -440,8 +440,8 @@ concept Sale is event from duckdb.table('transactions') {
 
   measure:
     sales is count()
-    loyalty_customers is count(distinct case when customer is LoyaltyCustomer then customer.loyalty_member_id end)
-    identified_customers is count(distinct customer.customer_id)
+    loyalty_customers is count(case when customer is LoyaltyCustomer then customer.loyalty_member_id end)
+    identified_customers is count(customer.customer_id)
     identified_customer_sales is count(case when customer is not null then transaction_id end)
     unrecognized_cash_sales is count(case when customer is null then transaction_id end)
     identified_sales_per_customer is identified_customer_sales / nullif(identified_customers, 0)
@@ -500,11 +500,11 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
     margin_amount is net_sales_amount - merchandise_cost_amount
     customer_recognition_method is sale.customer_recognition_method
     loyalty_point_balance_at_sale is sale.loyalty_point_balance_at_sale
-    is_return_window_open is sale.sold_at >= now() - interval('30 day')
+    is_return_window_open is sale.sold_at >= now - 30 days
 
   measure:
     line_items is count()
-    sales is count(distinct transaction_id)
+    sales is count(transaction_id)
     units_sold is sum(quantity)
     gross_sales is sum(gross_sales_amount)
     discount_amount is sum(discount_amount)
@@ -636,7 +636,7 @@ query: monthly_margin_and_returns is SaleLine -> {
     loyalty_margin_mix
   index:
     sale.store.region
-    product_category is product_at_sale.category_name
+    product_at_sale.category_name
   order_by:
     sold_month desc
   limit: 24
@@ -653,7 +653,7 @@ query: recent_order_line_projection is SaleLine -> {
     channel
     product_at_sale.category_name
   order_by:
-    sale.sold_at desc
+    sold_at desc
   top: 25
 }
 
@@ -746,7 +746,7 @@ query: denver_store_customer_count_on_2025_09_15 is Sale -> {
   //    7,200 unique customers if every cash buyer bought once, or about 6,938
   //    if anonymous buyers repeated at the same rate as identified buyers."
   where:
-    sold_date = date '2025-09-15'
+    sold_date = @2025-09-15
     and store.store_code = 'DEN-01'
   aggregate:
     sales

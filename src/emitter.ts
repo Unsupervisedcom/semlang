@@ -64,12 +64,18 @@ function emitConcept(model: SemanticModel, concept: ResolvedConcept, sourceNames
   const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
   const lines: string[] = [];
   lines.push(`source: ${sourceName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`);
-  if (concept.identities.length > 0) lines.push(`  primary_key: ${primaryKey(concept.identities)}`);
+  const compositePrimaryKeyName = concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
+  if (concept.identities.length === 1) lines.push(`  primary_key: ${concept.identities[0]!.name}`);
+  if (compositePrimaryKeyName) lines.push(`  primary_key: ${compositePrimaryKeyName}`);
   for (const join of concept.joins) {
     lines.push("");
     lines.push(...indent(emitJoin(model, concept, join, sourceNames), 2));
   }
-  const dimensions = [...concept.roles.map((role) => ({
+  const dimensions = [...(compositePrimaryKeyName ? [{
+    name: compositePrimaryKeyName,
+    expression: primaryKey(concept.identities),
+    location: concept.identities[0]?.location ?? concept.location
+  }] : []), ...concept.roles.map((role) => ({
     name: roleDimensionName(role.name),
     expression: lowerExpression(model, concept, role.predicate),
     location: role.location
@@ -311,8 +317,23 @@ function rawQueryItem(item: QueryItemDecl): string {
 }
 
 function primaryKey(fields: Array<{ name: string }>): string {
-  if (fields.length === 1) return fields[0]!.name;
   return `concat(${fields.map((field) => field.name).join(", '|', ")})`;
+}
+
+function uniqueGeneratedFieldName(concept: ResolvedConcept, baseName: string): string {
+  const used = new Set([
+    ...concept.fields.map((field) => field.name),
+    ...concept.dimensions.map((dimension) => dimension.name),
+    ...concept.measures.map((measure) => measure.name),
+    ...concept.roles.map((role) => roleDimensionName(role.name))
+  ]);
+  let name = baseName;
+  let suffix = 2;
+  while (used.has(name)) {
+    name = `${baseName}_${suffix}`;
+    suffix += 1;
+  }
+  return name;
 }
 
 function periodAxis(axis: TemporalAxisDecl | undefined): { start: string; end: string } | undefined {
