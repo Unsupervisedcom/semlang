@@ -6,11 +6,31 @@ export interface SourceLocation {
   column: number;
 }
 
+export interface GeneratedSourceContextLine {
+  line: number;
+  text: string;
+  marker?: "error";
+}
+
+export interface MalloySourceMapEntry {
+  generatedStartLine: number;
+  generatedEndLine: number;
+  location: SourceLocation;
+  kind: string;
+  label: string;
+}
+
 export interface Diagnostic {
   severity: Severity;
   code: string;
   message: string;
   location?: SourceLocation;
+  generatedLocation?: SourceLocation;
+  generatedContext?: GeneratedSourceContextLine[];
+  sourceMapTarget?: {
+    kind: string;
+    label: string;
+  };
 }
 
 export interface CompileOptions {
@@ -40,6 +60,7 @@ export interface CompileResult {
   ast?: SemLangAst;
   model?: SemanticModel;
   malloy?: string;
+  malloySourceMap?: MalloySourceMapEntry[];
   jsonSchema?: JsonSchemaDocument;
   diagnostics: Diagnostic[];
 }

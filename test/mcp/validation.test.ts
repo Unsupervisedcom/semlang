@@ -161,6 +161,9 @@ concept Sale is event from duckdb.table('sales') {
   it("returns Malloy SDK validation diagnostics when setting ontology source but not during query validation", async () => {
     // 05.07.006 and 05.07.007: ontology loading validates the full emitted
     // Malloy model and fails before bad generated Malloy reaches query use.
+    // 05.07.009 and 05.07.010: set_ontology_source returns generated Malloy
+    // context and maps Malloy validation diagnostics back to SemLang source
+    // locations when source mapping is available.
     const mcp = createSemLangMcp();
 
     const source = await setInlineOntology(
@@ -186,7 +189,8 @@ query: account_recency is Account -> {
 `,
     );
     expect(source.ok).toBe(false);
-    expect(records(source.diagnostics)).toEqual(
+    const diagnostics = records(source.diagnostics);
+    expect(diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           severity: "error",
@@ -195,5 +199,40 @@ query: account_recency is Account -> {
         }),
       ]),
     );
+    const malloyDiagnostic = diagnostics.find((diagnostic) => {
+      const generatedLocation = diagnostic.generatedLocation as Record<string, unknown> | undefined;
+      return (
+        diagnostic.code === "MALLOY_VALIDATION_ERROR" &&
+        generatedLocation?.line === 9 &&
+        generatedLocation?.column === 38
+      );
+    });
+    expect(malloyDiagnostic).toMatchObject({
+      location: {
+        file: expect.stringContaining("inline.semlang"),
+        line: 11,
+        column: 5,
+      },
+      generatedLocation: {
+        file: "generated.malloy",
+        line: 9,
+        column: 38,
+      },
+      sourceMapTarget: {
+        kind: "dimension",
+        label: "Account.days_since_last_order",
+      },
+    });
+    expect(records(malloyDiagnostic?.generatedContext)).toEqual([
+      { line: 7, text: "", marker: null },
+      { line: 8, text: "  dimension:", marker: null },
+      {
+        line: 9,
+        text: "    days_since_last_order is days(now() - last_order_date)",
+        marker: "error",
+      },
+      { line: 10, text: "}", marker: null },
+      { line: 11, text: "", marker: null },
+    ]);
   });
 });

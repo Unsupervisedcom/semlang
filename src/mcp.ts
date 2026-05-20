@@ -16,6 +16,7 @@ import type {
   Diagnostic,
   JoinDecl,
   LensDecl,
+  MalloySourceMapEntry,
   QueryBodyDecl,
   QueryDecl,
   ResolvedConcept,
@@ -32,6 +33,7 @@ export interface SemLangMcpContext {
   compileResult?: CompileResult;
   model?: SemanticModel;
   malloy?: string;
+  malloySourceMap?: MalloySourceMapEntry[];
   sourceText?: string;
   filePath?: string;
   sourcePaths?: string[];
@@ -154,6 +156,7 @@ export function createSemLangMcp(): SemLangMcpApi {
             malloyConfigSource: executionContext.source,
             modelFilePath: filePath,
           },
+          sourceMap: result.malloySourceMap,
         });
         result.diagnostics.push(...malloyDiagnostics);
       }
@@ -164,6 +167,7 @@ export function createSemLangMcp(): SemLangMcpApi {
       context.compileResult = result;
       context.model = result.model;
       context.malloy = result.malloy;
+      context.malloySourceMap = result.malloySourceMap;
       context.sourceText = sourceText;
       context.filePath = filePath;
       context.sourcePaths = sourcePaths;

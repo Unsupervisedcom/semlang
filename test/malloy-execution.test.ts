@@ -155,7 +155,9 @@ query: account_attraction_messages is AccountAttraction -> {
     expect(result.rows).toEqual([{ attraction_name: "The Show", message_count: 2 }]);
   });
 
-  it("converts Malloy model problems into SemLang diagnostics", async () => {
+  it("converts Malloy model problems into SemLang diagnostics with generated context", async () => {
+    // 05.07.009: Malloy validation diagnostics include nearby generated
+    // Malloy context lines when Malloy provides line information.
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-malloy-validation-"));
     const malloyConfigPath = await writeMalloyConfig(projectDir);
     const diagnostics = await validateMalloyModel({
@@ -179,10 +181,113 @@ source: accounts is duckdb.sql("""select 'A1' as account_id, date '2026-05-01' a
         }),
       ]),
     );
-    expect(diagnostics[0]?.location).toMatchObject({
+    const malloyDiagnostic = diagnostics.find((diagnostic) =>
+      diagnostic.message.includes("extraneous input '(' expecting ')'"),
+    );
+    expect(malloyDiagnostic?.location).toMatchObject({
       file: "generated.malloy",
-      line: expect.any(Number),
-      column: expect.any(Number),
+      line: 6,
+      column: 38,
     });
+    expect(malloyDiagnostic?.generatedLocation).toEqual({
+      file: "generated.malloy",
+      line: 6,
+      column: 38,
+    });
+    expect(malloyDiagnostic?.generatedContext).toEqual([
+      { line: 4, text: "" },
+      { line: 5, text: "  dimension:" },
+      {
+        line: 6,
+        text: "    days_since_last_order is days(now() - last_order_date)",
+        marker: "error",
+      },
+      { line: 7, text: "}" },
+      { line: 8, text: "" },
+    ]);
+  });
+
+  it("maps Malloy validation diagnostics back to SemLang source locations", async () => {
+    // 05.07.010: when source mapping is available, Malloy validation
+    // diagnostics prefer the original SemLang source location and preserve the
+    // generated Malloy location separately.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-malloy-validation-source-map-"));
+    const malloyConfigPath = await writeMalloyConfig(projectDir);
+    const filePath = path.join(projectDir, "model.semlang");
+    const compiled = await compileSemLang(
+      `package identity.malloy_source_map
+
+concept Account is kind from duckdb.sql("""
+  select 'A1' as account_id, date '2026-05-01' as last_order_date
+""") {
+  identity account_id :: string
+  field:
+    last_order_date :: date
+
+  dimension:
+    days_since_last_order is days(now() - last_order_date)
+}
+`,
+      { filePath },
+    );
+
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.malloy).toBeDefined();
+    expect(compiled.malloySourceMap).toBeDefined();
+    expect(compiled.malloy?.split("\n")[8]).toBe("    days_since_last_order is days(now() - last_order_date)");
+    expect(compiled.malloySourceMap).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          generatedStartLine: 9,
+          generatedEndLine: 9,
+          location: {
+            file: filePath,
+            line: 11,
+            column: 5,
+          },
+          kind: "dimension",
+          label: "Account.days_since_last_order",
+        }),
+      ]),
+    );
+    const diagnostics = await validateMalloyModel({
+      context: { projectDir, malloyConfigPath },
+      malloy: compiled.malloy!,
+      sourceMap: compiled.malloySourceMap,
+    });
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          code: "MALLOY_VALIDATION_ERROR",
+          location: {
+            file: filePath,
+            line: 11,
+            column: 5,
+          },
+          generatedLocation: {
+            file: "generated.malloy",
+            line: 9,
+            column: 38,
+          },
+          generatedContext: [
+            { line: 7, text: "" },
+            { line: 8, text: "  dimension:" },
+            {
+              line: 9,
+              text: "    days_since_last_order is days(now() - last_order_date)",
+              marker: "error",
+            },
+            { line: 10, text: "}" },
+            { line: 11, text: "" },
+          ],
+          sourceMapTarget: {
+            kind: "dimension",
+            label: "Account.days_since_last_order",
+          },
+        }),
+      ]),
+    );
   });
 });

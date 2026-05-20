@@ -26,7 +26,14 @@ export async function compileSemLang(source: string, options: CompileOptions = {
   const schema = emitJsonSchema(resolved.model);
   diagnostics.push(...schema.diagnostics);
   if (options.lintWarnings) diagnostics.push(...lintSemanticModel(resolved.model));
-  return { ast: parsed.ast, model: resolved.model, malloy: emitted.malloy, jsonSchema: schema.schema, diagnostics };
+  return {
+    ast: parsed.ast,
+    model: resolved.model,
+    malloy: emitted.malloy,
+    malloySourceMap: emitted.sourceMap,
+    jsonSchema: schema.schema,
+    diagnostics,
+  };
 }
 
 export async function compileFile(filePath: string, options: CompileOptions = {}): Promise<CompileResult> {

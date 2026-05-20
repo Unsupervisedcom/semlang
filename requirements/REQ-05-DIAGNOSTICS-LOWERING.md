@@ -90,3 +90,5 @@ Validation lint diagnostics identify model-quality problems during ontology vali
 - 05.07.006: Ontology source validation that enables lint warnings MUST also validate the full emitted Malloy model with the Malloy SDK and return actionable Malloy syntax, config, and warning problems as diagnostics.
 - 05.07.007: Malloy SDK validation errors MUST make ontology source loading fail, and ordinary query validation MUST NOT be used as the first place those model-wide errors appear.
 - 05.07.008: Ontology source loading MUST treat lint diagnostics with severity `error` as blocking and MUST treat lint diagnostics with severity `warning` as non-blocking.
+- 05.07.009: Malloy SDK validation diagnostics produced from generated Malloy MUST include nearby generated Malloy context lines when line information is available.
+- 05.07.010: When generated Malloy source mapping is available, Malloy SDK validation diagnostics MUST prefer the mapped original SemLang source location while preserving the generated Malloy location separately.

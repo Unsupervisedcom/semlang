@@ -1,8 +1,18 @@
 import { applyQueryLenses } from "./resolver.js";
 import { buildRoleIndex, findRoleOnConcept, type RoleIndex, type RoleResolution } from "./roles.js";
+import {
+  buildMalloy,
+  indent,
+  line,
+  origin,
+  spaces,
+  type EmittedBlock,
+  type MalloySourceOrigin,
+} from "./malloy-writer.js";
 import type {
   Diagnostic,
   JoinDecl,
+  MalloySourceMapEntry,
   QueryBodyDecl,
   QueryDecl,
   QueryItemDecl,
@@ -10,12 +20,30 @@ import type {
   SemanticModel,
   SourceDecl,
   SourceExpression,
+  SourceLocation,
   TemporalAxisDecl,
 } from "./types.js";
 
-export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics: Diagnostic[] } {
+interface DefinitionToEmit {
+  name: string;
+  expression: string;
+  location: SourceLocation;
+}
+
+interface QueryBodyEmitter {
+  expression(expression: string): string;
+  item(item: QueryItemDecl, indentSpaces: number): EmittedBlock;
+  label(label: string): string;
+  orderByItem(item: QueryItemDecl, indentSpaces: number): EmittedBlock;
+}
+
+export function emitMalloy(model: SemanticModel): {
+  malloy: string;
+  diagnostics: Diagnostic[];
+  sourceMap: MalloySourceMapEntry[];
+} {
   const diagnostics: Diagnostic[] = [];
-  const chunks: string[] = [];
+  const chunks: EmittedBlock[] = [];
   const sourceNames = new Map([...model.concepts].map(([name, concept]) => [name, concept.sourceName]));
   const declaredSources = new Set<string>();
 
@@ -66,7 +94,7 @@ export function emitMalloy(model: SemanticModel): { malloy: string; diagnostics:
     declaredSources.add(sourceNames.get(concept.name) ?? concept.sourceName);
   }
 
-  return { malloy: chunks.filter(Boolean).join("\n\n") + "\n", diagnostics };
+  return buildMalloy(chunks, diagnostics);
 }
 
 function conceptUsesQuerySource(model: SemanticModel, concept: ResolvedConcept): boolean {
@@ -82,21 +110,44 @@ function emitConcept(
   sourceNames: Map<string, string>,
   declaredSources: Set<string>,
   baseSourceNames: Map<string, string>,
-): string {
+): EmittedBlock {
   const sourceName = sourceNames.get(concept.name) ?? concept.sourceName;
-  const lines: string[] = [];
+  const lines: EmittedBlock = [];
+  const conceptOrigin = origin(concept.location, "concept", concept.name);
   lines.push(
-    `source: ${sourceName} is ${baseSourceNames.get(concept.name) ?? sourceExpr(model, concept.source, sourceNames)} extend {`,
+    line(
+      `source: ${sourceName} is ${baseSourceNames.get(concept.name) ?? sourceExpr(model, concept.source, sourceNames)} extend {`,
+      conceptOrigin,
+    ),
   );
   const compositePrimaryKeyName =
     concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
-  if (concept.identities.length === 1) lines.push(`  primary_key: ${concept.identities[0]!.name}`);
-  if (compositePrimaryKeyName) lines.push(`  primary_key: ${compositePrimaryKeyName}`);
+  if (concept.identities.length === 1) {
+    const identity = concept.identities[0]!;
+    lines.push(
+      line(
+        `  primary_key: ${identity.name}`,
+        origin(identity.location, "identity", `${concept.name}.${identity.name}`),
+      ),
+    );
+  }
+  if (compositePrimaryKeyName) {
+    lines.push(
+      line(
+        `  primary_key: ${compositePrimaryKeyName}`,
+        origin(
+          concept.identities[0]?.location ?? concept.location,
+          "identity",
+          `${concept.name}.${compositePrimaryKeyName}`,
+        ),
+      ),
+    );
+  }
   for (const join of concept.joins) {
-    lines.push("");
+    lines.push(line(""));
     lines.push(...indent(emitJoin(model, concept, join, sourceNames, declaredSources, baseSourceNames), 2));
   }
-  const dimensions = [
+  const dimensions: DefinitionToEmit[] = [
     ...(compositePrimaryKeyName
       ? [
           {
@@ -117,35 +168,50 @@ function emitConcept(
     })),
   ];
   if (concept.where.length > 0) {
-    for (const where of concept.where) lines.push(`  where: ${lowerExpression(model, concept, where.expression)}`);
+    for (const where of concept.where) {
+      lines.push(
+        line(
+          `  where: ${lowerExpression(model, concept, where.expression)}`,
+          origin(where.location, "where", `${concept.name}.where`),
+        ),
+      );
+    }
   }
   if (dimensions.length > 0) {
-    lines.push("");
-    lines.push("  dimension:");
+    lines.push(line(""));
+    lines.push(line("  dimension:", conceptOrigin));
     for (const dimension of dimensions) {
-      lines.push(...emitDefinition(dimension.name, dimension.expression, 4));
+      lines.push(
+        ...emitDefinition(
+          dimension.name,
+          dimension.expression,
+          4,
+          origin(dimension.location, "dimension", `${concept.name}.${dimension.name}`),
+        ),
+      );
     }
   }
   if (concept.measures.length > 0) {
-    lines.push("");
-    lines.push("  measure:");
+    lines.push(line(""));
+    lines.push(line("  measure:", conceptOrigin));
     for (const measure of concept.measures) {
       lines.push(
         ...emitDefinition(
           measure.name,
           lowerExpression(model, concept, measure.expression),
           4,
+          origin(measure.location, "measure", `${concept.name}.${measure.name}`),
           formatAnnotation(model, concept, measure.expression),
         ),
       );
     }
   }
   for (const view of concept.views) {
-    lines.push("");
+    lines.push(line(""));
     lines.push(...indent(emitView(view.name, view.body, model, concept), 2));
   }
-  lines.push("}");
-  return lines.join("\n");
+  lines.push(line("}", conceptOrigin));
+  return lines;
 }
 
 function conceptBaseSourceNames(
@@ -165,40 +231,54 @@ function emitConceptBaseSources(
   concepts: ResolvedConcept[],
   baseSourceNames: Map<string, string>,
   sourceNames: Map<string, string>,
-): string[] {
+): EmittedBlock[] {
   const emitted = new Set<string>();
-  const lines: string[] = [];
+  const blocks: EmittedBlock[] = [];
   for (const concept of concepts) {
     const baseName = baseSourceNames.get(concept.name);
     if (!baseName || emitted.has(baseName)) continue;
     emitted.add(baseName);
+    const conceptOrigin = origin(concept.location, "concept-base-source", concept.name);
     const primaryKeyName =
       concept.identities.length > 1
         ? uniqueGeneratedFieldName(concept, "__semlang_base_primary_key")
         : concept.identities[0]?.name;
     if (!primaryKeyName) {
-      lines.push(`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)}`);
+      blocks.push([line(`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)}`, conceptOrigin)]);
       continue;
     }
-    const body = [`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`];
+    const body: EmittedBlock = [
+      line(`source: ${baseName} is ${sourceExpr(model, concept.source, sourceNames)} extend {`, conceptOrigin),
+    ];
     if (concept.identities.length > 1) {
-      body.push("  dimension:");
-      body.push(`    ${primaryKeyName} is ${primaryKey(concept.identities)}`);
-      body.push("");
+      const identityOrigin = origin(
+        concept.identities[0]?.location ?? concept.location,
+        "identity",
+        `${concept.name}.${primaryKeyName}`,
+      );
+      body.push(line("  dimension:", conceptOrigin));
+      body.push(line(`    ${primaryKeyName} is ${primaryKey(concept.identities)}`, identityOrigin));
+      body.push(line(""));
     }
-    body.push(`  primary_key: ${primaryKeyName}`);
-    body.push("}");
-    lines.push(body.join("\n"));
+    body.push(
+      line(
+        `  primary_key: ${primaryKeyName}`,
+        origin(concept.identities[0]?.location ?? concept.location, "identity", `${concept.name}.${primaryKeyName}`),
+      ),
+    );
+    body.push(line("}", conceptOrigin));
+    blocks.push(body);
   }
-  return lines;
+  return blocks;
 }
 
-function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: Map<string, string>): string {
+function emitSourceDecl(model: SemanticModel, source: SourceDecl, sourceNames: Map<string, string>): EmittedBlock {
   const expression = sourceExpr(model, source.source, sourceNames);
-  if (!source.query) return `source: ${source.name} is ${expression}`;
+  const sourceOrigin = origin(source.location, "source", source.name);
+  if (!source.query) return [line(`source: ${source.name} is ${expression}`, sourceOrigin)];
   const root = sourceExpressionConcept(model, source.source);
-  const body = root ? emitQueryBody(source.query, model, root, 2) : emitRawQueryBody(source.query, 2);
-  return [`source: ${source.name} is ${expression} -> {`, ...body, "}"].join("\n");
+  const body = emitQueryBody(source.query, root ? loweredQueryBodyEmitter(model, root) : rawQueryBodyEmitter(), 2);
+  return [line(`source: ${source.name} is ${expression} -> {`, sourceOrigin), ...body, line("}", sourceOrigin)];
 }
 
 function emitJoin(
@@ -208,16 +288,17 @@ function emitJoin(
   sourceNames: Map<string, string>,
   declaredSources: Set<string>,
   baseSourceNames: Map<string, string>,
-): string[] {
+): EmittedBlock {
   const roleIndex = buildRoleIndex(model);
   const targetRole = roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target);
   const targetConcept = model.concepts.get(join.target) ?? targetRole?.concept;
   const targetSource = targetConcept
     ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
     : join.target;
-  const lines = [`${join.kind}: ${join.name} is ${targetSource}`];
+  const joinOrigin = origin(join.location, "join", `${source.name}.${join.name}`);
+  const lines = [line(`${join.kind}: ${join.name} is ${targetSource}`, joinOrigin)];
   if (join.with) {
-    lines.push(`  with ${lowerExpression(model, source, join.with)}`);
+    lines.push(line(`  with ${lowerExpression(model, source, join.with)}`, joinOrigin));
     return lines;
   }
   const onParts = join.on ? [lowerJoinOn(model, source, targetConcept, join)] : [];
@@ -230,10 +311,12 @@ function emitJoin(
     }
   }
   const firstOn = onParts[0];
-  if (firstOn) lines.push(`  on ${firstOn}`);
-  for (const part of onParts.slice(1)) lines.push(`  and ${part}`);
+  if (firstOn) lines.push(line(`  on ${firstOn}`, joinOrigin));
+  for (const part of onParts.slice(1)) lines.push(line(`  and ${part}`, joinOrigin));
   if (targetRole && onParts.length > 0) {
-    lines.push(`  and ${prefixRolePredicate(model, targetRole.concept, targetRole.role.predicate, join.name)}`);
+    lines.push(
+      line(`  and ${prefixRolePredicate(model, targetRole.concept, targetRole.role.predicate, join.name)}`, joinOrigin),
+    );
   }
   return lines;
 }
@@ -266,92 +349,136 @@ function emitQuery(
   rootSource: string,
   model: SemanticModel,
   root: ResolvedConcept | undefined,
-): string {
-  if (query.view) return `query: ${query.name} is ${rootSource} -> ${query.view}`;
-  const body = root ? emitQueryBody(query.body, model, root, 2) : [];
-  return [`query: ${query.name} is ${rootSource} -> {`, ...body, "}"].join("\n");
+): EmittedBlock {
+  const queryOrigin = origin(query.location, "query", query.name);
+  if (query.view) return [line(`query: ${query.name} is ${rootSource} -> ${query.view}`, queryOrigin)];
+  const body = root ? emitQueryBody(query.body, loweredQueryBodyEmitter(model, root), 2) : [];
+  return [line(`query: ${query.name} is ${rootSource} -> {`, queryOrigin), ...body, line("}", queryOrigin)];
 }
 
-function emitView(name: string, body: QueryBodyDecl, model: SemanticModel, root: ResolvedConcept): string[] {
-  return [`view: ${name} is {`, ...emitQueryBody(body, model, root, 2), "}"];
+function emitView(name: string, body: QueryBodyDecl, model: SemanticModel, root: ResolvedConcept): EmittedBlock {
+  const view = root.views.find((candidate) => candidate.name === name);
+  const viewOrigin = origin(view?.location ?? root.location, "view", `${root.name}.${name}`);
+  return [
+    line(`view: ${name} is {`, viewOrigin),
+    ...emitQueryBody(body, loweredQueryBodyEmitter(model, root), 2),
+    line("}", viewOrigin),
+  ];
 }
 
-function emitQueryBody(
-  body: QueryBodyDecl,
-  model: SemanticModel,
-  root: ResolvedConcept,
-  indentSpaces: number,
-): string[] {
-  const lines: string[] = [];
-  if (body.where) lines.push(`${spaces(indentSpaces)}where: ${lowerExpression(model, root, body.where.expression)}`);
-  if (body.select.length > 0) {
-    lines.push(`${spaces(indentSpaces)}select:`);
-    for (const item of body.select) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
+function emitQueryBody(body: QueryBodyDecl, emitter: QueryBodyEmitter, indentSpaces: number): EmittedBlock {
+  const lines: EmittedBlock = [];
+  if (body.where) {
+    lines.push(
+      line(
+        `${spaces(indentSpaces)}where: ${emitter.expression(body.where.expression)}`,
+        origin(body.where.location, "query-where", emitter.label("where")),
+      ),
+    );
   }
-  if (body.groupBy.length > 0) {
-    lines.push(`${spaces(indentSpaces)}group_by:`);
-    for (const item of body.groupBy) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
+  emitQueryItemSection(lines, "select", body.select, emitter, indentSpaces);
+  emitQueryItemSection(lines, "group_by", body.groupBy, emitter, indentSpaces);
+  emitQueryItemSection(lines, "aggregate", body.aggregate, emitter, indentSpaces);
+  if (body.having) {
+    lines.push(
+      line(
+        `${spaces(indentSpaces)}having: ${emitter.expression(body.having.expression)}`,
+        origin(body.having.location, "query-having", emitter.label("having")),
+      ),
+    );
   }
-  if (body.aggregate.length > 0) {
-    lines.push(`${spaces(indentSpaces)}aggregate:`);
-    for (const item of body.aggregate) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
-  }
-  if (body.having) lines.push(`${spaces(indentSpaces)}having: ${lowerExpression(model, root, body.having.expression)}`);
-  if (body.calculate.length > 0) {
-    lines.push(`${spaces(indentSpaces)}calculate:`);
-    for (const item of body.calculate) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
-  }
+  emitQueryItemSection(lines, "calculate", body.calculate, emitter, indentSpaces);
   if (body.nest && body.nest.length > 0) {
-    lines.push(`${spaces(indentSpaces)}nest:`);
+    lines.push(line(`${spaces(indentSpaces)}nest:`));
     for (const nest of body.nest) {
+      const nestOrigin = origin(nest.location, "query-nest", emitter.label(nest.name ?? nest.view ?? "nest"));
       if (nest.body) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is {`);
-        lines.push(...emitQueryBody(nest.body, model, root, indentSpaces + 4));
-        lines.push(`${spaces(indentSpaces + 2)}}`);
+        lines.push(line(`${spaces(indentSpaces + 2)}${nest.name} is {`, nestOrigin));
+        lines.push(...emitQueryBody(nest.body, emitter, indentSpaces + 4));
+        lines.push(line(`${spaces(indentSpaces + 2)}}`, nestOrigin));
       } else if (nest.name && nest.view) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is ${nest.view}`);
+        lines.push(line(`${spaces(indentSpaces + 2)}${nest.name} is ${nest.view}`, nestOrigin));
       } else if (nest.view) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.view}`);
+        lines.push(line(`${spaces(indentSpaces + 2)}${nest.view}`, nestOrigin));
       }
     }
   }
-  if (body.index && body.index.length > 0) {
-    lines.push(`${spaces(indentSpaces)}index:`);
-    for (const item of body.index) lines.push(...emitQueryItem(item, model, root, indentSpaces + 2));
-  }
+  emitQueryItemSection(lines, "index", body.index ?? [], emitter, indentSpaces);
   if (body.orderBy.length > 0) {
-    lines.push(`${spaces(indentSpaces)}order_by:`);
-    for (const item of body.orderBy)
-      lines.push(`${spaces(indentSpaces + 2)}${lowerOrderByExpression(model, root, item.expression)}`);
+    lines.push(line(`${spaces(indentSpaces)}order_by:`));
+    for (const item of body.orderBy) lines.push(...emitter.orderByItem(item, indentSpaces + 2));
   }
-  if (body.limit) lines.push(`${spaces(indentSpaces)}limit: ${body.limit.value}`);
+  if (body.limit) {
+    lines.push(
+      line(
+        `${spaces(indentSpaces)}limit: ${body.limit.value}`,
+        origin(body.limit.location, "query-limit", emitter.label("limit")),
+      ),
+    );
+  }
   return lines;
 }
 
-function emitQueryItem(
+function emitQueryItemSection(
+  lines: EmittedBlock,
+  sectionName: string,
+  items: QueryItemDecl[],
+  emitter: QueryBodyEmitter,
+  indentSpaces: number,
+): void {
+  if (items.length === 0) return;
+  lines.push(line(`${spaces(indentSpaces)}${sectionName}:`));
+  for (const item of items) lines.push(...emitter.item(item, indentSpaces + 2));
+}
+
+function loweredQueryBodyEmitter(model: SemanticModel, root: ResolvedConcept): QueryBodyEmitter {
+  return {
+    expression: (expression) => lowerExpression(model, root, expression),
+    item: (item, indentSpaces) => emitLoweredQueryItem(item, model, root, indentSpaces),
+    label: (label) => `${root.name}.${label}`,
+    orderByItem: (item, indentSpaces) => [
+      line(
+        `${spaces(indentSpaces)}${lowerOrderByExpression(model, root, item.expression)}`,
+        origin(item.location, "query-order-by", `${root.name}.order_by`),
+      ),
+    ],
+  };
+}
+
+function emitLoweredQueryItem(
   item: QueryItemDecl,
   model: SemanticModel,
   root: ResolvedConcept,
   indentSpaces: number,
-): string[] {
+): EmittedBlock {
   const expression = lowerExpression(model, root, item.expression);
+  const itemOrigin = origin(item.location, "query-item", `${root.name}.${item.alias ?? item.expression}`);
   return item.alias
-    ? wrapDefinition(`${item.alias} is ${expression}`, indentSpaces)
-    : [`${spaces(indentSpaces)}${expression}`];
+    ? wrapDefinition(`${item.alias} is ${expression}`, indentSpaces, itemOrigin)
+    : [line(`${spaces(indentSpaces)}${expression}`, itemOrigin)];
 }
 
-function emitDefinition(name: string, expression: string, indentSpaces: number, annotation?: string): string[] {
-  const lines: string[] = [];
-  if (annotation) lines.push(`${spaces(indentSpaces)}${annotation}`);
-  lines.push(...wrapDefinition(`${name} is ${expression}`, indentSpaces));
+function emitDefinition(
+  name: string,
+  expression: string,
+  indentSpaces: number,
+  definitionOrigin: MalloySourceOrigin,
+  annotation?: string,
+): EmittedBlock {
+  const lines: EmittedBlock = [];
+  if (annotation) lines.push(line(`${spaces(indentSpaces)}${annotation}`, definitionOrigin));
+  lines.push(...wrapDefinition(`${name} is ${expression}`, indentSpaces, definitionOrigin));
   return lines;
 }
 
-function wrapDefinition(text: string, indentSpaces: number): string[] {
-  if (text.length <= 110) return [`${spaces(indentSpaces)}${text}`];
+function wrapDefinition(text: string, indentSpaces: number, lineOrigin: MalloySourceOrigin): EmittedBlock {
+  if (text.length <= 110) return [line(`${spaces(indentSpaces)}${text}`, lineOrigin)];
   const match = /^([A-Za-z_][A-Za-z0-9_]*\s+is)\s+(.+)$/.exec(text);
-  if (!match) return [`${spaces(indentSpaces)}${text}`];
-  return [`${spaces(indentSpaces)}${match[1]}`, `${spaces(indentSpaces + 2)}${match[2]}`];
+  if (!match) return [line(`${spaces(indentSpaces)}${text}`, lineOrigin)];
+  return [
+    line(`${spaces(indentSpaces)}${match[1]}`, lineOrigin),
+    line(`${spaces(indentSpaces + 2)}${match[2]}`, lineOrigin),
+  ];
 }
 
 export function lowerExpression(model: SemanticModel, root: ResolvedConcept, expression: string): string {
@@ -406,53 +533,34 @@ function sourceExpressionConcept(model: SemanticModel, source: SourceExpression)
   return source.kind === "reference" ? model.concepts.get(source.name) : undefined;
 }
 
-function emitRawQueryBody(body: QueryBodyDecl, indentSpaces: number): string[] {
-  const lines: string[] = [];
-  if (body.where) lines.push(`${spaces(indentSpaces)}where: ${body.where.expression}`);
-  if (body.select.length > 0) {
-    lines.push(`${spaces(indentSpaces)}select:`);
-    for (const item of body.select) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.groupBy.length > 0) {
-    lines.push(`${spaces(indentSpaces)}group_by:`);
-    for (const item of body.groupBy) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.aggregate.length > 0) {
-    lines.push(`${spaces(indentSpaces)}aggregate:`);
-    for (const item of body.aggregate) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.having) lines.push(`${spaces(indentSpaces)}having: ${body.having.expression}`);
-  if (body.calculate.length > 0) {
-    lines.push(`${spaces(indentSpaces)}calculate:`);
-    for (const item of body.calculate) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.nest && body.nest.length > 0) {
-    lines.push(`${spaces(indentSpaces)}nest:`);
-    for (const nest of body.nest) {
-      if (nest.body) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is {`);
-        lines.push(...emitRawQueryBody(nest.body, indentSpaces + 4));
-        lines.push(`${spaces(indentSpaces + 2)}}`);
-      } else if (nest.name && nest.view) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.name} is ${nest.view}`);
-      } else if (nest.view) {
-        lines.push(`${spaces(indentSpaces + 2)}${nest.view}`);
-      }
-    }
-  }
-  if (body.index && body.index.length > 0) {
-    lines.push(`${spaces(indentSpaces)}index:`);
-    for (const item of body.index) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.orderBy.length > 0) {
-    lines.push(`${spaces(indentSpaces)}order_by:`);
-    for (const item of body.orderBy) lines.push(`${spaces(indentSpaces + 2)}${rawQueryItem(item)}`);
-  }
-  if (body.limit) lines.push(`${spaces(indentSpaces)}limit: ${body.limit.value}`);
-  return lines;
+function rawQueryBodyEmitter(): QueryBodyEmitter {
+  return {
+    expression: (expression) => expression,
+    item: emitRawQueryItem,
+    label: (label) => label,
+    orderByItem: emitRawOrderByItem,
+  };
 }
 
-function rawQueryItem(item: QueryItemDecl): string {
+function emitRawQueryItem(item: QueryItemDecl, indentSpaces: number): EmittedBlock {
+  return [
+    line(
+      `${spaces(indentSpaces)}${rawQueryItemText(item)}`,
+      origin(item.location, "query-item", item.alias ?? item.expression),
+    ),
+  ];
+}
+
+function emitRawOrderByItem(item: QueryItemDecl, indentSpaces: number): EmittedBlock {
+  return [
+    line(
+      `${spaces(indentSpaces)}${rawQueryItemText(item)}`,
+      origin(item.location, "query-order-by", item.alias ?? item.expression),
+    ),
+  ];
+}
+
+function rawQueryItemText(item: QueryItemDecl): string {
   return item.alias ? `${item.alias} is ${item.expression}` : item.expression;
 }
 
@@ -530,12 +638,4 @@ function formatAnnotation(model: SemanticModel, concept: ResolvedConcept, expres
     ?.value.replace(/["']/g, "")
     .toLowerCase();
   return currency ? `# currency=${currency}2` : undefined;
-}
-
-function indent(lines: string[], count: number): string[] {
-  return lines.map((line) => `${spaces(count)}${line}`);
-}
-
-function spaces(count: number): string {
-  return " ".repeat(count);
 }

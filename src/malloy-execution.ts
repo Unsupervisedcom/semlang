@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { MalloyConfig, Runtime } from "@malloydata/malloy";
 import type { LogMessage, URLReader } from "@malloydata/malloy";
 import type { JsonValue } from "./mcp.js";
-import type { Diagnostic } from "./types.js";
+import type { Diagnostic, GeneratedSourceContextLine, MalloySourceMapEntry } from "./types.js";
 
 export interface MalloyExecutionContext {
   projectDir: string;
@@ -23,6 +23,7 @@ export interface MalloyExecutionOptions {
 export interface MalloyValidationOptions {
   malloy: string;
   context: MalloyExecutionContext;
+  sourceMap?: MalloySourceMapEntry[];
 }
 
 export async function validateMalloyModel(options: MalloyValidationOptions): Promise<Diagnostic[]> {
@@ -31,10 +32,10 @@ export async function validateMalloyModel(options: MalloyValidationOptions): Pro
     const created = await createMalloyRuntime(options.context);
     runtime = created.runtime;
     const model = await runtime.getModel(options.malloy, { noThrowOnError: true });
-    return malloyProblemsToDiagnostics(model.problems);
+    return malloyProblemsToDiagnostics(model.problems, options.malloy, options.sourceMap);
   } catch (error) {
     const problems = malloyProblemsFromError(error);
-    if (problems.length > 0) return malloyProblemsToDiagnostics(problems);
+    if (problems.length > 0) return malloyProblemsToDiagnostics(problems, options.malloy, options.sourceMap);
     return [
       {
         severity: "error",
@@ -186,13 +187,24 @@ function isMalloyProblem(value: unknown): value is LogMessage {
   return isRecord(value) && typeof value.message === "string";
 }
 
-function malloyProblemsToDiagnostics(problems: LogMessage[]): Diagnostic[] {
-  return actionableMalloyProblems(problems).map((problem) => ({
-    severity: problem.severity === "warn" ? "warning" : "error",
-    code: problem.severity === "warn" ? "MALLOY_VALIDATION_WARNING" : "MALLOY_VALIDATION_ERROR",
-    message: malloyProblemMessage(problem),
-    location: malloyProblemLocation(problem),
-  }));
+function malloyProblemsToDiagnostics(
+  problems: LogMessage[],
+  malloy: string,
+  sourceMap: MalloySourceMapEntry[] | undefined,
+): Diagnostic[] {
+  return actionableMalloyProblems(problems).map((problem) => {
+    const generatedLocation = malloyProblemLocation(problem);
+    const mapped = generatedLocation?.line ? sourceMapEntryForLine(sourceMap, generatedLocation.line) : undefined;
+    return {
+      severity: problem.severity === "warn" ? "warning" : "error",
+      code: problem.severity === "warn" ? "MALLOY_VALIDATION_WARNING" : "MALLOY_VALIDATION_ERROR",
+      message: malloyProblemMessage(problem),
+      location: mapped?.location ?? generatedLocation,
+      generatedLocation,
+      generatedContext: generatedLocation?.line ? malloyContextLines(malloy, generatedLocation.line) : undefined,
+      sourceMapTarget: mapped ? { kind: mapped.kind, label: mapped.label } : undefined,
+    };
+  });
 }
 
 function actionableMalloyProblems(problems: LogMessage[]): LogMessage[] {
@@ -225,6 +237,39 @@ function malloyProblemFile(problem: LogMessage): string | undefined {
   const url = problem.at?.url;
   if (!url) return undefined;
   return url === "internal://internal.malloy" ? "generated.malloy" : url;
+}
+
+function sourceMapEntryForLine(
+  sourceMap: MalloySourceMapEntry[] | undefined,
+  line: number,
+): MalloySourceMapEntry | undefined {
+  if (!sourceMap || sourceMap.length === 0) return undefined;
+  const exact = sourceMap.find((entry) => entry.generatedStartLine <= line && entry.generatedEndLine >= line);
+  if (exact) return exact;
+  const previous = sourceMap
+    .filter((entry) => entry.generatedStartLine <= line)
+    .sort((a, b) => b.generatedStartLine - a.generatedStartLine)[0];
+  if (previous && line - previous.generatedEndLine <= 2) return previous;
+  const next = sourceMap
+    .filter((entry) => entry.generatedStartLine > line)
+    .sort((a, b) => a.generatedStartLine - b.generatedStartLine)[0];
+  if (next && next.generatedStartLine - line <= 2) return next;
+  return undefined;
+}
+
+function malloyContextLines(malloy: string, problemLine: number): GeneratedSourceContextLine[] {
+  const lines = malloy.split(/\r?\n/);
+  const start = Math.max(1, problemLine - 2);
+  const end = Math.min(lines.length, problemLine + 2);
+  const context: GeneratedSourceContextLine[] = [];
+  for (let lineNumber = start; lineNumber <= end; lineNumber += 1) {
+    context.push({
+      line: lineNumber,
+      text: lines[lineNumber - 1] ?? "",
+      marker: lineNumber === problemLine ? "error" : undefined,
+    });
+  }
+  return context;
 }
 
 export async function discoverMalloyConfigPath(startDir: string, ceilingDir?: string): Promise<string | undefined> {
