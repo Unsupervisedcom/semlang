@@ -19,7 +19,7 @@ Use `include` to load another SemLang file before resolving the current file:
 include "./shared-types.semlang"
 ```
 
-Includes are relative paths. Include cycles are invalid.
+Includes are relative paths. Each resolved include file is merged once per compilation, so shared files can be included by both a root file and downstream domain files. Include cycles are invalid.
 
 ## Semantic Types
 

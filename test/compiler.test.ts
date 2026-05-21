@@ -14,7 +14,7 @@ type JsonSchemaObject = Record<string, unknown> & {
 // 01.02.002, 01.02.003, 01.02.004, 01.02.005, 01.02.006, 01.02.007, 01.02.008, 01.02.009
 // 01.02.010, 01.02.011, 01.02.012, 01.02.013, 01.02.014, 01.03.001, 01.03.002
 // 02.01.001, 02.01.002, 02.01.003, 02.01.004, 02.01.005, 02.01.006, 02.01.007, 02.01.008
-// 02.01.009, 02.02.001, 02.02.002, 02.02.003, 02.02.004, 02.02.005, 02.02.006, 02.03.001
+// 02.01.009, 02.02.001, 02.02.002, 02.02.003, 02.02.004, 02.02.005, 02.02.006, 02.02.007, 02.03.001
 // 02.03.002, 02.03.003, 02.03.004, 02.03.005, 02.03.006, 02.03.007, 02.03.008, 02.03.009
 // 02.04.001, 02.04.002, 02.04.003, 02.04.004, 02.04.005, 02.04.006
 // 03.01.001, 03.01.002, 03.01.003, 03.01.004, 03.01.005, 03.01.006, 03.01.007, 03.01.008
@@ -766,6 +766,106 @@ concept A is kind from duckdb.table('a') {
       "LEGACY_TYPE_METADATA",
       "INVALID_TYPE_METADATA",
     ]);
+  });
+
+  // 02.02.007: include-once semantics allow diamond include graphs without
+  // merging declarations from the shared dependency more than once.
+  it("deduplicates diamond includes by resolved file path", async () => {
+    const files = new Map([
+      [
+        "/work/types.semlang",
+        `
+package diamond.types
+type: AccountId is string {
+}
+`,
+      ],
+      [
+        "/work/fans.semlang",
+        `
+package diamond.fans
+include "./types.semlang"
+concept Fan is kind from duckdb.table('fans') {
+  identity fan_id :: AccountId
+}
+`,
+      ],
+    ]);
+
+    const result = await compileSemLang(
+      `
+package diamond.root
+include "./types.semlang"
+include "./fans.semlang"
+concept Account is kind from duckdb.table('accounts') {
+  identity account_id :: AccountId
+}
+`,
+      {
+        filePath: "/work/root.semlang",
+        packageLoader: {
+          load(includePath, fromFile) {
+            const filePath = path.resolve(path.dirname(fromFile ?? "/work/root.semlang"), includePath);
+            const source = files.get(filePath);
+            if (!source) throw new Error(`Missing test fixture ${filePath}`);
+            return { filePath, source };
+          },
+        },
+      },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect([...result.model!.types.keys()]).toEqual(["AccountId"]);
+    expect(result.model!.files).toEqual(["/work/types.semlang", "/work/fans.semlang", "/work/root.semlang"]);
+  });
+
+  // 02.02.007: shared include files are parsed once even when they contain
+  // errors, so diagnostics do not repeat through diamond paths.
+  it("does not duplicate diagnostics from invalid diamond includes", async () => {
+    const files = new Map([
+      [
+        "/work/shared.semlang",
+        `
+package diamond.shared
+not a declaration
+`,
+      ],
+      [
+        "/work/fans.semlang",
+        `
+package diamond.fans
+include "./shared.semlang"
+concept Fan is kind from duckdb.table('fans') {
+  identity fan_id :: string
+}
+`,
+      ],
+    ]);
+
+    const result = await compileSemLang(
+      `
+package diamond.root
+include "./shared.semlang"
+include "./fans.semlang"
+concept Account is kind from duckdb.table('accounts') {
+  identity account_id :: string
+}
+`,
+      {
+        filePath: "/work/root.semlang",
+        packageLoader: {
+          load(includePath, fromFile) {
+            const filePath = path.resolve(path.dirname(fromFile ?? "/work/root.semlang"), includePath);
+            const source = files.get(filePath);
+            if (!source) throw new Error(`Missing test fixture ${filePath}`);
+            return { filePath, source };
+          },
+        },
+      },
+    );
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["UNEXPECTED_TOP_LEVEL"]);
+    expect(result.diagnostics[0]?.location?.file).toBe("/work/shared.semlang");
   });
 
   it("diagnoses duplicate symbols, roles, lenses, temporal misuse, and include cycles", async () => {

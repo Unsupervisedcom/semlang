@@ -18,7 +18,7 @@ Files may include other SemLang files by relative path:
 include "./example.semlang"
 ```
 
-Includes are loaded before the including file is resolved. Include cycles are invalid.
+Includes are loaded before the including file is resolved. Each resolved include file is merged once per compilation, so shared files can be safely included through multiple paths in the include graph. Include cycles are invalid.
 
 ## Semantic Types
 

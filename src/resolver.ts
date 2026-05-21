@@ -136,7 +136,7 @@ const actionSubjectModes = new Set(["single", "new", "collection"]);
 
 export async function resolveSemLang(ast: SemLangAst, options: CompileOptions = {}): Promise<ResolveResult> {
   const diagnostics: Diagnostic[] = [];
-  const loaded = await loadAstGraph(ast, options.packageLoader, diagnostics, new Set());
+  const loaded = await loadAstGraph(ast, options.packageLoader, diagnostics, new Set(), new Set(), new Set());
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { diagnostics };
   }
@@ -163,11 +163,13 @@ async function loadAstGraph(
   ast: SemLangAst,
   loader: PackageLoader | undefined,
   diagnostics: Diagnostic[],
-  seen: Set<string>,
+  stack: Set<string>,
+  parsedKeys: Set<string>,
+  loadedKeys: Set<string>,
   entryLocation: Diagnostic["location"] = ast.location,
 ): Promise<SemLangAst[]> {
   const key = ast.filePath ? path.resolve(ast.filePath) : ast.packageName;
-  if (seen.has(key)) {
+  if (stack.has(key)) {
     diagnostics.push({
       severity: "error",
       code: "INCLUDE_CYCLE",
@@ -176,7 +178,8 @@ async function loadAstGraph(
     });
     return [];
   }
-  seen.add(key);
+  if (loadedKeys.has(key)) return [];
+  stack.add(key);
   const loaded: SemLangAst[] = [];
   for (const include of ast.includes) {
     if (!loader) {
@@ -189,12 +192,28 @@ async function loadAstGraph(
       continue;
     }
     const result = await loader.load(include.path, ast.filePath);
+    const includeKey = path.resolve(result.filePath);
+    if (stack.has(includeKey)) {
+      diagnostics.push({
+        severity: "error",
+        code: "INCLUDE_CYCLE",
+        message: `Include cycle detected at ${includeKey}.`,
+        location: include.location,
+      });
+      continue;
+    }
+    if (parsedKeys.has(includeKey) || loadedKeys.has(includeKey)) continue;
+    parsedKeys.add(includeKey);
     const parsed = parseSemLang(result.source, { filePath: result.filePath });
     diagnostics.push(...parsed.diagnostics);
-    if (parsed.ast) loaded.push(...(await loadAstGraph(parsed.ast, loader, diagnostics, seen, include.location)));
+    if (parsed.ast)
+      loaded.push(
+        ...(await loadAstGraph(parsed.ast, loader, diagnostics, stack, parsedKeys, loadedKeys, include.location)),
+      );
   }
+  loadedKeys.add(key);
   loaded.push(ast);
-  seen.delete(key);
+  stack.delete(key);
   return loaded;
 }
 

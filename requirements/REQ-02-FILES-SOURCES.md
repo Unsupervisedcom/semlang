@@ -30,6 +30,7 @@ Includes let one file load another before resolution. Include handling is part o
 - 02.02.004: The compiler MUST reject include cycles.
 - 02.02.005: The compiler MUST report a diagnostic when includes are present but no package loader is available.
 - 02.02.006: Declarations from included files MUST participate in duplicate-symbol checks with declarations from the including file.
+- 02.02.007: The compiler MUST parse and merge each resolved include file at most once per compilation, so diamond include graphs do not create duplicate declarations.
 
 ## 02.03 Source Expressions
 
