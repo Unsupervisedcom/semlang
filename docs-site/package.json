@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "docusaurus start --host 127.0.0.1",
-    "build": "docusaurus build",
-    "serve": "docusaurus serve --host 127.0.0.1"
+    "start": "NO_UPDATE_NOTIFIER=1 docusaurus start --host 127.0.0.1 --port 3000 --no-open",
+    "build": "NO_UPDATE_NOTIFIER=1 docusaurus build",
+    "serve": "NO_UPDATE_NOTIFIER=1 docusaurus serve --host 127.0.0.1 --port 3000 --no-open"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.1",

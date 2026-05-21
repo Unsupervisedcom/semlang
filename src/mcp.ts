@@ -180,7 +180,7 @@ export function createSemLangMcp(): SemLangMcpApi {
       context.duckDb = undefined;
     }
 
-    return {
+    const response: Record<string, JsonValue> = {
       ok,
       diagnostics: jsonSafe(result.diagnostics),
       context:
@@ -195,6 +195,10 @@ export function createSemLangMcp(): SemLangMcpApi {
             })
           : null,
     };
+    if (booleanValue(args.return_malloy_model ?? args.returnMalloyModel)) {
+      response.malloyModel = result.malloy ?? null;
+    }
+    return response;
   }
 
   function semanticSearchTerms(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -395,20 +399,21 @@ export function createSemLangMcp(): SemLangMcpApi {
     });
   }
 
-  async function validateQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
-    const validation = await validateOrRunQuery(args);
-    const result = { ...validation };
-    delete result.malloy;
-    delete result.queryMalloy;
-    return result;
-  }
-
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const validation = await validateOrRunQuery(args);
+    if (booleanValue(args.dry_run_only ?? args.dryRunOnly)) {
+      return {
+        ...publicQueryResult(validation),
+        execution: {
+          skipped: true,
+          reason: "dry_run_only requested; query was validated but not executed.",
+        },
+      };
+    }
     const queryLimitSeconds = queryLimitSecondsValue(args);
     if (!queryLimitSeconds.ok) return queryLimitSeconds;
-    const validation = await validateOrRunQuery(args);
     const execution = await executeQuery(context, args, validation, queryLimitSeconds.value);
-    return { ...validation, execution: jsonSafe(execution) };
+    return { ...publicQueryResult(validation), execution: jsonSafe(execution) };
   }
 
   async function invokeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -662,13 +667,8 @@ export function createSemLangMcp(): SemLangMcpApi {
       handler: lensPlan,
     },
     {
-      name: "query.validate",
-      description: "Validate a named query or temporary root/body query against the current ontology.",
-      handler: validateQuery,
-    },
-    {
       name: "query.run",
-      description: "Generate Malloy and execute the query with Malloy SDK connections.",
+      description: "Validate a query and execute it with Malloy SDK connections unless dry_run_only is true.",
       handler: runQuery,
     },
     {
@@ -796,6 +796,12 @@ function executionModelFilePath(context: SemLangMcpContext): string | undefined 
     return context.filePath;
   }
   return context.sourcePaths?.[0] ?? context.model?.files[0];
+}
+
+function publicQueryResult(validation: Record<string, JsonValue>): Record<string, JsonValue> {
+  const result = { ...validation };
+  delete result.malloy;
+  return result;
 }
 
 async function exampleDuckDbScripts(
@@ -2382,6 +2388,12 @@ function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecond
     };
   }
   return { ok: true, value: raw };
+}
+
+function booleanValue(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

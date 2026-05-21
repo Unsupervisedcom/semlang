@@ -13,23 +13,25 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 
 ### Inputs
 
-| Field         | Type         | Notes                                                                                                                                                                                                                     |
-| ------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`        | string       | Path to one SemLang file.                                                                                                                                                                                                 |
-| `paths`       | string array | Paths to multiple SemLang files. The server creates an include-based context file.                                                                                                                                        |
-| `filePath`    | string       | Alias for `path` when loading a file, or a base file path for inline source.                                                                                                                                              |
-| `filePaths`   | string array | Alias for `paths`.                                                                                                                                                                                                        |
-| `source`      | string       | Inline SemLang source.                                                                                                                                                                                                    |
-| `sources`     | string array | Multiple inline sources joined with blank lines.                                                                                                                                                                          |
-| `basePath`    | string       | File path used for resolving includes when compiling inline source.                                                                                                                                                       |
-| `projectPath` | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
-| `configPath`  | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
+| Field                 | Type         | Notes                                                                                                                                                                                                                     |
+| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`                | string       | Path to one SemLang file.                                                                                                                                                                                                 |
+| `paths`               | string array | Paths to multiple SemLang files. The server creates an include-based context file.                                                                                                                                        |
+| `filePath`            | string       | Alias for `path` when loading a file, or a base file path for inline source.                                                                                                                                              |
+| `filePaths`           | string array | Alias for `paths`.                                                                                                                                                                                                        |
+| `source`              | string       | Inline SemLang source.                                                                                                                                                                                                    |
+| `sources`             | string array | Multiple inline sources joined with blank lines.                                                                                                                                                                          |
+| `basePath`            | string       | File path used for resolving includes when compiling inline source.                                                                                                                                                       |
+| `projectPath`         | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
+| `configPath`          | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
+| `return_malloy_model` | boolean      | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                                                                                                                                    |
+| `returnMalloyModel`   | boolean      | Alias for `return_malloy_model`.                                                                                                                                                                                          |
 
 When `configPath` / `malloyConfigPath` is omitted, `set_ontology_source` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
 
 ### Output
 
-Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available.
+Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available. The full compiled Malloy model is omitted by default and returned as `malloyModel` only when requested with `return_malloy_model` or `returnMalloyModel`.
 
 ### Example
 

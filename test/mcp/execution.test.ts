@@ -30,6 +30,7 @@ describe("SemLang MCP execution narratives", () => {
 
     const source = await mcp.tools.set_ontology_source({
       basePath: path.join(projectDir, "inline.semlang"),
+      return_malloy_model: true,
       source: `
 package mcp.default_duckdb
 
@@ -56,6 +57,8 @@ concept InlineOrder is event from duckdb.sql("""
     expect(asObject(asObject(source.context).execution)).toMatchObject({
       malloyConfigSource: "discovered",
     });
+    // 02.05.013: Full compiled Malloy is available on source load only when requested.
+    expect(text(source.malloyModel)).toContain("source: inline_order is __semlang_base_inline_order extend");
 
     const missingLimit = await mcp.tools.query_run({
       root: "InlineOrder",
@@ -78,6 +81,8 @@ concept InlineOrder is event from duckdb.sql("""
       queryName: "__mcp_query",
       root: "InlineOrder",
     });
+    // 02.05.012: query.run keeps the default response compact by omitting the full Malloy model.
+    expect(run).not.toHaveProperty("malloy");
     expect(text(run.queryMalloy)).toContain("query: __mcp_query is");
     const execution = asObject(run.execution);
     expect(execution).toMatchObject({
@@ -159,9 +164,16 @@ query: customer_order_counts is Customer -> {
     });
     expectOk(source);
 
+    // 02.05.014: dry_run_only validates and returns query Malloy without executing.
+    const dryRun = await mcp.tools.query_run({ query: "customer_order_counts", dry_run_only: true });
+    expectQuery(dryRun, "customer_order_counts", "Customer");
+    expect(dryRun).not.toHaveProperty("malloy");
+    expect(text(dryRun.queryMalloy)).toContain("query: customer_order_counts is customers ->");
+    expect(asObject(dryRun.execution)).toMatchObject({ skipped: true });
+
     const run = await mcp.tools.query_run({ query: "customer_order_counts", query_limit_seconds: 30 });
     expectQuery(run, "customer_order_counts", "Customer");
-    expect(text(run.malloy)).toContain("join_many: orders is __semlang_base_orders");
+    expect(run).not.toHaveProperty("malloy");
     const execution = asObject(run.execution);
     expect(execution).toMatchObject({ ok: true, engine: "malloy" });
     expect(records(execution.rows)).toEqual(

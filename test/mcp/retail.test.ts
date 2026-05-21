@@ -45,17 +45,19 @@ describe("SemLang MCP retail narratives", () => {
     expect(records(pathResult(paths, "ProductSKU").paths)[0]?.concepts).toEqual(["SaleLine", "ProductSKU"]);
     expect(records(pathResult(paths, "ReturnLine").paths)[0]?.concepts).toEqual(["SaleLine", "ReturnLine"]);
 
-    // The named query already encodes the selected root, groupings, and
-    // measures, so validation should confirm the query without returning Malloy.
-    const validated = await mcp.tools.query_validate({ query: "monthly_margin_and_returns" });
+    // 02.05.014: The named query already encodes the selected root, groupings,
+    // and measures, so dry-run execution should validate without running SQL.
+    const validated = await mcp.tools.query_run({ query: "monthly_margin_and_returns", dry_run_only: true });
     const validatedQuery = expectQuery(validated, "monthly_margin_and_returns", "SaleLine");
     expect(validatedQuery.lenses).toEqual([]);
+    expect(validated).not.toHaveProperty("malloy");
+    expect(asObject(validated.execution)).toMatchObject({ skipped: true });
 
-    // After validation, query.run should generate Malloy and execute it through
-    // the Malloy runtime using the discovered DuckDB connection.
+    // 02.05.012: query.run should expose the generated query Malloy and execute
+    // it through the Malloy runtime without returning the full Malloy model.
     const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns", query_limit_seconds: 30 });
     expectQuery(run, "monthly_margin_and_returns", "SaleLine");
-    expect(text(run.malloy)).toContain("source: retail_line_items is __semlang_base_retail_line_items extend");
+    expect(run).not.toHaveProperty("malloy");
     expect(text(run.queryMalloy)).toContain("query: monthly_margin_and_returns is retail_line_items ->");
     expect(text(run.queryMalloy)).toContain("merchandising_margin");
     const execution = asObject(run.execution);
@@ -236,22 +238,22 @@ describe("SemLang MCP retail narratives", () => {
 
     // The lens queries should validate as named examples because their roots and
     // lens lists are declared in the fixture.
-    const interventionValidated = await mcp.tools.query_validate({ query: "western_margin_intervention_queue" });
+    const interventionValidated = await mcp.tools.query_run({
+      query: "western_margin_intervention_queue",
+      dry_run_only: true,
+    });
     const interventionQuery = expectQuery(interventionValidated, "western_margin_intervention_queue", "SaleLine");
     expect(interventionQuery.lenses).toEqual(["western_margin_operations"]);
 
-    const piiValidated = await mcp.tools.query_validate({ query: "pii_customer_service_returns" });
+    const piiValidated = await mcp.tools.query_run({ query: "pii_customer_service_returns", dry_run_only: true });
     const piiQuery = expectQuery(piiValidated, "pii_customer_service_returns", "ReturnLine");
     expect(piiQuery.lenses).toEqual(["with_pii"]);
 
-    // Running a lens query should produce lens-local Malloy and hand execution
-    // to the Malloy runtime rather than fixture-specific local lowering.
+    // 02.05.012: Running a lens query should produce lens-local query Malloy
+    // and hand execution to the Malloy runtime without the full model.
     const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue", query_limit_seconds: 30 });
     expectQuery(run, "western_margin_intervention_queue", "SaleLine");
-    expect(text(run.malloy)).toContain(
-      "source: retail_line_items__western_margin_intervention_queue is __semlang_base_retail_line_items__western_margin_intervention_queue extend",
-    );
-    expect(text(run.malloy)).toContain("margin_risk_band is");
+    expect(run).not.toHaveProperty("malloy");
     expect(text(run.queryMalloy)).toContain(
       "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
     );

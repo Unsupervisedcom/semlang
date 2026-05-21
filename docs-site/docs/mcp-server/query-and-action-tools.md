@@ -5,40 +5,45 @@ sidebar_position: 6
 
 # Query and Action Tools
 
-Query tools validate and run SemLang queries. Action tools invoke supported local action edits against example DuckDB data.
+`query.run` validates and runs SemLang queries. Action tools invoke supported local action edits against example DuckDB data.
 
-## `query.validate`
+## `query.run`
 
-Validates a named query, full query declaration, or temporary query body against the current ontology.
+Validates a named query, full query declaration, or temporary query body against the current ontology and executes it through the Malloy SDK unless `dry_run_only` is true.
 
 ### Inputs
 
-| Field       | Type                   | Notes                                                                         |
-| ----------- | ---------------------- | ----------------------------------------------------------------------------- |
-| `query`     | string                 | Named query, full `query:` declaration, or query body text.                   |
-| `name`      | string                 | Alias for a named query, or the temporary query name when a body is supplied. |
-| `queryName` | string                 | Temporary query name. Defaults to `__mcp_query`.                              |
-| `root`      | string                 | Root concept for a temporary query.                                           |
-| `concept`   | string                 | Alias for `root`.                                                             |
-| `source`    | string                 | Alias for `root`.                                                             |
-| `lens`      | string                 | Lens to apply to a temporary query.                                           |
-| `lenses`    | string array           | Lens stack to apply to a temporary query.                                     |
-| `with`      | string or string array | Alias for `lenses`.                                                           |
-| `body`      | string or object       | Temporary query body.                                                         |
-| `queryBody` | string or object       | Alias for `body`.                                                             |
-| `where`     | string                 | Query body filter.                                                            |
-| `select`    | string or string array | Query body select items.                                                      |
-| `groupBy`   | string or string array | Query body group items.                                                       |
-| `group_by`  | string or string array | Alias for `groupBy`.                                                          |
-| `aggregate` | string or string array | Query body aggregate items.                                                   |
-| `calculate` | string or string array | Query body calculate items.                                                   |
-| `orderBy`   | string or string array | Query body ordering.                                                          |
-| `order_by`  | string or string array | Alias for `orderBy`.                                                          |
-| `limit`     | number                 | Query body limit.                                                             |
+| Field                 | Type                   | Notes                                                                         |
+| --------------------- | ---------------------- | ----------------------------------------------------------------------------- |
+| `query`               | string                 | Named query, full `query:` declaration, or query body text.                   |
+| `name`                | string                 | Alias for a named query, or the temporary query name when a body is supplied. |
+| `queryName`           | string                 | Temporary query name. Defaults to `__mcp_query`.                              |
+| `root`                | string                 | Root concept for a temporary query.                                           |
+| `concept`             | string                 | Alias for `root`.                                                             |
+| `source`              | string                 | Alias for `root`.                                                             |
+| `lens`                | string                 | Lens to apply to a temporary query.                                           |
+| `lenses`              | string array           | Lens stack to apply to a temporary query.                                     |
+| `with`                | string or string array | Alias for `lenses`.                                                           |
+| `body`                | string or object       | Temporary query body.                                                         |
+| `queryBody`           | string or object       | Alias for `body`.                                                             |
+| `where`               | string                 | Query body filter.                                                            |
+| `select`              | string or string array | Query body select items.                                                      |
+| `groupBy`             | string or string array | Query body group items.                                                       |
+| `group_by`            | string or string array | Alias for `groupBy`.                                                          |
+| `aggregate`           | string or string array | Query body aggregate items.                                                   |
+| `calculate`           | string or string array | Query body calculate items.                                                   |
+| `orderBy`             | string or string array | Query body ordering.                                                          |
+| `order_by`            | string or string array | Alias for `orderBy`.                                                          |
+| `limit`               | number                 | Query body limit.                                                             |
+| `dry_run_only`        | boolean                | Validate and return query Malloy without executing. Defaults to false.        |
+| `dryRunOnly`          | boolean                | Alias for `dry_run_only`.                                                     |
+| `query_limit_seconds` | integer                | Required positive execution limit, in seconds, unless `dry_run_only` is true. |
+| `queryLimitSeconds`   | integer                | Alias for `query_limit_seconds`.                                              |
+| `rowLimit`            | integer                | Optional maximum rows to request from Malloy execution.                       |
 
 ### Output
 
-For named queries, returns the resolved query and diagnostics. For temporary queries, returns the generated query name, root, lenses, diagnostics, and validation status. `query.validate` removes generated Malloy fields from the response.
+For named queries, returns the resolved query, diagnostics, extracted `queryMalloy`, and an `execution` object. For temporary queries, returns the generated query name, root, lenses, diagnostics, extracted `queryMalloy`, and `execution`. When `dry_run_only` is true, `execution` is present with `skipped: true`, `execution.ok` is omitted, and `query_limit_seconds` is not required. The full compiled Malloy model is not returned by `query.run`; request it from `set_ontology_source` with `return_malloy_model` when debugging the whole generated model.
 
 ### Examples
 
@@ -55,24 +60,6 @@ For named queries, returns the resolved query and diagnostics. For temporary que
   "aggregate": ["net_sales", "settled_refund_amount"]
 }
 ```
-
-## `query.run`
-
-Validates a query and executes it through the Malloy SDK.
-
-### Inputs
-
-Accepts the same query inputs as `query.validate`, plus the required execution-control parameter
-`query_limit_seconds`.
-
-| Field                 | Type    | Notes                                                   |
-| --------------------- | ------- | ------------------------------------------------------- |
-| `query_limit_seconds` | integer | Required positive query execution limit, in seconds.    |
-| `rowLimit`            | integer | Optional maximum rows to request from Malloy execution. |
-
-### Output
-
-Returns validation fields plus generated `malloy`, extracted `queryMalloy`, and an `execution` object.
 
 Execution uses the Malloy project/config context captured by `set_ontology_source`. Named queries and temporary root/body queries are both eligible for execution. If no config was explicitly supplied or discovered, `set_ontology_source` fails before queries are run. If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
 

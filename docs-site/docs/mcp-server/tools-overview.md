@@ -16,7 +16,7 @@ Call `set_ontology_source` first in each MCP session. All other tools read the c
 | Source and search   | `set_ontology_source`, `semantic.search_terms`, `catalog.resolve_entity`                                                                                                                          |
 | Ontology inspection | `ontology.describe_concept`, `ontology.describe_action`, `ontology.describe_role`, `ontology.describe_roles`, `ontology.explain_metric`, `ontology.describe_temporal_axes`, `ontology.find_paths` |
 | Lenses              | `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, `lens.plan`                                                                                                               |
-| Queries and actions | `query.validate`, `query.run`, `action.invoke`                                                                                                                                                    |
+| Queries and actions | `query.run`, `action.invoke`                                                                                                                                                                      |
 | Reasoning           | `reasoning.derive`                                                                                                                                                                                |
 
 ## Response Shape

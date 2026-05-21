@@ -123,7 +123,9 @@ concept Account is kind from duckdb.table('accounts') {
     expect(source.ok).toBe(true);
     expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_JOIN_CANDIDATE");
 
-    const validated = await mcp.tools.query_validate({
+    // 02.05.014: dry_run_only preserves query validation without requiring execution.
+    const validated = await mcp.tools.query_run({
+      dry_run_only: true,
       root: "Account",
       aggregate: ["count()"],
     });

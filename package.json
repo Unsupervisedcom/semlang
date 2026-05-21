@@ -16,8 +16,10 @@
     "test": "vitest run",
     "test:unit": "vitest run --exclude test/integration.test.ts",
     "test:integration": "vitest run test/integration.test.ts",
-    "docs:start": "npm --prefix docs-site start",
-    "docs:build": "npm --prefix docs-site run build"
+    "docs:start": "npm --prefix docs-site run start --",
+    "docs:dev": "npm run docs:start",
+    "docs:build": "npm --prefix docs-site run build",
+    "docs:serve": "npm --prefix docs-site run serve --"
   },
   "dependencies": {
     "@malloydata/db-databricks": "^0.0.395",

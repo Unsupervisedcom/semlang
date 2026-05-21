@@ -57,8 +57,7 @@ Common tools include:
 - `ontology.describe_action`, `ontology.describe_role`, `ontology.describe_roles`, `ontology.explain_metric`, and `ontology.describe_temporal_axes` expose focused ontology details.
 - `ontology.find_paths` finds join paths between concepts.
 - `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, and `lens.plan` help agents select and apply semantic overlays.
-- `query.validate` checks named or temporary queries.
-- `query.run` emits Malloy and executes it with the Malloy SDK, using the config captured by `set_ontology_source` and a required `query_limit_seconds` deadline.
+- `query.run` validates named or temporary queries and executes them with the Malloy SDK unless `dry_run_only` is true; executed queries require a `query_limit_seconds` deadline.
 - `action.invoke` runs supported local DuckDB action edits when the model declares actions.
 - `reasoning.derive` gathers concept, metric, lens, and path hints for an analytical question.
 

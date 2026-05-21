@@ -72,3 +72,6 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.009: `query.run` MUST require a positive integer `query_limit_seconds` execution-control parameter.
 - 02.05.010: Successful `query.run` execution results MUST include `execution_time_ms`.
 - 02.05.011: Queries that exceed `query_limit_seconds` MUST return a timeout execution error with elapsed runtime information.
+- 02.05.012: `query.run` MUST omit the full compiled Malloy model from its default response while still returning the extracted query Malloy.
+- 02.05.013: `set_ontology_source` MUST return the full compiled Malloy model only when `return_malloy_model` or `returnMalloyModel` is true.
+- 02.05.014: `query.run` MUST support `dry_run_only` / `dryRunOnly` to validate and return query Malloy without executing the query or requiring `query_limit_seconds`.

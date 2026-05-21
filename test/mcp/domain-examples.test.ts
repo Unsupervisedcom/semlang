@@ -55,9 +55,9 @@ describe("SemLang MCP domain example narratives", () => {
     ]);
     expect(records(pathResult(paths, "ProductPlan").paths)[0]?.concepts).toEqual(["FeatureUsageDay", "ProductPlan"]);
 
-    // With those joins confirmed, the named usage query should validate at the
-    // FeatureUsageDay grain.
-    const validated = await mcp.tools.query_validate({ query: "entitlement_aware_usage" });
+    // 02.05.014: With those joins confirmed, the named usage query should dry-run
+    // validate at the FeatureUsageDay grain.
+    const validated = await mcp.tools.query_run({ query: "entitlement_aware_usage", dry_run_only: true });
     expectQuery(validated, "entitlement_aware_usage", "FeatureUsageDay");
 
     // 06.07.004 / 06.10.003: subject:new actions should describe their insert
@@ -152,9 +152,9 @@ describe("SemLang MCP domain example narratives", () => {
       "watchlist_credit_review",
     ]);
 
-    // Once the lens stack is known, the composed named query should validate on
-    // LoanExposureSnapshot with the regulatory_cre_watchlist lens applied.
-    const validated = await mcp.tools.query_validate({ query: "cre_regulatory_watchlist_queue" });
+    // 02.05.014: Once the lens stack is known, the composed named query should
+    // dry-run validate on LoanExposureSnapshot with the regulatory_cre_watchlist lens applied.
+    const validated = await mcp.tools.query_run({ query: "cre_regulatory_watchlist_queue", dry_run_only: true });
     const query = expectQuery(validated, "cre_regulatory_watchlist_queue", "LoanExposureSnapshot");
     expect(query.lenses).toEqual(["regulatory_cre_watchlist"]);
   });
@@ -199,9 +199,9 @@ describe("SemLang MCP domain example narratives", () => {
       at: "discharge_date",
     });
 
-    // With the temporal path established, the denominator audit query should
-    // validate without changing the inpatient stay grain.
-    const validated = await mcp.tools.query_validate({ query: "discharge_diagnosis_denominator_audit" });
+    // 02.05.014: With the temporal path established, the denominator audit query
+    // should dry-run validate without changing the inpatient stay grain.
+    const validated = await mcp.tools.query_run({ query: "discharge_diagnosis_denominator_audit", dry_run_only: true });
     expectQuery(validated, "discharge_diagnosis_denominator_audit", "InpatientStay");
   });
 
@@ -255,8 +255,9 @@ describe("SemLang MCP domain example narratives", () => {
     ]);
     expect(records(pathResult(paths, "WarrantyClaim").paths)[0]?.concepts).toEqual(["SerializedUnit", "WarrantyClaim"]);
 
-    // Those paths are the prerequisites for the named supplier scorecard query.
-    const validated = await mcp.tools.query_validate({ query: "supplier_quality_scorecard" });
+    // 02.05.014: Those paths are the prerequisites for dry-running the named
+    // supplier scorecard query.
+    const validated = await mcp.tools.query_run({ query: "supplier_quality_scorecard", dry_run_only: true });
     expectQuery(validated, "supplier_quality_scorecard", "SerializedUnit");
   });
 });
