@@ -5,7 +5,7 @@ sidebar_position: 6
 
 # Query and Action Tools
 
-`query.run` validates and runs SemLang queries. Action tools invoke supported local action edits against example DuckDB data.
+`query.run` validates and runs SemLang queries. Action tools invoke supported action edits through the configured Malloy connection.
 
 ## `query.run`
 
@@ -80,34 +80,37 @@ Custom connection names such as `warehouse.table('analytics.orders')` must be pr
 
 ## `action.invoke`
 
-Invokes a supported action against local DuckDB example data.
+Invokes a supported action by generating SQL and executing it with the ontology's configured Malloy connection. Generated write SQL avoids `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` so the core lowering can run on more Malloy-backed SQL engines.
 
 ### Inputs
 
-| Field                  | Type             | Notes                                                               |
-| ---------------------- | ---------------- | ------------------------------------------------------------------- |
-| `action`               | string           | Action name.                                                        |
-| `name`                 | string           | Alias for `action`.                                                 |
-| `concept`              | string           | Optional concept name. Required when the action name is ambiguous.  |
-| `subject`              | object           | Subject identity or field predicates.                               |
-| `id`                   | string or number | Shortcut for the first identity field on `subject: single` actions. |
-| `where`                | string           | Raw subject predicate for `subject: single` actions.                |
-| `params`               | object           | Action parameter values.                                            |
-| Action parameter names | any              | Parameters may also be passed as top-level fields.                  |
+| Field                  | Type             | Notes                                                                                          |
+| ---------------------- | ---------------- | ---------------------------------------------------------------------------------------------- |
+| `action`               | string           | Action name.                                                                                   |
+| `name`                 | string           | Alias for `action`.                                                                            |
+| `concept`              | string           | Optional concept name. Required when the action name is ambiguous.                             |
+| `subject`              | object           | Subject identity or field predicates.                                                          |
+| `id`                   | string or number | Shortcut for the first identity field on `subject: single` actions.                            |
+| `where`                | string           | Raw subject predicate for `subject: single` or `subject: collection` actions.                  |
+| `params`               | object           | Action parameter values.                                                                       |
+| Action parameter names | any              | Parameters may also be passed as top-level fields.                                             |
+| `dry_run_only`         | boolean          | Generate SQL without executing it. Defaults to false.                                          |
+| `query_limit_seconds`  | integer          | Optional positive execution deadline for generated SQL. Defaults to 30 seconds when executing. |
 
 ### Supported Actions
 
 `action.invoke` currently supports:
 
-- `subject: single` actions with `set` edits.
+- `subject: single` and `subject: collection` actions with `set` edits.
+- `subject: single` and `subject: collection` actions with `delete` edits.
 - `subject: new` actions with `insert` edits.
-- Default and `column` write mappings.
+- Default, `column`, and raw SQL assignment-fragment write mappings.
 
-The local invoker skips or rejects unsupported edit kinds, raw SQL write mappings, missing required params, non-table-backed concepts, and actions whose subject mode is not supported.
+The invoker skips or rejects unsupported edit kinds, malformed raw SQL write mappings, missing required params, non-table-backed concepts, and actions whose subject mode is not supported.
 
 ### Output
 
-Returns the resolved concept and action, generated SQL, changed row count, returned rows, diagnostics, and a verification query when available. If local example data is unavailable, the response is skipped with a reason.
+Returns the resolved concept and action, generated SQL, changed row count, selected affected rows, diagnostics, timeout metadata (`query_limit_seconds`, `timed_out`), and a verification query when available. Use `dry_run_only: true` to return generated SQL without execution.
 
 ### Example
 

@@ -9,7 +9,8 @@ import { compileSemLang, parseSemLang } from "../src/index.js";
 // 06.03.002, 06.03.003, 06.03.004, 06.03.005, 06.03.006, 06.04.001, 06.04.002, 06.04.003
 // 06.04.004, 06.04.005, 06.05.001, 06.05.002, 06.05.003, 06.05.004, 06.05.005, 06.05.006
 // 06.06.001, 06.06.002, 06.06.003, 06.06.004, 06.06.005, 06.06.006, 06.06.007, 06.07.001
-// 06.07.002, 06.07.003, 06.07.004, 06.07.005, 06.07.006, 06.07.007, 06.08.001, 06.08.002
+// 06.07.002, 06.07.003, 06.07.004, 06.07.005, 06.07.006, 06.07.007, 06.07.008, 06.07.009
+// 06.08.001, 06.08.002
 // 06.08.003, 06.08.004, 06.09.001, 06.09.002, 06.09.003, 06.09.004, 06.10.001, 06.10.002
 // 06.10.003
 
@@ -260,6 +261,45 @@ describe("SemLang actions", () => {
         { key: "atomic", value: "true" },
       ],
     });
+  });
+
+  it("parses delete edits and rejects them for subject:new", async () => {
+    const parsed = parseSemLang(
+      source([
+        "package actions.delete",
+        "",
+        "concept SupportCase is kind from duckdb.table('support_cases') {",
+        "  identity support_case_id :: string",
+        "  field:",
+        "    case_status :: string writeable",
+        "  action close_case {",
+        "    subject: single",
+        "    edit:",
+        "      delete",
+        "  }",
+        "}",
+      ]),
+    );
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.ast?.concepts[0]?.actions[0]?.edits).toEqual([expect.objectContaining({ kind: "delete" })]);
+
+    const invalid = await compileSemLang(
+      source([
+        "package actions.delete_invalid",
+        "",
+        "concept SupportCase is kind from duckdb.table('support_cases') {",
+        "  identity support_case_id :: string",
+        "  action create_then_delete {",
+        "    subject: new",
+        "    edit:",
+        "      delete",
+        "  }",
+        "}",
+      ]),
+    );
+    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["INVALID_ACTION_EDIT"]),
+    );
   });
 
   it("keeps Malloy output focused on read declarations", async () => {

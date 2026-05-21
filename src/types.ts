@@ -264,6 +264,10 @@ export type ActionEditDecl =
       location: SourceLocation;
     }
   | {
+      kind: "delete";
+      location: SourceLocation;
+    }
+  | {
       kind: "insert";
       assignments: ActionInsertAssignmentDecl[];
       location: SourceLocation;

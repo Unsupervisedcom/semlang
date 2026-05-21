@@ -13,10 +13,10 @@ This document defines the first implementation slice for SemLang actions. The la
 
 ## Non-Goals for the First Slice
 
-- Do not execute actions.
-- Do not emit SQL statements.
+- Do not execute actions outside the MCP `action.invoke` adapter.
+- Do not emit action SQL as part of Malloy read/query lowering.
 - Do not lower actions into Malloy.
-- Do not implement authorization, current-user resolution, notifications, webhooks, branch writes, reverts, or MCP execution tools yet.
+- Do not implement authorization, current-user resolution, notifications, webhooks, branch writes, or reverts yet.
 - Do not attempt inverse solving for arbitrary derived dimensions.
 
 ## Syntax Requirements
@@ -116,7 +116,7 @@ Each action should preserve:
 - subject mode and subject metadata
 - parameters with name, semantic type, nullability, default expression, hidden flag, and location
 - guards with predicate, optional `else` message, and location
-- edits with `set` assignments or `insert` assignments and locations
+- edits with `set` assignments, `insert` assignments, or `delete` markers and locations
 - log block as structured metadata or preserved lines
 - effect blocks as structured metadata or preserved lines
 - agent metadata as key/value entries
@@ -150,6 +150,7 @@ The first implementation should diagnose:
 - `set` assignment to a non-writeable member
 - `set` assignment to a measure, join, role, validation, or view
 - `insert` used outside `subject: new`
+- `delete` used with `subject: new`
 - `set` used in `subject: new` before a supported subject binding exists
 - `writeable` dimension without an explicit write mapping
 - raw SQL write mappings that look like full statements rather than assignment fragments
@@ -172,6 +173,8 @@ Validation can defer expression type-checking for guard predicates, edit express
 ## Lowering Requirements
 
 Malloy emission must ignore actions and write mappings. Existing Malloy output for read models should remain stable except for harmless formatting changes around parsed declarations.
+
+The MCP `action.invoke` adapter may lower supported actions to SQL through the configured Malloy connection. SQL action lowering must remain separate from Malloy read/query lowering, avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default path, quote schema-qualified table path components separately, and reject write selectors that can fan out one subject identity into multiple rows.
 
 The first implementation does not need to expose a public action manifest emitter, but the AST and semantic model should be structured so a manifest emitter can be added without reparsing action bodies.
 

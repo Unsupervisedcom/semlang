@@ -8,8 +8,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
+import {
+  discoverMalloyConfigPath,
+  executeMalloyQuery,
+  executeMalloySql,
+  validateMalloyModel,
+} from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
-import { discoverMalloyConfigPath, executeMalloyQuery, validateMalloyModel } from "./malloy-execution.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
   ActionDecl,
@@ -82,6 +87,7 @@ type TemporaryQueryResult =
   | { ok: false; error: string; candidates?: JsonValue; note?: string };
 
 const maxSearchResults = 20;
+const defaultActionQueryLimitSeconds = 30;
 
 export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpApi {
   const context: SemLangMcpContext = { settings: resolveSemLangMcpSettings(settings) };
@@ -192,7 +198,6 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       context.projectDir = executionContext.projectDir;
       context.malloyConfigPath = executionContext.malloyConfigPath;
       context.malloyConfigSource = executionContext.source;
-      context.duckDb = undefined;
     }
 
     const response: Record<string, JsonValue> = {
@@ -452,36 +457,121 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     const actionName = stringValue(args.action ?? args.name);
     const resolvedAction = resolveAction(model, stringValue(args.concept), actionName);
     if (!resolvedAction.ok) return jsonSafe(resolvedAction) as Record<string, JsonValue>;
-    const filePath = context.filePath ?? (model.files ?? [])[0];
-    if (!filePath) return { ok: false, error: "No ontology file path is available for local DuckDB execution." };
-    const executionDb = await ensureExampleDuckDb(context, filePath);
-    if (!executionDb) {
-      return {
-        ok: false,
-        skipped: true,
-        reason: "No schema.sql and sample_data.sql files were found next to the ontology source.",
-      };
-    }
+    const executionContext = actionExecutionContext(context);
+    if (!executionContext.ok) return executionContext;
     const built = buildActionSql(model, resolvedAction.concept, resolvedAction.action, args);
     if (!built.ok) {
       return {
         ok: false,
-        engine: "duckdb",
+        engine: "malloy",
         action: resolvedAction.action.name,
         concept: resolvedAction.concept.name,
         diagnostics: jsonSafe(built.diagnostics),
       };
     }
-    try {
-      const rows = await executeDuckDbJson(executionDb.dbPath, built.sql);
-      const changedRowCount = rows.length;
+    if (booleanValue(args.dry_run_only ?? args.dryRunOnly)) {
       return {
-        ok: changedRowCount > 0,
-        engine: "duckdb",
+        ok: true,
+        skipped: true,
+        reason: "dry_run_only requested; statement was generated but not executed.",
+        engine: "malloy",
         action: resolvedAction.action.name,
         concept: resolvedAction.concept.name,
+        operation: built.operation,
+        sql: built.sql,
+        diagnostics: jsonSafe(built.diagnostics),
+        verificationQuery: built.verificationQuery ?? null,
+        rowsQuery: built.rowsQuery ?? null,
+      };
+    }
+    const queryLimitSeconds = actionQueryLimitSecondsValue(args);
+    if (!queryLimitSeconds.ok) return queryLimitSeconds;
+    let rows: Array<Record<string, unknown>> = [];
+    if (built.rowsQuery) {
+      const selected = await executeMalloySql({
+        context: executionContext.context,
+        connectionName: built.connectionName,
+        sql: built.rowsQuery,
+        queryLimitSeconds: queryLimitSeconds.value,
+      });
+      if (selected.ok !== true) {
+        return {
+          ok: false,
+          engine: "malloy",
+          action: resolvedAction.action.name,
+          concept: resolvedAction.concept.name,
+          operation: built.operation,
+          sql: built.sql,
+          diagnostics: jsonSafe(built.diagnostics),
+          query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
+          timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
+          error: selected.error,
+        };
+      }
+      rows = Array.isArray(selected.rows) ? (selected.rows as Array<Record<string, unknown>>) : [];
+      if (rows.length === 0) {
+        return {
+          ok: false,
+          engine: "malloy",
+          action: resolvedAction.action.name,
+          concept: resolvedAction.concept.name,
+          operation: built.operation,
+          sql: built.sql,
+          changedRowCount: 0,
+          query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
+          timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
+          rows: [],
+          diagnostics: jsonSafe([
+            ...built.diagnostics,
+            "Action matched no rows; the subject may not exist or a guard may have failed.",
+          ]),
+          verificationQuery: built.verificationQuery ?? null,
+        };
+      }
+    }
+    const execution = await executeMalloySql({
+      context: executionContext.context,
+      connectionName: built.connectionName,
+      sql: built.sql,
+      queryLimitSeconds: queryLimitSeconds.value,
+    });
+    if (execution.ok !== true) {
+      return {
+        ok: false,
+        engine: "malloy",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        operation: built.operation,
+        sql: built.sql,
+        diagnostics: jsonSafe(built.diagnostics),
+        query_limit_seconds: (execution.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
+        timed_out: (execution.timed_out as JsonValue | undefined) ?? false,
+        error: execution.error,
+      };
+    }
+    const matchedRowCount = rows.length;
+    if (rows.length === 0 && Array.isArray(execution.rows)) rows = execution.rows as Array<Record<string, unknown>>;
+    if (built.operation !== "delete" && built.verificationQuery) {
+      const selected = await executeMalloySql({
+        context: executionContext.context,
+        connectionName: built.connectionName,
+        sql: built.verificationQuery,
+        queryLimitSeconds: queryLimitSeconds.value,
+      });
+      if (selected.ok === true && Array.isArray(selected.rows)) rows = selected.rows as Array<Record<string, unknown>>;
+    }
+    const changedRowCount = matchedRowCount || rows.length;
+    try {
+      return {
+        ok: changedRowCount > 0,
+        engine: "malloy",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        operation: built.operation,
         sql: built.sql,
         changedRowCount,
+        query_limit_seconds: (execution.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
+        timed_out: (execution.timed_out as JsonValue | undefined) ?? false,
         rows: jsonSafe(rows),
         diagnostics: jsonSafe(
           changedRowCount > 0
@@ -490,15 +580,16 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
         ),
         verificationQuery: built.verificationQuery ?? null,
       };
-    } catch (error) {
+    } catch {
       return {
         ok: false,
-        engine: "duckdb",
+        engine: "malloy",
         action: resolvedAction.action.name,
         concept: resolvedAction.concept.name,
+        operation: built.operation,
         sql: built.sql,
         diagnostics: jsonSafe(built.diagnostics),
-        error: error instanceof Error ? error.message : String(error),
+        error: "Action execution returned rows in an unexpected format.",
       };
     }
   }
@@ -704,7 +795,8 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     },
     {
       name: "action.invoke",
-      description: "Invoke a supported action against local DuckDB example data.",
+      description:
+        "Invoke a supported action by generating and executing SQL through the configured Malloy connection.",
       handler: invokeAction,
     },
     {
@@ -793,6 +885,7 @@ interface SqlBuildContext {
   root: ResolvedConcept;
   joins: Map<string, string>;
   joinClauses: string[];
+  writeContext?: boolean;
 }
 
 async function executeQuery(
@@ -943,43 +1036,36 @@ async function exampleDuckDbScripts(
   }
 }
 
-async function ensureExampleDuckDb(
-  context: SemLangMcpContext,
-  filePath: string,
-): Promise<ExampleDuckDbContext | undefined> {
-  const data = await exampleDuckDbScripts(filePath);
-  if (!data) return undefined;
-  const sourceDir = path.dirname(data.schemaPath);
-  if (context.duckDb?.sourceDir === sourceDir) {
-    try {
-      await fs.access(context.duckDb.dbPath);
-      return context.duckDb;
-    } catch {
-      context.duckDb = undefined;
+function actionExecutionContext(context: SemLangMcpContext):
+  | {
+      ok: true;
+      context: { projectDir: string; malloyConfigPath: string; malloyConfigSource?: "explicit" | "discovered" };
     }
+  | {
+      ok: false;
+      error: string;
+    } {
+  if (!context.projectDir || !context.malloyConfigPath) {
+    return {
+      ok: false,
+      error:
+        "No Malloy execution context is available. Call set_ontology_source first and ensure a Malloy config is provided or discoverable.",
+    };
   }
-  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-mcp-duckdb-"));
-  const dbPath = path.join(dbDir, "example.duckdb");
-  await execFileAsync("duckdb", [dbPath, "-c", `${data.schema}\n${data.sampleData}`], {
-    cwd: sourceDir,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  context.duckDb = { sourceDir, dbPath, schemaPath: data.schemaPath };
-  return context.duckDb;
-}
-
-async function executeDuckDbJson(dbPath: string, sql: string): Promise<Array<Record<string, unknown>>> {
-  const { stdout } = await execFileAsync("duckdb", ["-json", dbPath, "-c", sql], {
-    cwd: path.dirname(dbPath),
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return JSON.parse(stdout.trim() || "[]") as Array<Record<string, unknown>>;
+  return {
+    ok: true,
+    context: {
+      projectDir: context.projectDir,
+      malloyConfigPath: context.malloyConfigPath,
+      malloyConfigSource: context.malloyConfigSource,
+    },
+  };
 }
 
 type ActionResolution =
   | { ok: true; concept: ResolvedConcept; action: ActionDecl }
   | { ok: false; error: string; candidates?: Array<Record<string, unknown>>; context?: unknown };
-type ActionTargetColumn = { kind: "default" | "column" | "sql"; column: string };
+type ActionTargetAssignment = { column: string; expression: string };
 
 function resolveAction(
   model: SemanticModel,
@@ -1039,31 +1125,46 @@ function buildActionSql(
   concept: ResolvedConcept,
   action: ActionDecl,
   args: Record<string, unknown>,
-): { ok: true; sql: string; diagnostics: string[]; verificationQuery?: string } | { ok: false; diagnostics: string[] } {
+):
+  | {
+      ok: true;
+      sql: string;
+      diagnostics: string[];
+      verificationQuery?: string;
+      rowsQuery?: string;
+      operation: "update" | "insert" | "delete";
+      connectionName: string;
+    }
+  | { ok: false; diagnostics: string[] } {
   const diagnostics: string[] = [];
   if (concept.source.kind !== "table") {
     return {
       ok: false,
-      diagnostics: [
-        `Action ${action.name} cannot run locally because ${concept.name} is not backed by a DuckDB table source.`,
-      ],
+      diagnostics: [`Action ${action.name} cannot run because ${concept.name} is not backed by a table source.`],
     };
   }
   const mode = action.subject?.mode;
-  if (mode !== "single" && mode !== "new") {
+  if (mode !== "single" && mode !== "new" && mode !== "collection") {
     return {
       ok: false,
       diagnostics: [
-        `Action invocation currently supports subject:single and subject:new; ${action.name} declares ${mode ?? "no subject"}.`,
+        `Action invocation currently supports subject:single, subject:collection, and subject:new; ${action.name} declares ${mode ?? "no subject"}.`,
       ],
     };
   }
   const params = actionParameterValues(action, args, diagnostics);
   if (diagnostics.length > 0) return { ok: false, diagnostics };
-  const ctx: SqlBuildContext = { model, root: concept, joins: new Map([["", "root"]]), joinClauses: [] };
+  const tableSource = concept.source;
+  const ctx: SqlBuildContext = {
+    model,
+    root: concept,
+    joins: new Map([["", "root"]]),
+    joinClauses: [],
+    writeContext: mode === "single" || mode === "collection",
+  };
 
-  if (mode === "single") {
-    const subjectWhere = subjectWhereSql(concept, args, diagnostics);
+  if (mode === "single" || mode === "collection") {
+    const subjectWhere = subjectWhereSql(concept, args, diagnostics, mode);
     const guardSql = action.guards.map((guard) =>
       actionExpressionSql(ctx, concept, guard.predicate, params, diagnostics),
     );
@@ -1071,27 +1172,46 @@ function buildActionSql(
     const assignments = action.edits.flatMap((edit) =>
       edit.kind === "set" ? actionSetAssignments(ctx, concept, edit, params, diagnostics) : [],
     );
-    const unsupported = action.edits.filter((edit) => edit.kind !== "set").map((edit) => edit.kind);
+    const deleteEdits = action.edits.filter((edit) => edit.kind === "delete");
+    const unsupported = action.edits
+      .filter((edit) => edit.kind !== "set" && edit.kind !== "delete")
+      .map((edit) => edit.kind);
     if (unsupported.length > 0)
-      diagnostics.push(`Skipped unsupported edit kinds for subject:single: ${unsupported.join(", ")}.`);
-    if (assignments.length === 0)
+      diagnostics.push(`Skipped unsupported edit kinds for subject:${mode}: ${unsupported.join(", ")}.`);
+    if (concept.identities.length === 0)
+      diagnostics.push(`Action ${action.name} cannot run because concept ${concept.name} has no identity fields.`);
+    const hasDelete = deleteEdits.length > 0;
+    if (hasDelete && assignments.length > 0)
+      diagnostics.push(`Action ${action.name} mixes set and delete edits; choose one operation.`);
+    if (!hasDelete && assignments.length === 0)
+      diagnostics.push(`Action ${action.name} has no set edits that can be lowered to SQL.`);
+    if (hasDelete && deleteEdits.length !== action.edits.length)
+      diagnostics.push(`Action ${action.name} includes non-delete edits that cannot be lowered with delete.`);
+    if (diagnostics.length > 0) return { ok: false, diagnostics };
+    const where = [subjectWhere, ...guardSql.map((guard) => `(${guard})`)]
+      .filter((clause) => clause.trim().length > 0)
+      .join(" AND ");
+    if (!where) {
       return {
         ok: false,
-        diagnostics: [...diagnostics, `Action ${action.name} has no set edits that can be lowered to SQL.`],
+        diagnostics: [
+          `Action ${action.name} produced an empty subject predicate; provide a non-empty where/subject filter.`,
+        ],
       };
-    if (diagnostics.length > 0) return { ok: false, diagnostics };
-    const where = [subjectWhere, ...guardSql.map((guard) => `(${guard})`)].filter(Boolean).join(" AND ");
-    const sql = [
-      `UPDATE ${quoteIdent(concept.source.path)} AS root`,
-      `SET ${assignments.join(", ")}`,
-      `WHERE ${where}`,
-      "RETURNING *;",
-    ].join("\n");
+    }
+    const selector = actionTargetSelectorSql(concept, tableSource.path, ctx, assignments, where, hasDelete);
+    const rowsQuery = actionRowsQuerySql(tableSource.path, ctx, where);
+    const sql = hasDelete
+      ? deleteFromTargetSelectorSql(concept, tableSource.path, selector)
+      : updateFromTargetSelectorSql(concept, tableSource.path, assignments, selector);
     return {
       ok: true,
       sql,
+      operation: hasDelete ? "delete" : "update",
+      connectionName: tableSource.connection,
       diagnostics,
-      verificationQuery: `SELECT * FROM ${quoteIdent(concept.source.path)} AS root WHERE ${subjectWhere};`,
+      verificationQuery: `SELECT * FROM ${quoteTablePath(tableSource.path)} AS root WHERE ${subjectWhere};`,
+      rowsQuery,
     };
   }
 
@@ -1105,30 +1225,92 @@ function buildActionSql(
     values.set(identity.name, sqlLiteral(identityValue));
   }
   for (const assignment of insert.assignments) {
-    for (const target of actionTargetColumns(concept, assignment.target, diagnostics)) {
-      const sqlValue = actionExpressionSql(ctx, concept, assignment.expression, params, diagnostics);
-      if (target.kind === "sql") {
-        diagnostics.push(
-          `Skipped raw SQL write mapping for ${assignment.target}; action.invoke only lowers default and column mappings.`,
-        );
-        continue;
-      }
-      values.set(target.column, sqlValue);
+    const valueSql = actionExpressionSql(ctx, concept, assignment.expression, params, diagnostics);
+    for (const target of actionTargetAssignments(concept, assignment.target, valueSql, diagnostics)) {
+      values.set(target.column, target.expression);
     }
   }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
   const columns = [...values.keys()];
   const sql = [
-    `INSERT INTO ${quoteIdent(concept.source.path)} (${columns.map(quoteIdent).join(", ")})`,
+    `INSERT INTO ${quoteTablePath(tableSource.path)} (${columns.map(quoteIdent).join(", ")})`,
     `VALUES (${columns.map((column) => values.get(column)).join(", ")})`,
-    "RETURNING *;",
+    ";",
   ].join("\n");
   const identity = concept.identities[0];
   const verificationQuery =
     identity && values.has(identity.name)
-      ? `SELECT * FROM ${quoteIdent(concept.source.path)} WHERE ${quoteIdent(identity.name)} = ${values.get(identity.name)};`
+      ? `SELECT * FROM ${quoteTablePath(tableSource.path)} WHERE ${quoteIdent(identity.name)} = ${values.get(identity.name)};`
       : undefined;
-  return { ok: true, sql, diagnostics, verificationQuery };
+  return { ok: true, sql, diagnostics, verificationQuery, operation: "insert", connectionName: tableSource.connection };
+}
+
+interface ActionUpdateAssignment {
+  column: string;
+  expression: string;
+}
+
+function actionTargetSelectorSql(
+  concept: ResolvedConcept,
+  tablePath: string,
+  ctx: SqlBuildContext,
+  assignments: ActionUpdateAssignment[],
+  where: string,
+  deleteOnly: boolean,
+): string {
+  const identitySelect = concept.identities.map(
+    (identity, index) => `root.${quoteIdent(identity.name)} AS ${quoteIdent(`__id_${index}`)}`,
+  );
+  const assignmentSelect = deleteOnly
+    ? []
+    : assignments.map((assignment, index) => `${assignment.expression} AS ${quoteIdent(`__set_${index}`)}`);
+  return [
+    `SELECT ${[...identitySelect, ...assignmentSelect].join(", ")}`,
+    `FROM ${quoteTablePath(tablePath)} AS root`,
+    ...ctx.joinClauses,
+    `WHERE ${where}`,
+  ].join("\n");
+}
+
+function actionRowsQuerySql(tablePath: string, ctx: SqlBuildContext, where: string): string {
+  return [`SELECT root.*`, `FROM ${quoteTablePath(tablePath)} AS root`, ...ctx.joinClauses, `WHERE ${where};`].join(
+    "\n",
+  );
+}
+
+function updateFromTargetSelectorSql(
+  concept: ResolvedConcept,
+  tablePath: string,
+  assignments: ActionUpdateAssignment[],
+  selectorSql: string,
+): string {
+  const keys = actionIdentityJoinConditions(concept);
+  const exists = actionExistsPredicate(selectorSql, keys);
+  return [
+    `UPDATE ${quoteTablePath(tablePath)} AS root`,
+    `SET ${assignments.map((assignment, index) => `${quoteIdent(assignment.column)} = (${actionScalarAssignmentSql(selectorSql, keys, index)})`).join(", ")}`,
+    `WHERE EXISTS (${exists});`,
+  ].join("\n");
+}
+
+function deleteFromTargetSelectorSql(concept: ResolvedConcept, tablePath: string, selectorSql: string): string {
+  const keys = actionIdentityJoinConditions(concept);
+  const exists = actionExistsPredicate(selectorSql, keys);
+  return [`DELETE FROM ${quoteTablePath(tablePath)} AS root`, `WHERE EXISTS (${exists});`].join("\n");
+}
+
+function actionScalarAssignmentSql(selectorSql: string, keys: string, index: number): string {
+  return [`SELECT src.${quoteIdent(`__set_${index}`)}`, "FROM (", selectorSql, ") AS src", `WHERE ${keys}`].join("\n");
+}
+
+function actionExistsPredicate(selectorSql: string, keys: string): string {
+  return ["SELECT 1", "FROM (", selectorSql, ") AS src", `WHERE ${keys}`].join("\n");
+}
+
+function actionIdentityJoinConditions(concept: ResolvedConcept): string {
+  return concept.identities
+    .map((identity, index) => `root.${quoteIdent(identity.name)} = src.${quoteIdent(`__id_${index}`)}`)
+    .join(" AND ");
 }
 
 function actionParameterValues(
@@ -1159,19 +1341,17 @@ function actionSetAssignments(
   edit: Extract<ActionEditDecl, { kind: "set" }>,
   params: Map<string, unknown>,
   diagnostics: string[],
-): string[] {
-  return actionTargetColumns(concept, edit.target, diagnostics).flatMap((target) => {
-    if (target.kind === "sql") {
-      diagnostics.push(
-        `Skipped raw SQL write mapping for ${edit.target}; action.invoke only lowers default and column mappings.`,
-      );
-      return [];
-    }
-    return `${quoteIdent(target.column)} = ${actionExpressionSql(ctx, concept, edit.expression, params, diagnostics)}`;
-  });
+): ActionUpdateAssignment[] {
+  const valueSql = actionExpressionSql(ctx, concept, edit.expression, params, diagnostics);
+  return actionTargetAssignments(concept, edit.target, valueSql, diagnostics);
 }
 
-function actionTargetColumns(concept: ResolvedConcept, target: string, diagnostics: string[]): ActionTargetColumn[] {
+function actionTargetAssignments(
+  concept: ResolvedConcept,
+  target: string,
+  valueSql: string,
+  diagnostics: string[],
+): ActionTargetAssignment[] {
   const member =
     concept.fields.find((candidate) => candidate.name === target) ??
     concept.dimensions.find((candidate) => candidate.name === target);
@@ -1181,11 +1361,32 @@ function actionTargetColumns(concept: ResolvedConcept, target: string, diagnosti
   }
   const mappings =
     member.writeMappings.length > 0 ? member.writeMappings : [{ kind: "default" as const, location: member.location }];
-  return mappings.flatMap<ActionTargetColumn>((mapping) => {
-    if (mapping.kind === "default") return [{ kind: "default", column: target }];
-    if (mapping.kind === "column") return [{ kind: "column", column: mapping.column }];
-    return [{ kind: "sql", column: "" }];
+  return mappings.flatMap<ActionTargetAssignment>((mapping) => {
+    if (mapping.kind === "default") return [{ column: target, expression: valueSql }];
+    if (mapping.kind === "column") {
+      return [{ column: mapping.column, expression: replaceValueBinding(mapping.expression, valueSql) }];
+    }
+    const parsed = parseRawSqlAssignment(mapping.sql, target, diagnostics);
+    if (!parsed) return [];
+    return [{ column: parsed.column, expression: replaceValueBinding(parsed.expression, valueSql) }];
   });
+}
+
+function parseRawSqlAssignment(
+  sql: string,
+  target: string,
+  diagnostics: string[],
+): { column: string; expression: string } | undefined {
+  if (!/\{\s*value\s*\}/.test(sql)) {
+    diagnostics.push(`Raw SQL write mapping for ${target} must include a {value} placeholder.`);
+    return undefined;
+  }
+  const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/.exec(sql);
+  if (!match) {
+    diagnostics.push(`Raw SQL write mapping for ${target} must be a single column assignment fragment.`);
+    return undefined;
+  }
+  return { column: match[1]!, expression: match[2]! };
 }
 
 function actionExpressionSql(
@@ -1220,9 +1421,32 @@ function replaceParameterReferences(expression: string, params: Map<string, unkn
   return replaceOutsideStrings(expression, replacements);
 }
 
-function subjectWhereSql(concept: ResolvedConcept, args: Record<string, unknown>, diagnostics: string[]): string {
+function replaceValueBinding(expression: string, valueSql: string): string {
+  const placeholder = "__semlang_value__";
+  return replaceOutsideStrings(
+    expression.replace(/\{\s*value\s*\}/g, placeholder),
+    new Map([
+      ["value", valueSql],
+      [placeholder, valueSql],
+    ]),
+  );
+}
+
+function subjectWhereSql(
+  concept: ResolvedConcept,
+  args: Record<string, unknown>,
+  diagnostics: string[],
+  mode: "single" | "collection",
+): string {
   const rawWhere = stringValue(args.where);
-  if (rawWhere) return normalizeActionExpression(rawWhere);
+  if (rawWhere !== undefined) {
+    const normalizedWhere = normalizeActionExpression(rawWhere);
+    if (normalizedWhere.trim().length === 0) {
+      diagnostics.push("where must contain a non-empty predicate for action.invoke.");
+      return "FALSE";
+    }
+    return normalizedWhere;
+  }
   const subject = isRecord(args.subject) ? args.subject : {};
   const identity = concept.identities[0];
   if (
@@ -1236,7 +1460,7 @@ function subjectWhereSql(concept: ResolvedConcept, args: Record<string, unknown>
     return entries.map(([key, value]) => `root.${quoteIdent(key)} = ${sqlLiteral(value)}`).join(" AND ");
   }
   diagnostics.push(
-    `Provide subject, id, where, or ${identity?.name ?? "an identity value"} for subject:single action invocation.`,
+    `Provide subject, id, where, or ${identity?.name ?? "an identity value"} for subject:${mode} action invocation.`,
   );
   return "FALSE";
 }
@@ -1383,7 +1607,13 @@ function ensureSqlJoin(
     return undefined;
   }
   if (target.source.kind !== "table") {
-    diagnostics.push(`Join ${join.name} target ${target.name} is not backed by a DuckDB table source.`);
+    diagnostics.push(`Join ${join.name} target ${target.name} is not backed by a table source.`);
+    return undefined;
+  }
+  if (ctx.writeContext && join.kind !== "join_one") {
+    diagnostics.push(
+      `Action SQL lowering cannot use ${join.kind} join ${join.name}; write selectors must not fan out target identities.`,
+    );
     return undefined;
   }
   const prefix = sourcePrefix ? `${sourcePrefix}.${join.name}` : join.name;
@@ -1416,7 +1646,7 @@ function ensureSqlJoin(
   }
   const joinKeyword = join.kind === "join_cross" && conditions.length === 0 ? "CROSS JOIN" : "LEFT JOIN";
   const onClause = conditions.length > 0 ? ` ON ${conditions.join(" AND ")}` : "";
-  ctx.joinClauses.push(`${joinKeyword} ${quoteIdent(target.source.path)} AS ${alias}${onClause}`);
+  ctx.joinClauses.push(`${joinKeyword} ${quoteTablePath(target.source.path)} AS ${alias}${onClause}`);
   void sourceAlias;
   return { concept: target, alias, prefix };
 }
@@ -1521,6 +1751,10 @@ function sqlIgnoredIdentifier(identifier: string): boolean {
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+function quoteTablePath(pathText: string): string {
+  return pathText.split(".").map(quoteIdent).join(".");
 }
 
 function periodAxisSql(concept: ResolvedConcept): { start: string; end: string } | undefined {
@@ -1689,6 +1923,7 @@ function describeActionPlain(concept: ResolvedConcept, action: ActionDecl) {
           writeTargets: describeActionTargetWriteMappings(concept, edit.target),
         };
       }
+      if (edit.kind === "delete") return edit;
       return {
         ...edit,
         assignments: edit.assignments.map((assignment) => ({
@@ -1700,7 +1935,11 @@ function describeActionPlain(concept: ResolvedConcept, action: ActionDecl) {
     writeTargets: [
       ...new Set(
         action.edits.flatMap((edit) =>
-          edit.kind === "set" ? [edit.target] : edit.assignments.map((assignment) => assignment.target),
+          edit.kind === "set"
+            ? [edit.target]
+            : edit.kind === "insert"
+              ? edit.assignments.map((assignment) => assignment.target)
+              : [],
         ),
       ),
     ].map((target) => ({
@@ -2101,7 +2340,9 @@ function actionSearchText(action: ActionDecl): string {
       .map((edit) =>
         edit.kind === "set"
           ? `${edit.target} ${edit.expression}`
-          : edit.assignments.map((assignment) => `${assignment.target} ${assignment.expression}`).join(" "),
+          : edit.kind === "insert"
+            ? edit.assignments.map((assignment) => `${assignment.target} ${assignment.expression}`).join(" ")
+            : "delete",
       )
       .join(" "),
     action.logBlocks.flatMap((block) => block.lines).join(" "),
@@ -2531,6 +2772,24 @@ function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecond
     return {
       ok: false,
       error: "query_limit_seconds must be a positive integer number of seconds.",
+    };
+  }
+  return { ok: true, value: raw };
+}
+
+function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
+  const raw =
+    args.query_limit_seconds ??
+    args.queryLimitSeconds ??
+    args.query_time_limit_seconds ??
+    args.queryTimeLimitSeconds ??
+    args.query_time_limit ??
+    args.queryTimeLimit;
+  if (raw === undefined) return { ok: true, value: defaultActionQueryLimitSeconds };
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    return {
+      ok: false,
+      error: "action.invoke query_limit_seconds must be a positive integer number of seconds.",
     };
   }
   return { ok: true, value: raw };

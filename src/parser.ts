@@ -1272,6 +1272,14 @@ function parseActionEdits(lines: SourceLine[], file: string | undefined, diagnos
       i += 1;
       continue;
     }
+    if (trimmed === "delete") {
+      edits.push({
+        kind: "delete",
+        location: location(file, line.line, line.text, "delete"),
+      });
+      i += 1;
+      continue;
+    }
     if (/^insert\s*\{/.test(trimmed)) {
       const block = collectBraceBlock(trimmedLines, i);
       diagnoseUnclosedBlock(block, file, diagnostics);

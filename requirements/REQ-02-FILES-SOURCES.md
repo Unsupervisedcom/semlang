@@ -79,3 +79,7 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.016: Every `query.run` request MUST generate and return a transaction GUID that can be used to trace logs and exported output.
 - 02.05.017: When executed `query.run` row output is larger than 10 lines, MCP MUST write the rows to a JSON file in the configured export directory using the transaction GUID as the file name and MUST return the export path and line count instead of inline rows.
 - 02.05.018: Executed `query.run` MCP responses MUST omit verbose execution internals including generated SQL, execution engine name, query name, query limit, and success-path timeout flags from the `execution` object.
+- 02.05.019: `action.invoke` MUST use the Malloy config context captured by `set_ontology_source` when executing generated action SQL.
+- 02.05.020: `action.invoke` MUST support `dry_run_only` / `dryRunOnly` to return generated action SQL without executing it.
+- 02.05.021: `action.invoke` generated write SQL SHOULD avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default lowering path.
+- 02.05.022: `action.invoke` SQL execution MUST apply a positive integer execution deadline, defaulting to 30 seconds when no `query_limit_seconds` value is supplied.

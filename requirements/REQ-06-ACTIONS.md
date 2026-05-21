@@ -86,6 +86,8 @@ The edit block declares the semantic change plan.
 - 06.07.005: `insert` edits MUST be rejected unless the action subject is `new`.
 - 06.07.006: `set` edits MUST target known writeable fields or writeable dimensions.
 - 06.07.007: `set` edits MUST be rejected when the target is unknown or non-writeable.
+- 06.07.008: `subject: single` and `subject: collection` actions MAY use `delete` edits for existing subject objects.
+- 06.07.009: `delete` edits MUST be rejected when the action subject is `new`.
 
 ## 06.08 Logs and Side Effects
 
@@ -112,3 +114,6 @@ Actions produce a write-oriented artifact separate from Malloy.
 - 06.10.001: Actions MUST NOT lower to Malloy.
 - 06.10.002: A future action manifest SHOULD include owning concept, subject mode, parameter schemas, guards, edit plans, write mappings, log configuration, side effects, and agent metadata.
 - 06.10.003: Runtime adapters MAY turn the action manifest into SQL, API calls, queue messages, or other write mechanisms.
+- 06.10.004: An MCP runtime adapter MAY lower supported actions to SQL statements that remain separate from Malloy read/query lowering.
+- 06.10.005: SQL action lowering MUST preserve schema-qualified table path semantics by quoting each path component separately.
+- 06.10.006: SQL action lowering MUST reject write selectors that use join paths capable of fanning out one subject identity into multiple rows unless a deterministic de-duplication strategy is defined.

@@ -84,7 +84,7 @@ Common tools include:
 - `ontology.find_paths` finds join paths between concepts.
 - `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, and `lens.plan` help agents select and apply semantic overlays.
 - `query.run` validates named or temporary queries and executes them with the Malloy SDK unless `dry_run_only` is true; executed queries require a `query_limit_seconds` deadline.
-- `action.invoke` runs supported local DuckDB action edits when the model declares actions.
+- `action.invoke` generates supported action SQL and executes it through the configured Malloy connection.
 - `reasoning.derive` gathers concept, metric, lens, and path hints for an analytical question.
 
 See the tool reference pages for request shapes and response notes:

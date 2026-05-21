@@ -22,6 +22,14 @@ export interface MalloyExecutionOptions {
   rowLimit?: number;
 }
 
+export interface MalloySqlExecutionOptions {
+  sql: string;
+  connectionName: string;
+  context: MalloyExecutionContext;
+  queryLimitSeconds?: number;
+  rowLimit?: number;
+}
+
 export interface MalloyValidationOptions {
   malloy: string;
   context: MalloyExecutionContext;
@@ -32,6 +40,11 @@ type WorkerMessage =
   | { type: "result"; result: Record<string, JsonValue> }
   | { type: "error"; error: string }
   | { type: string; result?: unknown; error?: unknown };
+
+export type MalloyExecutionWorkerData =
+  | { kind: "query"; options: MalloyExecutionOptions }
+  | { kind: "sql"; options: MalloySqlExecutionOptions }
+  | MalloyExecutionOptions;
 
 export async function validateMalloyModel(options: MalloyValidationOptions): Promise<Diagnostic[]> {
   let runtime: Runtime | undefined;
@@ -57,6 +70,72 @@ export async function validateMalloyModel(options: MalloyValidationOptions): Pro
 
 export async function executeMalloyQuery(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
   return executeMalloyQueryInWorker(options);
+}
+
+export async function executeMalloySql(options: MalloySqlExecutionOptions): Promise<Record<string, JsonValue>> {
+  // Use a worker only when a timeout is configured so long-running SQL can be
+  // hard-stopped; otherwise run directly to avoid worker overhead.
+  if (options.queryLimitSeconds !== undefined)
+    return executeMalloySqlInWorker({ ...options, queryLimitSeconds: options.queryLimitSeconds });
+  return executeMalloySqlDirect(options);
+}
+
+export async function executeMalloySqlDirect(options: MalloySqlExecutionOptions): Promise<Record<string, JsonValue>> {
+  const startedAt = Date.now();
+  let runtime: Runtime | undefined;
+  let configSource: "explicit" | "discovered" | undefined;
+  let configLog: JsonValue | undefined;
+  let connectionTypes: string[] = [];
+  try {
+    const created = await createMalloyRuntime(options.context);
+    runtime = created.runtime;
+    configSource = created.configSource;
+    configLog = created.configLog;
+    connectionTypes = created.connectionTypes;
+    const connection = await runtime.connections.lookupConnection(options.connectionName);
+    const result = await connection.runSQL(
+      options.sql,
+      options.rowLimit === undefined ? undefined : { rowLimit: options.rowLimit },
+    );
+    return {
+      ok: true,
+      engine: "malloy",
+      connectionName: options.connectionName,
+      query_limit_seconds: options.queryLimitSeconds ?? null,
+      execution_time_ms: elapsedMs(startedAt),
+      timed_out: false,
+      sql: options.sql,
+      rows: result.rows as JsonValue,
+      totalRows: result.totalRows,
+      malloyConfig: {
+        source: configSource ?? null,
+        projectDir: options.context.projectDir,
+        path: options.context.malloyConfigPath ?? null,
+        connectionTypes,
+        log: configLog ?? [],
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      engine: "malloy",
+      connectionName: options.connectionName,
+      query_limit_seconds: options.queryLimitSeconds ?? null,
+      execution_time_ms: elapsedMs(startedAt),
+      timed_out: false,
+      sql: options.sql,
+      error: error instanceof Error ? error.message : String(error),
+      malloyConfig: {
+        source: configSource ?? null,
+        projectDir: options.context.projectDir,
+        path: options.context.malloyConfigPath ?? null,
+        connectionTypes,
+        log: configLog ?? [],
+      },
+    };
+  } finally {
+    await runtime?.shutdown("close");
+  }
 }
 
 export async function executeMalloyQueryDirect(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
@@ -117,7 +196,10 @@ export async function executeMalloyQueryDirect(options: MalloyExecutionOptions):
 async function executeMalloyQueryInWorker(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
   const startedAt = Date.now();
   const workerTarget = await malloyExecutionWorkerTarget();
-  const worker = new Worker(workerTarget.url, { workerData: options, execArgv: workerTarget.execArgv });
+  const worker = new Worker(workerTarget.url, {
+    workerData: { kind: "query", options },
+    execArgv: workerTarget.execArgv,
+  });
   const limitMs = options.queryLimitSeconds * 1000;
   return new Promise((resolve) => {
     let settled = false;
@@ -166,6 +248,63 @@ async function executeMalloyQueryInWorker(options: MalloyExecutionOptions): Prom
   });
 }
 
+async function executeMalloySqlInWorker(
+  options: MalloySqlExecutionOptions & { queryLimitSeconds: number },
+): Promise<Record<string, JsonValue>> {
+  const startedAt = Date.now();
+  const workerTarget = await malloyExecutionWorkerTarget();
+  const worker = new Worker(workerTarget.url, {
+    workerData: { kind: "sql", options },
+    execArgv: workerTarget.execArgv,
+  });
+  const limitMs = options.queryLimitSeconds * 1000;
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(sqlTimeoutResult(options, startedAt));
+      void worker.terminate();
+    }, limitMs);
+
+    const finish = (result: Record<string, JsonValue>) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({ ...result, execution_time_ms: elapsedMs(startedAt) });
+    };
+
+    worker.once("message", (message: WorkerMessage) => {
+      if (isWorkerResultMessage(message)) {
+        finish(message.result);
+        return;
+      }
+      finish(
+        sqlWorkerErrorResult(
+          options,
+          startedAt,
+          isWorkerErrorMessage(message) ? message.error : "Unexpected worker message.",
+        ),
+      );
+    });
+
+    worker.once("error", (error) => {
+      finish(sqlWorkerErrorResult(options, startedAt, error.message));
+    });
+
+    worker.once("exit", (code) => {
+      if (!settled)
+        finish(
+          sqlWorkerErrorResult(
+            options,
+            startedAt,
+            `Malloy execution worker exited with code ${code} before returning a result.`,
+          ),
+        );
+    });
+  });
+}
+
 async function malloyExecutionWorkerTarget(): Promise<{ url: URL; execArgv?: string[] }> {
   const adjacent = new URL("./malloy-execution-worker.js", import.meta.url);
   if (await pathExists(fileURLToPath(adjacent))) return { url: adjacent };
@@ -199,7 +338,7 @@ function timeoutResult(options: MalloyExecutionOptions, startedAt: number): Reco
     ok: false,
     engine: "malloy",
     queryName: options.queryName,
-    query_limit_seconds: options.queryLimitSeconds,
+    query_limit_seconds: options.queryLimitSeconds ?? null,
     execution_time_ms: elapsedMs(startedAt),
     timed_out: true,
     error: `Query ${options.queryName} exceeded query_limit_seconds=${options.queryLimitSeconds}.`,
@@ -222,9 +361,53 @@ function workerErrorResult(
     ok: false,
     engine: "malloy",
     queryName: options.queryName,
-    query_limit_seconds: options.queryLimitSeconds,
+    query_limit_seconds: options.queryLimitSeconds ?? null,
     execution_time_ms: elapsedMs(startedAt),
     timed_out: false,
+    error,
+    malloyConfig: {
+      source: options.context.malloyConfigSource ?? null,
+      projectDir: options.context.projectDir,
+      path: options.context.malloyConfigPath ?? null,
+      connectionTypes: [],
+      log: [],
+    },
+  };
+}
+
+function sqlTimeoutResult(options: MalloySqlExecutionOptions, startedAt: number): Record<string, JsonValue> {
+  return {
+    ok: false,
+    engine: "malloy",
+    connectionName: options.connectionName,
+    query_limit_seconds: options.queryLimitSeconds ?? null,
+    execution_time_ms: elapsedMs(startedAt),
+    timed_out: true,
+    sql: options.sql,
+    error: `Statement exceeded query_limit_seconds=${options.queryLimitSeconds}.`,
+    malloyConfig: {
+      source: options.context.malloyConfigSource ?? null,
+      projectDir: options.context.projectDir,
+      path: options.context.malloyConfigPath ?? null,
+      connectionTypes: [],
+      log: [],
+    },
+  };
+}
+
+function sqlWorkerErrorResult(
+  options: MalloySqlExecutionOptions,
+  startedAt: number,
+  error: string,
+): Record<string, JsonValue> {
+  return {
+    ok: false,
+    engine: "malloy",
+    connectionName: options.connectionName,
+    query_limit_seconds: options.queryLimitSeconds ?? null,
+    execution_time_ms: elapsedMs(startedAt),
+    timed_out: false,
+    sql: options.sql,
     error,
     malloyConfig: {
       source: options.context.malloyConfigSource ?? null,

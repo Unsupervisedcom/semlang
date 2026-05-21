@@ -112,9 +112,10 @@ describe("SemLang MCP retail narratives", () => {
     });
     expect(settled).toMatchObject({
       ok: true,
-      engine: "duckdb",
+      engine: "malloy",
       action: "settle_return",
       concept: "ReturnLine",
+      operation: "update",
       changedRowCount: 1,
     });
     expect(text(settled.sql)).toContain('UPDATE "return_lines" AS root');
@@ -125,8 +126,8 @@ describe("SemLang MCP retail narratives", () => {
       restocking_fee_amount: "4.50",
     });
 
-    // action.invoke remains a local DuckDB action adapter. Non-DuckDB action
-    // execution is tracked separately from the Malloy query runtime.
+    // action.invoke now executes through the configured Malloy connection using
+    // generated SQL for supported action edits.
   });
 
   it("resolves a retail business entity and sends the customer-count query to Malloy", async () => {

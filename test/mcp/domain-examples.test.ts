@@ -95,9 +95,10 @@ describe("SemLang MCP domain example narratives", () => {
     });
     expect(opened).toMatchObject({
       ok: true,
-      engine: "duckdb",
+      engine: "malloy",
       action: "open_case",
       concept: "SupportCase",
+      operation: "insert",
       changedRowCount: 1,
     });
     expect(text(opened.sql)).toContain('INSERT INTO "support_cases"');

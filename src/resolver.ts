@@ -718,6 +718,17 @@ function validateActionEdit(
     validateActionAssignmentTarget(concept, action, edit.target, edit.location, diagnostics);
     return;
   }
+  if (edit.kind === "delete") {
+    if (subjectMode === "new") {
+      diagnostics.push({
+        severity: "error",
+        code: "INVALID_ACTION_EDIT",
+        message: `Action ${action.name} uses delete with subject:new; delete is only valid for existing subjects.`,
+        location: edit.location,
+      });
+    }
+    return;
+  }
 
   if (subjectMode !== "new") {
     diagnostics.push({
