@@ -65,11 +65,11 @@ describe("SemLang MCP retail narratives", () => {
     expect(marginRows.length).toBeGreaterThan(0);
     expect(marginRows[0]).toEqual(
       expect.objectContaining({
-        sold_month: expect.anything(),
-        region: expect.anything(),
-        category_name: expect.anything(),
-        net_sales: expect.anything(),
-        merchandising_margin: expect.anything(),
+        sold_month: "2025-03-01T00:00:00.000Z",
+        region: "Mountain",
+        category_name: "Outerwear",
+        net_sales: 159,
+        merchandising_margin: 41,
       }),
     );
 
@@ -77,7 +77,7 @@ describe("SemLang MCP retail narratives", () => {
     // in concept details before invoking a write against the temp-mounted data.
     const returnConcept = await mcp.tools.ontology_describe_concept({ concept: "ReturnLine" });
     expectOk(returnConcept);
-    expect(names(asObject(returnConcept.concept).actions)).toContain("settle_return");
+    expect(names(asObject(returnConcept.concept).actions)).toEqual(["settle_return"]);
 
     const settleAction = await mcp.tools.ontology_describe_action({ action: "settle_return" });
     expectOk(settleAction);
@@ -145,10 +145,10 @@ describe("SemLang MCP retail narratives", () => {
     expect(execution).not.toHaveProperty("skipped", true);
     expect(records(execution.rows)[0]).toEqual(
       expect.objectContaining({
-        sales: expect.anything(),
-        identified_customer_sales: expect.anything(),
-        identified_customers: expect.anything(),
-        unrecognized_cash_sales: expect.anything(),
+        sales: 0,
+        identified_customer_sales: 0,
+        identified_customers: 0,
+        unrecognized_cash_sales: 0,
       }),
     );
   });
@@ -207,8 +207,8 @@ describe("SemLang MCP retail narratives", () => {
     expect(piiFields.requestedFields).toEqual(["contact_email", "phone_number", "customer_contact_email"]);
     const piiMatches = records(piiFields.matches);
     const customerPii = piiMatches.find((match) => match.lens === "with_pii" && match.concept === "Customer");
-    expect(customerPii).toBeDefined();
-    expect(records(customerPii?.matches)).toEqual(
+    expect(customerPii).toEqual(expect.objectContaining({ lens: "with_pii", concept: "Customer" }));
+    expect(records((customerPii as Record<string, unknown>).matches)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           field: "contact_email",

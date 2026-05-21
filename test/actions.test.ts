@@ -103,9 +103,7 @@ describe("SemLang actions", () => {
       kind: "effect",
       header: "effect after_commit:",
     });
-    expect(action?.effectBlocks[0]?.lines).toEqual(
-      expect.arrayContaining(["notify supplier {", "when: notify_supplier"]),
-    );
+    expect(action?.effectBlocks[0]?.lines).toEqual(["notify supplier {", "when: notify_supplier", "}"]);
     expect(action?.logBlocks[0]).toMatchObject({
       kind: "log",
       header: "log as SupplierLotActionLog {",
@@ -269,7 +267,7 @@ describe("SemLang actions", () => {
 
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("source: supplier_lots is __semlang_base_supplier_lots extend");
-    expect(result.malloy).toContain("measure:");
+    expect(result.malloy).toContain("measure:\n    rows is count()");
     expect(result.malloy).not.toContain("action quarantine");
     expect(result.malloy).not.toContain("writeable");
     expect(result.malloy).not.toContain("write:");

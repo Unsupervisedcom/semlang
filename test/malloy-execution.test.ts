@@ -43,12 +43,12 @@ concept AccountAttraction is relator from duckdb.sql("""
 `);
 
     expect(compiled.diagnostics).toEqual([]);
-    const malloy = compiled.malloy;
-    expect(malloy).toBeDefined();
+    const malloy = compiled.malloy ?? "";
+    expect(malloy).toContain("source: account_attraction is __semlang_base_account_attraction extend");
     expect(malloy).not.toContain("primary_key: concat(");
     const diagnostics = await validateMalloyModel({
       context: { projectDir, malloyConfigPath },
-      malloy: malloy!,
+      malloy,
     });
 
     expect(diagnostics).toEqual([]);
@@ -87,13 +87,12 @@ query: message_attractions is MessageTracking -> {
 `);
 
     expect(compiled.diagnostics).toEqual([]);
-    const malloy = compiled.malloy;
-    expect(malloy).toBeDefined();
+    const malloy = compiled.malloy ?? "";
     expect(malloy).toContain("join_one: account_attraction is");
     expect(malloy).toContain("with concat(memberdb_cust_id, '|', attraction_id)");
     const result = await executeMalloyQuery({
       context: { projectDir, malloyConfigPath },
-      malloy: malloy!,
+      malloy,
       queryName: "message_attractions",
     });
 
@@ -139,15 +138,14 @@ query: account_attraction_messages is AccountAttraction -> {
 `);
 
     expect(compiled.diagnostics).toEqual([]);
-    const malloy = compiled.malloy;
-    expect(malloy).toBeDefined();
+    const malloy = compiled.malloy ?? "";
     expect(malloy).toContain("join_many: messages is");
     expect(malloy).toContain(
       "on memberdb_cust_id = messages.memberdb_cust_id and attraction_id = messages.attraction_id",
     );
     const result = await executeMalloyQuery({
       context: { projectDir, malloyConfigPath },
-      malloy: malloy!,
+      malloy,
       queryName: "account_attraction_messages",
     });
 
@@ -232,10 +230,10 @@ concept Account is kind from duckdb.sql("""
     );
 
     expect(compiled.diagnostics).toEqual([]);
-    expect(compiled.malloy).toBeDefined();
-    expect(compiled.malloySourceMap).toBeDefined();
-    expect(compiled.malloy?.split("\n")[8]).toBe("    days_since_last_order is days(now() - last_order_date)");
-    expect(compiled.malloySourceMap).toEqual(
+    const malloy = compiled.malloy ?? "";
+    const sourceMap = compiled.malloySourceMap ?? [];
+    expect(malloy.split("\n")[8]).toBe("    days_since_last_order is days(now() - last_order_date)");
+    expect(sourceMap).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           generatedStartLine: 9,
@@ -252,8 +250,8 @@ concept Account is kind from duckdb.sql("""
     );
     const diagnostics = await validateMalloyModel({
       context: { projectDir, malloyConfigPath },
-      malloy: compiled.malloy!,
-      sourceMap: compiled.malloySourceMap,
+      malloy,
+      sourceMap,
     });
 
     expect(diagnostics).toEqual(

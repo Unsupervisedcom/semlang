@@ -120,8 +120,9 @@ concept Sale is event from duckdb.table('sales') {
     });
 
     expect(source.ok).toBe(false);
-    expect(text(source.error)).toContain("No Malloy config file was found for set_ontology_source.");
-    expect(text(source.error)).toContain("Pass configPath or malloyConfigPath explicitly");
+    expect(text(source.error)).toMatch(
+      /^No Malloy config file was found for set_ontology_source\. Pass configPath or malloyConfigPath explicitly, or add malloy-config-local\.json or malloy-config\.json at or above the SemLang model directory\. Searched from .+ up to .+\.$/,
+    );
   });
 
   it("blocks ontology source loading when emitted Malloy references an unknown source connection", async () => {

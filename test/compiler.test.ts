@@ -64,7 +64,14 @@ describe("SemLang parser", () => {
       "ReturnLine",
       "InventoryPosition",
     ]);
-    expect(result.ast?.queries.map((query) => query.name)).toContain("monthly_margin_and_returns");
+    expect(result.ast?.queries.map((query) => query.name)).toEqual([
+      "monthly_margin_and_returns",
+      "recent_order_line_projection",
+      "inventory_exceptions",
+      "vendor_funded_return_exposure",
+      "denver_store_customer_count_on_2025_09_15",
+      "same_store_category_health",
+    ]);
   });
 
   it("reports line and column parse diagnostics", () => {
@@ -335,9 +342,12 @@ concept Customer is kind from duckdb.table('customers') {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-      expect.arrayContaining(["MISSING_IGNORED_REASON", "DUPLICATE_IGNORED_SOURCE", "IGNORED_SOURCE_MODELED"]),
-    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "MISSING_IGNORED_REASON",
+      "IGNORED_SOURCE_MODELED",
+      "DUPLICATE_IGNORED_SOURCE",
+      "IGNORED_SOURCE_MODELED",
+    ]);
   });
 
   it("supports query/view compatibility clauses for having, project, nest, index, and view references", async () => {
@@ -531,7 +541,7 @@ concept Sale is event from duckdb.table('sales') {
   join_one customer: Customer with customer_id
 }
 `);
-    expect(missingIdentity.diagnostics.map((diagnostic) => diagnostic.code)).toContain("JOIN_WITH_REQUIRES_IDENTITY");
+    expect(missingIdentity.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["JOIN_WITH_REQUIRES_IDENTITY"]);
 
     const missingForeignKey = await compileSemLang(`
 package bad.join_with_fk
@@ -545,7 +555,7 @@ concept Sale is event from duckdb.table('sales') {
   join_one customer: Customer with customer_id
 }
 `);
-    expect(missingForeignKey.diagnostics.map((diagnostic) => diagnostic.code)).toContain("UNKNOWN_PATH");
+    expect(missingForeignKey.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["UNKNOWN_PATH"]);
   });
 
   it("diagnoses semantic errors", async () => {
@@ -565,9 +575,15 @@ query: q is Sale -> {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-      expect.arrayContaining(["UNKNOWN_TYPE", "UNKNOWN_JOIN_TARGET", "UNKNOWN_PATH", "RAW_FIELD_IN_AGGREGATE_ALIAS"]),
-    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "UNKNOWN_TYPE",
+      "UNKNOWN_JOIN_TARGET",
+      "UNKNOWN_PATH",
+      "UNKNOWN_TYPE",
+      "UNKNOWN_JOIN_TARGET",
+      "UNKNOWN_PATH",
+      "RAW_FIELD_IN_AGGREGATE_ALIAS",
+    ]);
   });
 
   it("01.02.001 exports semantic types and concepts as JSON Schema", async () => {
@@ -700,9 +716,10 @@ concept A is kind from duckdb.table('a') {
 }
 `);
     expect(result.model).toBeUndefined();
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-      expect.arrayContaining(["LEGACY_TYPE_METADATA", "INVALID_TYPE_METADATA"]),
-    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "LEGACY_TYPE_METADATA",
+      "INVALID_TYPE_METADATA",
+    ]);
   });
 
   it("diagnoses duplicate symbols, roles, lenses, temporal misuse, and include cycles", async () => {
@@ -728,9 +745,12 @@ query: q is A with missing_lens -> {
     rows is count()
 }
 `);
-    expect(duplicate.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-      expect.arrayContaining(["DUPLICATE_TYPE", "DUPLICATE_FIELD", "UNKNOWN_REFINEMENT_TARGET", "UNKNOWN_LENS"]),
-    );
+    expect(duplicate.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "DUPLICATE_TYPE",
+      "DUPLICATE_FIELD",
+      "UNKNOWN_REFINEMENT_TARGET",
+      "UNKNOWN_LENS",
+    ]);
 
     const unknownRole = await compileSemLang(`
 package bad.role
@@ -745,7 +765,7 @@ query: q is A -> {
     rows is count()
 }
 `);
-    expect(unknownRole.diagnostics.map((diagnostic) => diagnostic.code)).toContain("UNKNOWN_ROLE");
+    expect(unknownRole.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["UNKNOWN_ROLE"]);
 
     const temporal = await compileSemLang(`
 package bad.temporal
@@ -759,20 +779,19 @@ concept B is kind from duckdb.table('b') {
   join_one a: A on id at id
 }
 `);
-    expect(temporal.diagnostics.map((diagnostic) => diagnostic.code)).toContain("INVALID_TEMPORAL_JOIN");
+    expect(temporal.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["INVALID_TEMPORAL_JOIN"]);
 
     const parsed = parseSemLang(`package cycle\ninclude "./self.semlang"\n`, { filePath: "/tmp/self.semlang" });
-    expect(parsed.ast).toBeDefined();
-    const cycle = parsed.ast
-      ? await compileSemLang(`package cycle\ninclude "./self.semlang"\n`, {
-          filePath: "/tmp/self.semlang",
-          packageLoader: {
-            load() {
-              return { filePath: "/tmp/self.semlang", source: `package cycle\ninclude "./self.semlang"\n` };
-            },
-          },
-        })
-      : undefined;
-    expect(cycle?.diagnostics.map((diagnostic) => diagnostic.code)).toContain("INCLUDE_CYCLE");
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.ast).toMatchObject({ packageName: "cycle" });
+    const cycle = await compileSemLang(`package cycle\ninclude "./self.semlang"\n`, {
+      filePath: "/tmp/self.semlang",
+      packageLoader: {
+        load() {
+          return { filePath: "/tmp/self.semlang", source: `package cycle\ninclude "./self.semlang"\n` };
+        },
+      },
+    });
+    expect(cycle.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["INCLUDE_CYCLE"]);
   });
 });

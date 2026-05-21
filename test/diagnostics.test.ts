@@ -16,11 +16,10 @@ function source(lines: string[]): string {
 
 function diagnostic(result: { diagnostics: Diagnostic[] }, code: string): Diagnostic {
   const found = result.diagnostics.find((item) => item.code === code);
-  expect(
-    found,
-    `Expected diagnostic ${code}, got ${result.diagnostics.map((item) => item.code).join(", ")}`,
-  ).toBeDefined();
-  return found!;
+  expect(found, `Expected diagnostic ${code}, got ${result.diagnostics.map((item) => item.code).join(", ")}`).toEqual(
+    expect.objectContaining({ code }),
+  );
+  return found as Diagnostic;
 }
 
 function expectDiagnostic(

@@ -82,7 +82,7 @@ export async function writeTempProject(files: Record<string, string>): Promise<s
 }
 
 export function asObject(value: unknown): Record<string, unknown> {
-  expect(value).toBeTruthy();
+  expect(value).not.toBeNull();
   expect(typeof value).toBe("object");
   expect(Array.isArray(value)).toBe(false);
   return value as Record<string, unknown>;
@@ -121,7 +121,8 @@ export function expectQuery(value: Record<string, unknown>, name: string, rootNa
 
 export function pathResult(response: Record<string, unknown>, target: string): Record<string, unknown> {
   const result = records(response.results).find((candidate) => candidate.target === target);
-  expect(result).toBeDefined();
-  expect(records(result?.paths).length).toBeGreaterThan(0);
-  return result!;
+  expect(result).toEqual(expect.objectContaining({ target }));
+  const resolved = result as Record<string, unknown>;
+  expect(records(resolved.paths).length).toBeGreaterThan(0);
+  return resolved;
 }

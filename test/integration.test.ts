@@ -10,15 +10,8 @@ describe("Malloy/DuckDB integration", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.malloy).toContain("duckdb.table('retail_line_items')");
 
-    try {
-      const malloyPackage = "@malloydata/malloy";
-      const duckdbPackage = "@malloydata/db-duckdb";
-      await import(malloyPackage);
-      await import(duckdbPackage);
-    } catch {
-      expect.soft(true, "Malloy runtime packages are optional in this environment.").toBe(true);
-      return;
-    }
+    await import("@malloydata/malloy");
+    await import("@malloydata/db-duckdb");
 
     // The compiler boundary is intentionally text-first. This assertion keeps
     // the runtime packages load-tested without depending on Malloy internals

@@ -64,7 +64,7 @@ describe("SemLang MCP domain example narratives", () => {
     // mappings and create rows in the temp-mounted DuckDB database.
     const supportConcept = await mcp.tools.ontology_describe_concept({ concept: "SupportCase" });
     expectOk(supportConcept);
-    expect(names(asObject(supportConcept.concept).actions)).toContain("open_case");
+    expect(names(asObject(supportConcept.concept).actions)).toEqual(["open_case"]);
 
     const openCaseAction = await mcp.tools.ontology_describe_action({
       concept: "SupportCase",
