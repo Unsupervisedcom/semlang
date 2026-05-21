@@ -19,7 +19,7 @@ npm install
 npm link
 ```
 
-This exposes `semlang-mcp` anywhere on the machine. The command is intentionally source-backed: every MCP process starts through the checked-out TypeScript source with the repo-local `tsx`, so new agents pick up code changes without waiting for a build. Restart an already-running MCP session to load edits made after it started.
+This exposes `semlang` anywhere on the machine. The MCP command is intentionally source-backed: every MCP process starts through the checked-out TypeScript source with the repo-local `tsx`, so new agents pick up code changes without waiting for a build. Restart an already-running MCP session to load edits made after it started.
 
 ## Project Configuration
 
@@ -29,8 +29,8 @@ Add a project-local MCP config that points at the global command:
 {
   "mcpServers": {
     "semlang": {
-      "command": "semlang-mcp",
-      "args": []
+      "command": "semlang",
+      "args": ["mcp"]
     }
   }
 }
@@ -45,6 +45,32 @@ Agents should load the relevant model with `set_ontology_source` before using on
 ```
 
 Relative model paths are resolved from the agent project's working directory, not from the SemLang repo.
+
+Managed settings may be supplied with CLI parameters on the Commander-backed `semlang setup` and `semlang mcp` commands. The `project-dir` option defaults to the current directory where `semlang mcp` is run, and the `export-directory` option defaults to the operating system temp directory.
+
+Any MCP parameter can also be set with a `SEMLANG_`-prefixed environment variable by uppercasing the option name and replacing separators with underscores; for example, `SEMLANG_PROJECT_DIR=/path/to/project semlang mcp` sets `--project-dir`.
+
+```bash
+semlang setup --project-dir /path/to/project --malloy-config-path /path/to/malloy-config.json --export-directory /path/to/exports
+semlang mcp --project-dir /path/to/project --malloy-config-path /path/to/malloy-config.json --export-directory /path/to/exports
+```
+
+MCP client configuration can usually rely on those defaults:
+
+```json
+{
+  "mcpServers": {
+    "semlang": {
+      "command": "semlang",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+If your MCP client does not start in the project directory, pass `--project-dir`. If your Malloy config or export location is outside the defaults, pass `--malloy-config-path` or `--export-directory`.
+
+`query.run` returns a transaction GUID for tracing. If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
 
 ## Tool Surface
 
@@ -73,10 +99,10 @@ See the tool reference pages for request shapes and response notes:
 
 ## Troubleshooting
 
-If an agent cannot start `semlang-mcp`, verify that `npm link` created the global command and that dependencies exist in the SemLang checkout:
+If an agent cannot start `semlang mcp`, verify that `npm link` created the global command and that dependencies exist in the SemLang checkout:
 
 ```bash
-command -v semlang-mcp
+command -v semlang
 cd /Users/noah/Documents/semlang2
 npm install
 npm link

@@ -65,6 +65,7 @@ export async function setInlineOntology(
   );
   return mcp.tools.set_ontology_source({
     basePath: path.join(projectDir, "inline.semlang"),
+    projectDir,
     source,
   });
 }
@@ -95,6 +96,14 @@ export function asArray(value: unknown): unknown[] {
 
 export function records(value: unknown): Record<string, unknown>[] {
   return asArray(value).map(asObject);
+}
+
+export async function executionRecords(execution: Record<string, unknown>): Promise<Record<string, unknown>[]> {
+  if (execution.rows !== undefined) return records(execution.rows);
+  const output = asObject(execution.output);
+  expect(output).toMatchObject({ exported: true });
+  const exported = JSON.parse(await fs.readFile(text(output.path), "utf8"));
+  return records(asObject(exported).rows);
 }
 
 export function names(value: unknown): string[] {

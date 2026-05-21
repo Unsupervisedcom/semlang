@@ -7,25 +7,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const binPath = fs.realpathSync(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(path.dirname(binPath), "..");
 const tsxLoaderPath = path.join(repoRoot, "node_modules", "tsx", "dist", "loader.mjs");
-const entryPath = path.join(repoRoot, "src", "mcp-stdio.ts");
+const sourceEntryPath = path.join(repoRoot, "src", "cli.ts");
+const builtEntryPath = path.join(repoRoot, "dist", "src", "cli.js");
 
-if (!fs.existsSync(tsxLoaderPath)) {
-  console.error(`Cannot start semlang-mcp: ${tsxLoaderPath} is missing. Run npm install in ${repoRoot}.`);
-  process.exit(1);
-}
+const cliArgs = ["mcp", ...process.argv.slice(2)];
+const args =
+  fs.existsSync(tsxLoaderPath) && fs.existsSync(sourceEntryPath)
+    ? ["--import", pathToFileURL(tsxLoaderPath).href, sourceEntryPath, ...cliArgs]
+    : [builtEntryPath, ...cliArgs];
 
-const child = spawn(
-  process.execPath,
-  ["--import", pathToFileURL(tsxLoaderPath).href, entryPath, ...process.argv.slice(2)],
-  {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      SEMLANG_REPO_ROOT: repoRoot,
-    },
-    stdio: "inherit",
+const child = spawn(process.execPath, args, {
+  cwd: process.cwd(),
+  env: {
+    ...process.env,
+    SEMLANG_REPO_ROOT: repoRoot,
   },
-);
+  stdio: "inherit",
+});
 
 child.on("error", (error) => {
   console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));

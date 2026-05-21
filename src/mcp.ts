@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -7,6 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
+import { logTransaction } from "./logging.js";
 import { discoverMalloyConfigPath, executeMalloyQuery, validateMalloyModel } from "./malloy-execution.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
@@ -42,6 +44,13 @@ export interface SemLangMcpContext {
   malloyConfigPath?: string;
   malloyConfigSource?: "explicit" | "discovered";
   duckDb?: ExampleDuckDbContext;
+  settings: SemLangMcpSettings;
+}
+
+export interface SemLangMcpSettings {
+  projectDir: string;
+  malloyConfigPath?: string;
+  exportDirectory: string;
 }
 
 export interface SemLangMcpApi {
@@ -74,8 +83,8 @@ type TemporaryQueryResult =
 
 const maxSearchResults = 20;
 
-export function createSemLangMcp(): SemLangMcpApi {
-  const context: SemLangMcpContext = {};
+export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpApi {
+  const context: SemLangMcpContext = { settings: resolveSemLangMcpSettings(settings) };
 
   function requireModel(): SemanticModel {
     if (!context.model) throw new Error("No ontology source has been set. Call set_ontology_source first.");
@@ -87,12 +96,12 @@ export function createSemLangMcp(): SemLangMcpApi {
     const inlineSources = stringList(args.sources ?? args.source);
     const inlineSource = inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined;
     const explicitFilePath = stringValue(args.basePath ?? args.filePath);
-    const explicitProjectDir = stringValue(
-      args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path,
+    const requestedProjectDir = resolveOptionalPath(
+      stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
     );
-    const explicitMalloyConfigPath = stringValue(
-      args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path,
-    );
+    const explicitMalloyConfigPath =
+      stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
+      context.settings.malloyConfigPath;
 
     let result: CompileResult;
     let sourceText: string | undefined;
@@ -134,6 +143,12 @@ export function createSemLangMcp(): SemLangMcpApi {
 
     let executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined;
     if (result.model) {
+      const explicitProjectDir = projectDirDiscoveryCeiling(
+        sourcePaths,
+        result.model.files,
+        requestedProjectDir,
+        context.settings.projectDir,
+      );
       const resolvedExecutionContext = await resolveMalloyExecutionContext(
         explicitProjectDir,
         explicitMalloyConfigPath,
@@ -400,20 +415,36 @@ export function createSemLangMcp(): SemLangMcpApi {
   }
 
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const transactionId = crypto.randomUUID();
+    logTransaction("info", transactionId, "query.run requested", { tool: "query.run" });
     const validation = await validateOrRunQuery(args);
     if (booleanValue(args.dry_run_only ?? args.dryRunOnly)) {
+      logTransaction("debug", transactionId, "query.run skipped for dry_run_only", { tool: "query.run" });
       return {
         ...publicQueryResult(validation),
         execution: {
+          transactionId,
           skipped: true,
           reason: "dry_run_only requested; query was validated but not executed.",
         },
       };
     }
     const queryLimitSeconds = queryLimitSecondsValue(args);
-    if (!queryLimitSeconds.ok) return queryLimitSeconds;
-    const execution = await executeQuery(context, args, validation, queryLimitSeconds.value);
-    return { ...publicQueryResult(validation), execution: jsonSafe(execution) };
+    if (!queryLimitSeconds.ok) {
+      logTransaction("info", transactionId, "query.run rejected before execution", { tool: "query.run" });
+      return {
+        ...queryLimitSeconds,
+        execution: {
+          transactionId,
+          skipped: true,
+          reason: "query_limit_seconds validation failed.",
+        },
+      };
+    }
+    const execution = await executeQuery(context, args, validation, queryLimitSeconds.value, transactionId);
+    const compactExecution = await compactExecutionOutput(context, args, execution, transactionId);
+    logTransaction("info", transactionId, "query.run completed", { tool: "query.run" });
+    return { ...publicQueryResult(validation), execution: jsonSafe(compactExecution) };
   }
 
   async function invokeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -742,6 +773,21 @@ export async function runSemLangMcpStdioServer(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
+export async function runSemLangMcpStdioServerWithSettings(settings: Partial<SemLangMcpSettings> = {}): Promise<void> {
+  const server = createSemLangMcpServer(createSemLangMcp(settings));
+  await server.connect(new StdioServerTransport());
+}
+
+export function resolveSemLangMcpSettings(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpSettings {
+  const projectDir = resolveOptionalPath(settings.projectDir ?? envSetting("PROJECT_DIR")) ?? process.cwd();
+  const malloyConfigPath = resolveOptionalPath(settings.malloyConfigPath ?? envSetting("MALLOY_CONFIG_PATH"));
+  return {
+    projectDir,
+    malloyConfigPath,
+    exportDirectory: resolveOptionalPath(settings.exportDirectory ?? envSetting("EXPORT_DIRECTORY")) ?? os.tmpdir(),
+  };
+}
+
 interface SqlBuildContext {
   model: SemanticModel;
   root: ResolvedConcept;
@@ -754,16 +800,22 @@ async function executeQuery(
   args: Record<string, unknown>,
   validation: Record<string, JsonValue>,
   queryLimitSeconds: number,
+  transactionId: string,
 ): Promise<Record<string, unknown>> {
-  if (validation.ok !== true) return { ok: false, skipped: true, reason: "Query validation failed." };
+  if (validation.ok !== true) return { transactionId, ok: false, skipped: true, reason: "Query validation failed." };
   const malloy = stringValue(validation.malloy);
   const queryName = executionQueryName(args, validation);
   if (!malloy || !queryName)
-    return { ok: false, skipped: true, reason: "No generated Malloy query was available to execute." };
+    return {
+      transactionId,
+      ok: false,
+      skipped: true,
+      reason: "No generated Malloy query was available to execute.",
+    };
   const projectDir =
     context.projectDir ??
     inferProjectDir(context.sourcePaths ?? [], context.model?.files ?? [], context.malloyConfigPath);
-  return executeMalloyQuery({
+  const execution = await executeMalloyQuery({
     malloy,
     queryName,
     queryLimitSeconds,
@@ -775,6 +827,79 @@ async function executeQuery(
       modelFilePath: executionModelFilePath(context),
     },
   });
+  return { transactionId, ...execution };
+}
+
+async function compactExecutionOutput(
+  context: SemLangMcpContext,
+  args: Record<string, unknown>,
+  execution: Record<string, unknown>,
+  transactionId: string,
+): Promise<Record<string, unknown>> {
+  const compact = compactExecutionMetadata(execution);
+  const rows = execution.rows;
+  if (rows === undefined) return compact;
+  const rowsLineCount = prettyJsonLineCount(rows);
+  if (rowsLineCount <= 10) return compact;
+  const exportDirectory =
+    resolveOptionalPath(stringValue(args.export_directory ?? args.exportDirectory)) ?? context.settings.exportDirectory;
+  await fs.mkdir(exportDirectory, { recursive: true });
+  const outputPath = path.join(exportDirectory, `${transactionId}.json`);
+  const exportOutput = `${JSON.stringify(
+    {
+      transactionId,
+      queryName: execution.queryName ?? null,
+      totalRows: execution.totalRows ?? null,
+      rows,
+    },
+    null,
+    2,
+  )}\n`;
+  await fs.writeFile(outputPath, exportOutput);
+  logTransaction("info", transactionId, "query.run rows exported", { outputPath, tool: "query.run" });
+  const exportedCompact = { ...compact };
+  delete exportedCompact.rows;
+  return {
+    ...exportedCompact,
+    output: {
+      exported: true,
+      path: outputPath,
+      lineCount: rowsLineCount,
+    },
+  };
+}
+
+function compactExecutionMetadata(execution: Record<string, unknown>): Record<string, unknown> {
+  const compact = { ...execution };
+  delete compact.sql;
+  delete compact.query_limit_seconds;
+  delete compact.engine;
+  delete compact.queryName;
+  delete compact.timed_out;
+  return compact;
+}
+
+/**
+ * Looks up a managed SemLang setting by suffix, supporting conventional
+ * uppercase `SEMLANG_*` env vars and lowercase `semlang_*` variants.
+ */
+function envSetting(name: string): string | undefined {
+  return process.env[`SEMLANG_${name}`] ?? process.env[`semlang_${name.toLowerCase()}`];
+}
+
+export function prettyJsonLineCount(value: unknown): number {
+  if (value === null || typeof value !== "object") return 1;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 1;
+    return 2 + value.length + value.reduce((count, item) => count + prettyJsonLineCount(item) - 1, 0);
+  }
+  const jsonObject = value as Record<string, unknown>;
+  const jsonKeys = Object.keys(jsonObject).filter((key) => {
+    const item = jsonObject[key];
+    return item !== undefined && typeof item !== "function" && typeof item !== "symbol";
+  });
+  if (jsonKeys.length === 0) return 1;
+  return 2 + jsonKeys.length + jsonKeys.reduce((count, key) => count + prettyJsonLineCount(jsonObject[key]) - 1, 0);
 }
 
 function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
@@ -1487,6 +1612,23 @@ function inferConfigSearchStartDir(sourcePaths: string[] = [], modelFiles: strin
     .map((item) => path.resolve(item));
   if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
   return process.cwd();
+}
+
+function projectDirDiscoveryCeiling(
+  sourcePaths: string[] = [],
+  modelFiles: string[] = [],
+  requestedProjectDir: string | undefined,
+  managedProjectDir: string,
+): string | undefined {
+  if (requestedProjectDir) return requestedProjectDir;
+  const startDir = inferConfigSearchStartDir(sourcePaths, modelFiles);
+  const resolvedManagedProjectDir = path.resolve(managedProjectDir);
+  return pathWithinOrEqual(startDir, resolvedManagedProjectDir) ? resolvedManagedProjectDir : undefined;
+}
+
+function pathWithinOrEqual(child: string, ancestor: string): boolean {
+  const relative = path.relative(path.resolve(ancestor), path.resolve(child));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function commonDirectory(dirs: string[]): string {
@@ -2352,6 +2494,10 @@ function tokenize(text: string): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function resolveOptionalPath(value: string | undefined): string | undefined {
+  return value ? path.resolve(value) : undefined;
 }
 
 function stringList(value: unknown): string[] {

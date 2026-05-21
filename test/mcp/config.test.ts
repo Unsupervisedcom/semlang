@@ -70,6 +70,43 @@ concept Order is event from warehouse.table('orders') {
     });
   });
 
+  it("uses managed MCP settings as source-loading defaults", async () => {
+    // 02.05.015: set_ontology_source falls back to managed MCP path settings
+    // when project/config paths are not supplied on the tool call.
+    const projectDir = await writeTempProject({
+      "model.semlang": `
+package mcp.managed_settings
+
+concept Order is event from duckdb.table('orders') {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+}
+`,
+    });
+    const configPath = path.join(projectDir, "malloy-config.json");
+    await fs.writeFile(configPath, JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+
+    const mcp = createSemLangMcp({
+      projectDir,
+      malloyConfigPath: configPath,
+      exportDirectory: path.join(projectDir, "exports"),
+    });
+    const source = await mcp.tools.set_ontology_source({
+      path: path.join(projectDir, "model.semlang"),
+    });
+
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        projectDir,
+        malloyConfigPath: configPath,
+        malloyConfigSource: "explicit",
+      },
+    });
+  });
+
   it("discovers Malloy config above the SemLang model directory", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({
@@ -92,6 +129,42 @@ concept Order is event from duckdb.table('orders') {
 
     const source = await mcp.tools.set_ontology_source({
       path: path.join(projectDir, "semlang", "model.semlang"),
+      projectDir,
+    });
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        projectDir,
+        malloyConfigPath: path.join(projectDir, "malloy-config.json"),
+        malloyConfigSource: "discovered",
+      },
+    });
+  });
+
+  it("discovers Malloy config next to out-of-tree model paths", async () => {
+    // 02.05.015: managed project-dir defaults constrain in-tree discovery but
+    // do not block explicit out-of-tree model paths from discovering their own config.
+    const mcp = createSemLangMcp();
+    const projectDir = await writeTempProject({
+      "malloy-config.json": JSON.stringify(duckDbMalloyConfig(""), null, 2),
+      "model.semlang": `
+package mcp.out_of_tree_config
+
+concept Order is event from duckdb.table('orders') {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+}
+`,
+    });
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
+
+    const source = await mcp.tools.set_ontology_source({
+      path: path.join(projectDir, "model.semlang"),
     });
     expectOk(source);
     expect(asObject(source.context)).toMatchObject({
@@ -157,6 +230,7 @@ query: warehouse_order_count is WarehouseOrder -> {
 
     const source = await mcp.tools.set_ontology_source({
       path: path.join(projectDir, "model.semlang"),
+      projectDir,
     });
     expect(source.ok).toBe(false);
     expect(records(source.diagnostics)).toEqual(
@@ -207,6 +281,7 @@ query: warehouse_order_count is WarehouseOrder -> {
 
     const source = await mcp.tools.set_ontology_source({
       path: path.join(projectDir, "model.semlang"),
+      projectDir,
     });
     expect(source.ok).toBe(false);
     expect(records(source.diagnostics)).toEqual(

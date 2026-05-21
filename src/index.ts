@@ -8,7 +8,13 @@ import { emitJsonSchema } from "./schema.js";
 import type { CompileOptions, CompileResult, PackageLoader } from "./types.js";
 
 export { emitMalloy } from "./emitter.js";
-export { createSemLangMcp, createSemLangMcpServer, runSemLangMcpStdioServer } from "./mcp.js";
+export {
+  createSemLangMcp,
+  createSemLangMcpServer,
+  resolveSemLangMcpSettings,
+  runSemLangMcpStdioServer,
+  runSemLangMcpStdioServerWithSettings,
+} from "./mcp.js";
 export { lintSemanticModel } from "./lint.js";
 export { parseSemLang } from "./parser.js";
 export { applyQueryLenses, resolveSemLang } from "./resolver.js";

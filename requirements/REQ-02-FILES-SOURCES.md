@@ -75,3 +75,7 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.012: `query.run` MUST omit the full compiled Malloy model from its default response while still returning the extracted query Malloy.
 - 02.05.013: `set_ontology_source` MUST return the full compiled Malloy model only when `return_malloy_model` or `returnMalloyModel` is true.
 - 02.05.014: `query.run` MUST support `dry_run_only` / `dryRunOnly` to validate and return query Malloy without executing the query or requiring `query_limit_seconds`.
+- 02.05.015: MCP configuration paths MUST be manageable as settings from `SEMLANG_`-prefixed environment variables or equivalent CLI/tool parameters, including project directory, Malloy config path, and export directory.
+- 02.05.016: Every `query.run` request MUST generate and return a transaction GUID that can be used to trace logs and exported output.
+- 02.05.017: When executed `query.run` row output is larger than 10 lines, MCP MUST write the rows to a JSON file in the configured export directory using the transaction GUID as the file name and MUST return the export path and line count instead of inline rows.
+- 02.05.018: Executed `query.run` MCP responses MUST omit verbose execution internals including generated SQL, execution engine name, query name, query limit, and success-path timeout flags from the `execution` object.

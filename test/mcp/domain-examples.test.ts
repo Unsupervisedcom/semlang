@@ -1,6 +1,7 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
 import { asObject, expectOk, expectQuery, names, pathResult, records, tempExamplePath, text } from "./helpers.js";
@@ -8,9 +9,11 @@ import { asObject, expectOk, expectQuery, names, pathResult, records, tempExampl
 describe("SemLang MCP domain example narratives", () => {
   it("uses SaaS source, search, metric explanation, array paths, and validation", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("saas-product-usage-and-revenue");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("saas-product-usage-and-revenue"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(
@@ -111,9 +114,11 @@ describe("SemLang MCP domain example narratives", () => {
 
   it("uses banking source, search, lens planning, and regulatory watchlist validation", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     expect(names(asObject(source.context).lenses)).toEqual(
@@ -161,9 +166,11 @@ describe("SemLang MCP domain example narratives", () => {
 
   it("uses healthcare source, search, temporal axes, paths, and discharge audit validation", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("healthcare-patient-journey-and-quality-measures");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("healthcare-patient-journey-and-quality-measures"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(
@@ -207,9 +214,11 @@ describe("SemLang MCP domain example narratives", () => {
 
   it("uses manufacturing source, search, concept description, array paths, and supplier quality validation", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("manufacturing-supply-chain-traceability-and-quality");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("manufacturing-supply-chain-traceability-and-quality"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     expect(names(asObject(source.context).concepts)).toEqual(

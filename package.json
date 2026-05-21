@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "semlang": "./bin/semlang.js",
     "semlang-mcp": "./bin/semlang-mcp.js"
@@ -27,7 +30,8 @@
     "@malloydata/malloy": "^0.0.395",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chevrotain": "^12.0.0",
-    "commander": "^12.1.0",
+    "commander": "^14.0.3",
+    "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,38 +1,112 @@
 import fs from "node:fs/promises";
 import { Command, Option } from "commander";
-import { compileFile } from "./index.js";
+import { compileFile, resolveSemLangMcpSettings, runSemLangMcpStdioServerWithSettings } from "./index.js";
+import type { SemLangMcpSettings } from "./mcp.js";
 
-const program = new Command();
+const allowedEmits = ["ast", "model", "malloy", "json-schema"] as const;
+type CompileEmit = (typeof allowedEmits)[number];
 
-program.name("semlang").description("Compile SemLang semantic models into Malloy.").version("0.1.0");
+const program = createProgram();
 
-program
-  .command("compile")
-  .argument("<file>", "SemLang file to compile")
-  .option("--out <file>", "Output file")
-  .addOption(
-    new Option("--emit <kind>", "Artifact to emit")
-      .choices(["ast", "model", "malloy", "json-schema"])
-      .default("malloy"),
-  )
-  .action(async (file: string, options: { out?: string; emit: "ast" | "model" | "malloy" | "json-schema" }) => {
-    const result = await compileFile(file, { lintWarnings: true });
-    if (result.diagnostics.length > 0) {
-      for (const diagnostic of result.diagnostics) {
-        const loc = diagnostic.location
-          ? `${diagnostic.location.file ?? "<input>"}:${diagnostic.location.line}:${diagnostic.location.column}`
-          : "<input>";
-        console.error(`${loc} ${diagnostic.severity.toUpperCase()} ${diagnostic.code}: ${diagnostic.message}`);
-      }
+async function main(argv: string[]): Promise<void> {
+  if (argv.length === 0) program.help();
+  await program.parseAsync(argv, { from: "user" });
+}
+
+function createProgram(): Command {
+  const app = new Command()
+    .name("semlang")
+    .version("0.1.0")
+    .description("Compile SemLang semantic models into Malloy or start SemLang MCP mode.");
+
+  app
+    .command("compile")
+    .description("Compile SemLang semantic models into Malloy.")
+    .argument("<file>")
+    .option("--out <path>")
+    .addOption(new Option("--emit <type>").choices(allowedEmits).default("malloy"))
+    .action((file: string, options: CompileOptions) => compileCommand(file, options));
+
+  addSettingsOptions(app.command("setup").description("Print resolved MCP settings.")).action(
+    (options: SettingsOptions, command: Command) => setupCommand(options, command),
+  );
+
+  addSettingsOptions(app.command("mcp").description("Start SemLang in MCP stdio mode.")).action(
+    (options: SettingsOptions, command: Command) => mcpCommand(options, command),
+  );
+
+  return app;
+}
+
+interface CompileOptions {
+  out?: string;
+  emit: CompileEmit;
+}
+
+interface SettingsOptions {
+  projectDir?: string;
+  malloyConfigPath?: string;
+  configPath?: string;
+  exportDirectory?: string;
+}
+
+function addSettingsOptions(command: Command): Command {
+  return command
+    .addOption(new Option("--project-dir <path>", "Overrides SEMLANG_PROJECT_DIR.").env("SEMLANG_PROJECT_DIR"))
+    .addOption(
+      new Option("--malloy-config-path <path>", "Overrides SEMLANG_MALLOY_CONFIG_PATH.").env(
+        "SEMLANG_MALLOY_CONFIG_PATH",
+      ),
+    )
+    .addOption(new Option("--config-path <path>", "Alias for --malloy-config-path.").env("SEMLANG_MALLOY_CONFIG_PATH"))
+    .addOption(
+      new Option("--export-directory <path>", "Overrides SEMLANG_EXPORT_DIRECTORY.").env("SEMLANG_EXPORT_DIRECTORY"),
+    );
+}
+
+async function compileCommand(file: string, options: CompileOptions): Promise<void> {
+  const emit = options.emit;
+  const result = await compileFile(file, { lintWarnings: true });
+  if (result.diagnostics.length > 0) {
+    for (const diagnostic of result.diagnostics) {
+      const loc = diagnostic.location
+        ? `${diagnostic.location.file ?? "<input>"}:${diagnostic.location.line}:${diagnostic.location.column}`
+        : "<input>";
+      console.error(`${loc} ${diagnostic.severity.toUpperCase()} ${diagnostic.code}: ${diagnostic.message}`);
     }
-    if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      process.exitCode = 1;
-      return;
-    }
-    const output = artifact(result, options.emit);
-    if (options.out) await fs.writeFile(options.out, output);
-    else process.stdout.write(output);
-  });
+  }
+  if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    process.exitCode = 1;
+    return;
+  }
+  const output = artifact(result, emit);
+  if (options.out) await fs.writeFile(options.out, output);
+  else process.stdout.write(output);
+}
+
+function setupCommand(options: SettingsOptions, command: Command): void {
+  process.stdout.write(
+    `${JSON.stringify(resolveSemLangMcpSettings(settingsFromOptions(options, command)), null, 2)}\n`,
+  );
+}
+
+async function mcpCommand(options: SettingsOptions, command: Command): Promise<void> {
+  await runSemLangMcpStdioServerWithSettings(settingsFromOptions(options, command));
+}
+
+function settingsFromOptions(options: SettingsOptions, command: Command): Partial<SemLangMcpSettings> {
+  const malloyConfigPath =
+    command.getOptionValueSource("malloyConfigPath") === "cli"
+      ? options.malloyConfigPath
+      : command.getOptionValueSource("configPath") === "cli"
+        ? options.configPath
+        : (options.malloyConfigPath ?? options.configPath);
+  return {
+    projectDir: options.projectDir,
+    malloyConfigPath,
+    exportDirectory: options.exportDirectory,
+  };
+}
 
 function artifact(
   result: Awaited<ReturnType<typeof compileFile>>,
@@ -54,7 +128,7 @@ function artifact(
   return result.malloy ?? "";
 }
 
-program.parseAsync().catch((error: unknown) => {
+main(process.argv.slice(2)).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

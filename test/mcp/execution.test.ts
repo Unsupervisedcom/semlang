@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
+import { prettyJsonLineCount } from "../../src/mcp.js";
 import {
   asObject,
   duckDbDatabasePath,
@@ -30,6 +31,7 @@ describe("SemLang MCP execution narratives", () => {
 
     const source = await mcp.tools.set_ontology_source({
       basePath: path.join(projectDir, "inline.semlang"),
+      projectDir,
       return_malloy_model: true,
       source: `
 package mcp.default_duckdb
@@ -68,6 +70,18 @@ concept InlineOrder is event from duckdb.sql("""
       ok: false,
       error: expect.stringContaining("query_limit_seconds"),
     });
+    // 02.05.016: query.run failures still include a transaction id for traceability.
+    expect(text(asObject(missingLimit.execution).transactionId)).toMatch(/^[0-9a-f-]{36}$/);
+
+    const invalidQuery = await mcp.tools.query_run({
+      query: "does_not_exist",
+      query_limit_seconds: 30,
+    });
+    expect(invalidQuery).toMatchObject({
+      ok: false,
+      error: expect.any(String),
+    });
+    expect(text(asObject(invalidQuery.execution).transactionId)).toMatch(/^[0-9a-f-]{36}$/);
 
     // 02.05.009 and 02.05.010: query.run requires an explicit
     // query_limit_seconds execution limit and returns elapsed runtime.
@@ -85,16 +99,61 @@ concept InlineOrder is event from duckdb.sql("""
     expect(run).not.toHaveProperty("malloy");
     expect(text(run.queryMalloy)).toContain("query: __mcp_query is");
     const execution = asObject(run.execution);
+    // 02.05.018: query.run execution responses keep a compact public shape.
+    expect(Object.keys(execution).sort()).toEqual([
+      "execution_time_ms",
+      "malloyConfig",
+      "ok",
+      "rows",
+      "totalRows",
+      "transactionId",
+    ]);
     expect(execution).toMatchObject({
       ok: true,
-      engine: "malloy",
-      query_limit_seconds: 30,
       execution_time_ms: expect.any(Number),
-      timed_out: false,
     });
     expect(records(execution.rows)[0]).toMatchObject({
       order_count: 2,
     });
+
+    const exportDir = await fs.mkdtemp(path.join(projectDir, "exports-"));
+    // 02.05.016 and 02.05.017: query.run returns a transaction id and exports
+    // row output larger than 10 lines to a transaction-named file.
+    const largeRun = await mcp.tools.query_run({
+      root: "InlineOrder",
+      group_by: ["order_id", "ordered_at", "order_amount"],
+      query_limit_seconds: 30,
+      export_directory: exportDir,
+    });
+    expectOk(largeRun);
+    const largeExecution = asObject(largeRun.execution);
+    const transactionId = text(largeExecution.transactionId);
+    expect(transactionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(largeExecution).toMatchObject({
+      ok: true,
+      totalRows: expect.any(Number),
+    });
+    expect(Object.keys(largeExecution).sort()).toEqual([
+      "execution_time_ms",
+      "malloyConfig",
+      "ok",
+      "output",
+      "totalRows",
+      "transactionId",
+    ]);
+    const output = asObject(largeExecution.output);
+    expect(output).toMatchObject({
+      exported: true,
+      path: path.join(exportDir, `${transactionId}.json`),
+    });
+    expect(Number(output.lineCount)).toBeGreaterThan(10);
+    const exported = JSON.parse(await fs.readFile(text(output.path), "utf8"));
+    expect(exported).toMatchObject({
+      transactionId,
+      queryName: "__mcp_query",
+    });
+    expect(exported.rows.length).toBeGreaterThan(0);
+    expect(output.lineCount).toBe(prettyJsonLineCount(exported.rows));
   });
 
   it("emits valid Malloy when two concepts reference each other", async () => {
@@ -133,6 +192,7 @@ insert into orders values
 
     const source = await mcp.tools.set_ontology_source({
       basePath: path.join(projectDir, "reciprocal.semlang"),
+      projectDir,
       source: `
 package mcp.reciprocal_sources
 
@@ -175,7 +235,7 @@ query: customer_order_counts is Customer -> {
     expectQuery(run, "customer_order_counts", "Customer");
     expect(run).not.toHaveProperty("malloy");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
+    expect(execution).toMatchObject({ ok: true });
     expect(records(execution.rows)).toEqual(
       expect.arrayContaining([expect.objectContaining({ customer_id: "C-1", order_count: 2 })]),
     );

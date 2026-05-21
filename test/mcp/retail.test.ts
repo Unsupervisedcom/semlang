@@ -1,16 +1,29 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
-import { asObject, expectOk, expectQuery, names, pathResult, records, tempExamplePath, text } from "./helpers.js";
+import {
+  asObject,
+  executionRecords,
+  expectOk,
+  expectQuery,
+  names,
+  pathResult,
+  records,
+  tempExamplePath,
+  text,
+} from "./helpers.js";
 
 describe("SemLang MCP retail narratives", () => {
   it("walks the retail base ontology from search to generated Malloy", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("retail-omnichannel-margin-and-returns");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -61,9 +74,9 @@ describe("SemLang MCP retail narratives", () => {
     expect(text(run.queryMalloy)).toContain("query: monthly_margin_and_returns is retail_line_items ->");
     expect(text(run.queryMalloy)).toContain("merchandising_margin");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
+    expect(execution).toMatchObject({ ok: true });
     expect(execution).not.toHaveProperty("skipped", true);
-    const marginRows = records(execution.rows);
+    const marginRows = await executionRecords(execution);
     expect(marginRows.length).toBeGreaterThan(0);
     expect(marginRows[0]).toEqual(
       expect.objectContaining({
@@ -118,9 +131,11 @@ describe("SemLang MCP retail narratives", () => {
 
   it("resolves a retail business entity and sends the customer-count query to Malloy", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("retail-omnichannel-margin-and-returns");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
 
@@ -146,9 +161,9 @@ describe("SemLang MCP retail narratives", () => {
     });
     expectQuery(run, "denver_store_customer_count_on_2025_09_15", "Sale");
     const execution = asObject(run.execution);
-    expect(execution).toMatchObject({ ok: true, engine: "malloy" });
+    expect(execution).toMatchObject({ ok: true });
     expect(execution).not.toHaveProperty("skipped", true);
-    expect(records(execution.rows)[0]).toEqual(
+    expect((await executionRecords(execution))[0]).toEqual(
       expect.objectContaining({
         sales: 0,
         identified_customer_sales: 0,
@@ -160,9 +175,11 @@ describe("SemLang MCP retail narratives", () => {
 
   it("walks the retail lens ontology through suggestion, PII requirements, and lens-local Malloy", async () => {
     const mcp = createSemLangMcp();
+    const sourcePath = await tempExamplePath("retail-omnichannel-margin-and-returns", "example_with_lens.semlang");
 
     const source = await mcp.tools.set_ontology_source({
-      path: await tempExamplePath("retail-omnichannel-margin-and-returns", "example_with_lens.semlang"),
+      path: sourcePath,
+      projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
     const context = asObject(source.context);
@@ -257,6 +274,7 @@ describe("SemLang MCP retail narratives", () => {
     expect(text(run.queryMalloy)).toContain(
       "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
     );
-    expect(asObject(run.execution)).toMatchObject({ ok: true, engine: "malloy" });
+    const execution = asObject(run.execution);
+    expect(execution).toMatchObject({ ok: true });
   });
 });

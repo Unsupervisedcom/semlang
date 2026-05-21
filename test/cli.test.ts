@@ -98,4 +98,55 @@ describe("CLI", () => {
       ),
     ).rejects.toThrow(/unknown option/);
   });
+
+  it("resolves MCP setup settings from env vars and CLI parameters", async () => {
+    // 02.05.015: setup exposes managed path settings sourced from
+    // SEMLANG-prefixed env vars with CLI parameters taking precedence.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-project-"));
+    const envExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-env-export-"));
+    const paramExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-param-export-"));
+    const configPath = path.join(projectDir, "malloy-config.json");
+    const paramConfigPath = path.join(projectDir, "param-malloy-config.json");
+    await fs.writeFile(configPath, "{}");
+    await fs.writeFile(paramConfigPath, "{}");
+
+    const setup = await execFileAsync(
+      "node",
+      ["dist/src/cli.js", "setup", "--config-path", paramConfigPath, "--export-directory", paramExportDir],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          SEMLANG_PROJECT_DIR: projectDir,
+          SEMLANG_MALLOY_CONFIG_PATH: configPath,
+          SEMLANG_EXPORT_DIRECTORY: envExportDir,
+        },
+      },
+    );
+
+    expect(JSON.parse(setup.stdout)).toMatchObject({
+      projectDir,
+      malloyConfigPath: paramConfigPath,
+      exportDirectory: paramExportDir,
+    });
+  });
+
+  it("defaults MCP setup project and export directories", async () => {
+    // 02.05.015: setup exposes managed path settings with defaults that match
+    // the MCP process cwd and operating system temp directory.
+    const env = { ...process.env };
+    delete env.SEMLANG_PROJECT_DIR;
+    delete env.SEMLANG_MALLOY_CONFIG_PATH;
+    delete env.SEMLANG_EXPORT_DIRECTORY;
+
+    const setup = await execFileAsync("node", ["dist/src/cli.js", "setup"], {
+      cwd: root,
+      env,
+    });
+
+    expect(JSON.parse(setup.stdout)).toMatchObject({
+      projectDir: root,
+      exportDirectory: os.tmpdir(),
+    });
+  });
 });
