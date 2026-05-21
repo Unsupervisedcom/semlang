@@ -8,6 +8,7 @@ export function lintSemanticModel(model: SemanticModel): Diagnostic[] {
     ...lintRequiredTemporalAxes(model),
     ...lintJoinCandidates(model),
     ...lintFieldTypeNameMatches(model),
+    ...lintFieldNameKeywordShadows(model),
     ...lintSemanticTypeConsistency(model),
   ];
 }
@@ -108,6 +109,31 @@ function lintFieldTypeNameMatches(model: SemanticModel): Diagnostic[] {
   return diagnostics;
 }
 
+function lintFieldNameKeywordShadows(model: SemanticModel): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const concept of model.concepts.values()) {
+    for (const { kind, member } of typedMemberEntries(concept)) {
+      if (!reservedSemLangKeywords.has(member.name)) continue;
+      const memberKind = kind === "identity" ? "Identity field" : "Field";
+      const sectionHint = sectionHeaderKeywords.has(member.name) ? `; ${member.name}: remains a section header` : "";
+      diagnostics.push({
+        severity: "warning",
+        code: "FIELD_NAME_SHADOWS_KEYWORD",
+        message: `${memberKind} ${concept.name}.${member.name} has the same name as SemLang keyword ${member.name}; reference it by bare name in expressions${sectionHint}.`,
+        location: member.location,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function typedMemberEntries(concept: ResolvedConcept): { kind: "identity" | "field"; member: TypedMember }[] {
+  return [
+    ...concept.identities.map((member) => ({ kind: "identity" as const, member })),
+    ...concept.fields.map((member) => ({ kind: "field" as const, member })),
+  ];
+}
+
 function typedMembers(concept: ResolvedConcept): TypedMember[] {
   return [...concept.identities, ...concept.fields];
 }
@@ -147,3 +173,87 @@ function escapeRegExp(text: string): string {
 function normalizeName(name: string): string {
   return name.replace(/_/g, "").toLowerCase();
 }
+
+const reservedSemLangKeywords = new Set([
+  "action",
+  "aggregate",
+  "at",
+  "calculate",
+  "concept",
+  "description",
+  "dimension",
+  "effect",
+  "emit",
+  "event",
+  "extend",
+  "field",
+  "from",
+  "group_by",
+  "guard",
+  "having",
+  "identity",
+  "ignored",
+  "include",
+  "index",
+  "is",
+  "join_cross",
+  "join_many",
+  "join_one",
+  "kind",
+  "lens",
+  "limit",
+  "log",
+  "measure",
+  "nest",
+  "observation_time",
+  "occurrence_time",
+  "of",
+  "on",
+  "order_by",
+  "package",
+  "param",
+  "phase",
+  "project",
+  "query",
+  "recorded_time",
+  "refine",
+  "relator",
+  "role",
+  "select",
+  "set",
+  "situation",
+  "source",
+  "subject",
+  "top",
+  "type",
+  "using",
+  "valid_time",
+  "validation",
+  "view",
+  "when",
+  "where",
+  "with",
+  "write",
+  "writeable",
+  "unique",
+]);
+
+const sectionHeaderKeywords = new Set([
+  "aggregate",
+  "calculate",
+  "dimension",
+  "field",
+  "group_by",
+  "having",
+  "index",
+  "limit",
+  "measure",
+  "nest",
+  "order_by",
+  "project",
+  "select",
+  "top",
+  "validation",
+  "view",
+  "where",
+]);

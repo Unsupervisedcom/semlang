@@ -103,6 +103,8 @@ field:
   closed_date :: BusinessDate?
 ```
 
+Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading. Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
+
 `join_one` and `join_many` declare Malloy joins and semantic participation:
 
 ```semlang

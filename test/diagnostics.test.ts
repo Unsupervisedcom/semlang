@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/types.js";
 // misuse, and aggregate alias diagnostics.
 // 05.01.001, 05.01.002, 05.01.003, 05.01.004, 05.01.005, 05.01.006, 05.01.007, 05.01.008
 // 05.01.009, 05.01.010, 05.01.011, 05.01.012, 05.01.013, 05.01.014, 05.02.001, 05.02.002, 05.02.003
-// 05.07.001, 05.07.002, 05.07.003, 05.07.004, 05.07.005, 05.07.008
+// 05.07.001, 05.07.002, 05.07.003, 05.07.004, 05.07.005, 05.07.008, 05.07.011
 // 05.02.004, 05.02.005, 05.02.006
 
 function source(lines: string[]): string {
@@ -522,6 +522,69 @@ describe("compiler diagnostics", () => {
       line: 8,
       column: 5,
     });
+  });
+
+  it("warns when a field name shadows a SemLang keyword", async () => {
+    const sourceText = source([
+      "package warn.keyword_fields",
+      "concept HistoricalRecommendation is kind from duckdb.table('historical_recommendations') {",
+      "  identity recommendation_id :: string",
+      "  field:",
+      "    measure :: number",
+      "  where: measure > 0",
+      "  dimension:",
+      "    measurement_value is measure",
+      "}",
+    ]);
+
+    // 05.07.011: keyword-shadowing diagnostics are validation lint warnings.
+    const defaultCompile = await compileSemLang(sourceText);
+    expect(defaultCompile.diagnostics).toEqual([]);
+
+    const linted = await compileSemLang(sourceText, { lintWarnings: true });
+    expectWarning(linted, "FIELD_NAME_SHADOWS_KEYWORD", {
+      message: /HistoricalRecommendation\.measure.*SemLang keyword measure.*bare name in expressions.*measure:/,
+      line: 5,
+      column: 5,
+    });
+  });
+
+  it("tailors keyword-shadowing warnings for identity names and non-section keywords", async () => {
+    const result = await compileSemLang(
+      source([
+        "package warn.keyword_identity",
+        "concept RankedResult is kind from duckdb.table('ranked_results') {",
+        "  identity top :: string",
+        "  field:",
+        "    project :: string",
+        "    writeable :: boolean",
+        "}",
+      ]),
+      { lintWarnings: true },
+    );
+
+    // 05.07.011: keyword-shadowing diagnostics cover identities, section
+    // headers, query aliases such as top/project, and field modifiers.
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: "warning",
+        code: "FIELD_NAME_SHADOWS_KEYWORD",
+        message: expect.stringMatching(/Identity field RankedResult\.top.*top:/),
+        location: { line: 3, column: 12 },
+      }),
+      expect.objectContaining({
+        severity: "warning",
+        code: "FIELD_NAME_SHADOWS_KEYWORD",
+        message: expect.stringMatching(/Field RankedResult\.project.*project:/),
+        location: { line: 5, column: 5 },
+      }),
+      expect.objectContaining({
+        severity: "warning",
+        code: "FIELD_NAME_SHADOWS_KEYWORD",
+        message: expect.not.stringMatching(/writeable:/),
+        location: { line: 6, column: 5 },
+      }),
+    ]);
   });
 
   it("warns when repeated identifier fields use inconsistent semantic types", async () => {

@@ -117,11 +117,13 @@ concept Account is kind from duckdb.table('accounts') {
   identity account_id :: AccountId
   field:
     customer_id :: CustomerId
+    measure :: number
 }
 `,
     );
     expect(source.ok).toBe(true);
     expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("MISSING_JOIN_CANDIDATE");
+    expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("FIELD_NAME_SHADOWS_KEYWORD");
 
     // 02.05.014: dry_run_only preserves query validation without requiring execution.
     const validated = await mcp.tools.query_run({
@@ -131,6 +133,9 @@ concept Account is kind from duckdb.table('accounts') {
     });
     expectOk(validated);
     expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_JOIN_CANDIDATE");
+    expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain(
+      "FIELD_NAME_SHADOWS_KEYWORD",
+    );
   });
 
   it("blocks ontology source loading for lint errors", async () => {
