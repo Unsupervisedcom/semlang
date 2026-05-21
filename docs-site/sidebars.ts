@@ -19,7 +19,7 @@ const sidebars: SidebarsConfig = {
         "language-reference/actions",
         "language-reference/diagnostics-lowering",
         "language-reference/schema-vocabulary",
-        "language-reference/agent-instructions",
+        "language-reference/skill",
         "language-reference/supported_malloy_features",
       ],
     },

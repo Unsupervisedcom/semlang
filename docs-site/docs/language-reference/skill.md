@@ -1,7 +1,15 @@
 ---
-title: Agent Instructions
+title: SemLang Skill
 sidebar_position: 8
 ---
+
+````markdown
+---
+name: semlang
+description: Use when reading, writing, or running SemLang semantic-model files, including reusable ontology changes, query workflows, and one-off SemLang analysis packages.
+---
+
+# SemLang Skill
 
 This is a concise guide for agents that need to read or write SemLang.
 
@@ -15,6 +23,13 @@ SemLang is best understood as Malloy with a semantic ontology layer. Keep Malloy
 - Queries target concepts, not physical source names: `query: q is SaleLine -> { ... }`.
 - Every SemLang file starts with exactly one `package` declaration. `include` declarations may follow the package and must come before sources, types, concepts, lenses, and queries.
 - SemLang should compile to Malloy. Do not invent syntax that cannot lower clearly.
+
+## Query-First Workflow
+
+- Start by using the existing core semantic model directly. Load the relevant SemLang files and try to answer the task with queries over existing concepts, joins, dimensions, measures, views, and lenses before changing model files.
+- When a query cannot express the answer because the core model lacks a reusable business concept, relationship, type, measure, role, view, lens, validation, or source abstraction, add that reusable semantic content to the existing SemLang files that own the domain.
+- Keep reusable additions durable and named in business language. Do not hide repeatable semantics inside one-off query text.
+- If the work requires complex logic that is specific to a single investigation and is not worth reusing, create a separate `.semlang` file for the task. Put its `package` first, include the relevant core semantic files immediately after the package declaration, define only the task-specific sources, lenses, views, or queries needed there, and run that file instead of polluting the core model.
 
 ## What SemLang Adds
 
@@ -169,3 +184,4 @@ concept SupplierLot is kind from duckdb.table('supplier_lots') {
 ## When Unsure
 
 Choose the Malloy-shaped expression first, then add SemLang semantics only where they clarify package structure, source reuse, identity, concept type, role meaning, time, validation, query-time context, JSON Schema metadata, or write intent.
+````
