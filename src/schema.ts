@@ -125,6 +125,7 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
       name: join.name,
       optional: join.optional,
       target: join.target,
+      targetSource: join.targetSource,
       on: join.on,
       with: join.with,
       at: join.at,

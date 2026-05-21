@@ -479,19 +479,32 @@ function validateConceptMembers(
       join.location,
       diagnostics,
     );
-    const target = joinTargetConcept(model, roleIndex, join.target);
+    if (join.targetSource) validateSourceExpression(model, join.targetSource, diagnostics);
+    const target = join.targetSource ? undefined : joinTargetConcept(model, roleIndex, join.target);
+    const sourceTarget = Boolean(join.targetSource || model.sources.has(join.target));
     if (!target) {
-      diagnostics.push({
-        severity: "error",
-        code: roleIndex.ambiguousShortNames.has(join.target) ? "AMBIGUOUS_ROLE" : "UNKNOWN_JOIN_TARGET",
-        message: roleIndex.ambiguousShortNames.has(join.target)
-          ? `Ambiguous role ${join.target}; use a qualified role name.`
-          : `Join ${join.name} targets unknown concept or role ${join.target}.`,
-        location: join.location,
-      });
-      continue;
+      if (!sourceTarget) {
+        diagnostics.push({
+          severity: "error",
+          code: roleIndex.ambiguousShortNames.has(join.target) ? "AMBIGUOUS_ROLE" : "UNKNOWN_JOIN_TARGET",
+          message: roleIndex.ambiguousShortNames.has(join.target)
+            ? `Ambiguous role ${join.target}; use a qualified role name.`
+            : `Join ${join.name} targets unknown concept, role, or source ${join.target}.`,
+          location: join.location,
+        });
+        continue;
+      }
+      if (join.kind !== "join_one") {
+        diagnostics.push({
+          severity: "error",
+          code: "INVALID_JOIN_TARGET",
+          message: `Join ${join.name} targets a source, but only join_one supports source targets.`,
+          location: join.location,
+        });
+        continue;
+      }
     }
-    if (join.at && !target.temporal.some((axis) => axis.axis === "valid_time")) {
+    if (join.at && (!target || !target.temporal.some((axis) => axis.axis === "valid_time"))) {
       diagnostics.push({
         severity: "error",
         code: "INVALID_TEMPORAL_JOIN",
@@ -503,7 +516,13 @@ function validateConceptMembers(
       validateExpression(model, roleIndex, owningConcept, join.on, join.location, diagnostics, {
         allowUnknownBare: true,
       });
-    if (join.with) validateJoinWith(model, roleIndex, owningConcept, target, join, diagnostics);
+    if (join.with) {
+      if (target) validateJoinWith(model, roleIndex, owningConcept, target, join, diagnostics);
+      else
+        validateExpression(model, roleIndex, owningConcept, join.with, join.location, diagnostics, {
+          allowUnknownBare: false,
+        });
+    }
     if (join.at)
       validateExpression(model, roleIndex, owningConcept, join.at, join.location, diagnostics, {
         allowUnknownBare: true,
@@ -1066,6 +1085,7 @@ function resolvePath(model: SemanticModel, roleIndex: RoleIndex, root: ResolvedC
     if (!current) return false;
     const join: JoinDecl | undefined = current.joins.find((candidate) => candidate.name === segment);
     if (join) {
+      if (join.targetSource || model.sources.has(join.target)) return true;
       current = joinTargetConcept(model, roleIndex, join.target);
       continue;
     }
@@ -1164,6 +1184,7 @@ function conceptForPath(
     if (i === 0 && (segment === current.name || segment === current.sourceName)) continue;
     const join = current.joins.find((candidate) => candidate.name === segment);
     if (!join) return i === segments.length - 1 ? current : undefined;
+    if (join.targetSource || model.sources.has(join.target)) return undefined;
     current = joinTargetConcept(model, roleIndex, join.target);
   }
   return current;

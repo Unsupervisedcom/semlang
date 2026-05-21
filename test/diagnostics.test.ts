@@ -130,7 +130,7 @@ describe("compiler diagnostics", () => {
       column: 12,
     });
     expectDiagnostic(result, "UNKNOWN_JOIN_TARGET", {
-      message: /targets unknown concept or role MissingCustomer/,
+      message: /targets unknown concept, role, or source MissingCustomer/,
       line: 6,
       column: 3,
     });

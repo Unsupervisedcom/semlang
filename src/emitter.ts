@@ -290,18 +290,24 @@ function emitJoin(
   baseSourceNames: Map<string, string>,
 ): EmittedBlock {
   const roleIndex = buildRoleIndex(model);
-  const targetRole = roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target);
-  const targetConcept = model.concepts.get(join.target) ?? targetRole?.concept;
-  const targetSource = targetConcept
-    ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
-    : join.target;
+  const targetRole = join.targetSource
+    ? undefined
+    : (roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target));
+  const targetConcept = join.targetSource ? undefined : (model.concepts.get(join.target) ?? targetRole?.concept);
+  const targetSource = join.targetSource
+    ? sourceExpr(model, join.targetSource, sourceNames)
+    : targetConcept
+      ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
+      : join.target;
   const joinOrigin = origin(join.location, "join", `${source.name}.${join.name}`);
   const lines = [line(`${join.kind}: ${join.name} is ${targetSource}`, joinOrigin)];
   if (join.with) {
     lines.push(line(`  with ${lowerExpression(model, source, join.with)}`, joinOrigin));
     return lines;
   }
-  const onParts = join.on ? [lowerJoinOn(model, source, targetConcept, join)] : [];
+  const onParts = join.on
+    ? [lowerJoinOn(model, source, targetConcept, join, Boolean(join.targetSource || model.sources.has(join.target)))]
+    : [];
   if (join.at && targetConcept && onParts.length > 0) {
     const period = periodAxis(targetConcept.temporal.find((axis) => axis.axis === "valid_time"));
     if (period) {
@@ -337,9 +343,10 @@ function lowerJoinOn(
   source: ResolvedConcept,
   target: ResolvedConcept | undefined,
   join: JoinDecl,
+  prefixBareRight = false,
 ): string {
   const raw = lowerExpression(model, source, join.on ?? "");
-  if (!target) return raw;
+  if (!target && !prefixBareRight) return raw;
   if (!/[=\s<>]/.test(raw)) return `${raw} = ${join.name}.${raw}`;
   return raw.replace(/=\s*([A-Za-z_][A-Za-z0-9_]*)\b(?!\.)/g, (_match, field: string) => `= ${join.name}.${field}`);
 }

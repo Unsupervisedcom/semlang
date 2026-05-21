@@ -61,12 +61,15 @@ Joins declare analytical relationships and semantic participation between concep
 - 03.05.004: `join_cross` MUST NOT use `with`.
 - 03.05.005: A `?` marker after the join name MUST mark optional participation metadata.
 - 03.05.006: Optional participation metadata MUST NOT by itself change the emitted Malloy join kind.
-- 03.05.007: Join targets MUST resolve to a concept, a qualified role name, or an unambiguous role short name.
+- 03.05.007: Join targets MUST resolve to a concept, named source, qualified role name, unambiguous role short name, or supported inline source expression.
 - 03.05.008: When a join target names a role, the compiler MUST resolve that role to its base concept.
 - 03.05.009: `with` joins MUST require a resolvable target identity when the target concept is known.
 - 03.05.010: `with` joins MUST validate that the source concept has the named foreign-key field.
 - 03.05.011: When a join target names a role, the emitted join MUST apply the role predicate to the joined target rows.
 - 03.05.012: A `join_cross` targeting a role MUST lower to a cross join against the role base concept with the role predicate applied as a target-side filter, or the compiler MUST reject the join if it cannot preserve that meaning.
+- 03.05.013: A `join_one` target MAY be an inline named-connection source expression such as `duckdb.table('customer_profiles')`.
+- 03.05.014: Inline source targets MUST lower as Malloy join targets without changing the owning concept's master source population.
+- 03.05.015: `join_many` and `join_cross` MUST NOT target inline source expressions unless a later requirement defines source-target fanout semantics.
 
 ## 03.06 Join Conditions and Temporal Joins
 

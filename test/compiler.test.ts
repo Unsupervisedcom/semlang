@@ -21,7 +21,8 @@ type JsonSchemaObject = Record<string, unknown> & {
 // 03.01.009, 03.02.001, 03.02.002, 03.02.003, 03.02.004, 03.03.001, 03.03.002, 03.03.003
 // 03.03.004, 03.03.005, 03.03.006, 03.04.001, 03.04.002, 03.04.003, 03.04.004, 03.04.005
 // 03.04.006, 03.05.001, 03.05.002, 03.05.003, 03.05.004, 03.05.005, 03.05.006, 03.05.007
-// 03.05.008, 03.05.009, 03.05.010, 03.05.011, 03.05.012, 03.06.001, 03.06.002, 03.06.003
+// 03.05.008, 03.05.009, 03.05.010, 03.05.011, 03.05.012, 03.05.013, 03.05.014, 03.05.015
+// 03.06.001, 03.06.002, 03.06.003
 // 03.06.004, 03.06.005, 03.06.006, 03.06.007, 03.06.008, 03.07.001, 03.07.002, 03.07.003
 // 03.07.004, 03.07.005, 03.08.001, 03.08.002, 03.08.003, 03.08.004, 03.08.005, 03.08.006
 // 03.08.007, 03.08.008, 03.08.009, 03.08.010, 03.08.011, 03.09.001, 03.09.002, 03.09.003
@@ -129,6 +130,51 @@ concept AccountAttraction is relator from duckdb.table('account_attractions') {
     expect(result.malloy).toContain(
       "query: western_margin_intervention_queue is retail_line_items__western_margin_intervention_queue ->",
     );
+  });
+
+  // 03.05.007, 03.05.013, 03.05.014
+  it("lowers join_one inline source targets as Malloy joins", async () => {
+    const result = await compileSemLang(`
+package joins.inline_sources
+
+source: customer_profiles is duckdb.table('customer_profiles')
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  join_one profile: duckdb.table('customer_profiles') on customer_id = profile.customer_id
+  join_one named_profile: customer_profiles on customer_id = named_profile.customer_id
+  dimension:
+    profile_email is profile.email
+    named_profile_email is named_profile.email
+}
+`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.malloy).toContain("join_one: profile is duckdb.table('customer_profiles')");
+    expect(result.malloy).toContain("on customer_id = profile.customer_id");
+    expect(result.malloy).toContain("join_one: named_profile is customer_profiles");
+    expect(result.malloy).toContain("on customer_id = named_profile.customer_id");
+    expect(result.malloy).toContain("profile_email is profile.email");
+    expect(result.malloy).toContain("named_profile_email is named_profile.email");
+  });
+
+  // 03.05.015
+  it("rejects inline source targets on join_many", async () => {
+    const result = await compileSemLang(`
+package joins.inline_sources
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  join_many profiles: duckdb.table('customer_profiles') on customer_id = profiles.customer_id
+}
+`);
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "INVALID_JOIN",
+        message: "Inline source targets are only supported for join_one.",
+      }),
+    ]);
   });
 
   it("applies deep lens filters to joined grains before aggregating on the query root", async () => {

@@ -817,16 +817,15 @@ function parseTypedName(
 
 function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: Diagnostic[]): JoinDecl | undefined {
   const text = normalizeExpression(lines);
-  const match =
-    /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?:\s+(on|with)\s+(.+?))?(?:\s+at\s+(.+))?$/.exec(
-      text,
-    );
+  const match = /^(join_one|join_many|join_cross)\s+([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*(.+)$/.exec(text);
   if (!match) {
     diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
     return undefined;
   }
   const kind = match[1] as JoinDecl["kind"];
-  const operator = match[5];
+  const parsed = parseJoinRemainder(match[4]!, lines[0]!, file, diagnostics);
+  if (!parsed) return undefined;
+  const { target, targetSource, operator, condition, at } = parsed;
   if (kind !== "join_cross" && !operator) {
     diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, lines[0]!));
     return undefined;
@@ -835,16 +834,118 @@ function parseJoin(lines: SourceLine[], file: string | undefined, diagnostics: D
     diagnostics.push(error("INVALID_JOIN", "join_cross does not support with joins.", file, lines[0]!));
     return undefined;
   }
+  if (targetSource && kind !== "join_one") {
+    diagnostics.push(error("INVALID_JOIN", "Inline source targets are only supported for join_one.", file, lines[0]!));
+    return undefined;
+  }
   return {
     kind,
     name: match[2]!,
     optional: Boolean(match[3]),
-    target: match[4]!,
-    on: operator === "on" ? match[6]!.trim() : "",
-    with: operator === "with" ? match[6]!.trim() : undefined,
-    at: match[7]?.trim(),
+    target,
+    targetSource,
+    on: operator === "on" ? condition : "",
+    with: operator === "with" ? condition : undefined,
+    at,
     location: location(file, lines[0]!.line, lines[0]!.text, match[1]),
   };
+}
+
+function parseJoinRemainder(
+  text: string,
+  line: SourceLine,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+):
+  | {
+      target: string;
+      targetSource?: SourceExpression;
+      operator?: "on" | "with";
+      condition: string;
+      at?: string;
+    }
+  | undefined {
+  const operatorMatch = findTopLevelKeyword(text, [" on ", " with "]);
+  const targetText = (operatorMatch ? text.slice(0, operatorMatch.index) : text).trim();
+  const parsedTarget = parseJoinTarget(targetText, line, file, diagnostics);
+  if (!parsedTarget) return undefined;
+  if (!operatorMatch) return { ...parsedTarget, condition: "" };
+
+  const operator = operatorMatch.keyword.trim() as "on" | "with";
+  const conditionText = text.slice(operatorMatch.index + operatorMatch.keyword.length).trim();
+  const atMatch = findTopLevelKeywordFromRight(conditionText, " at ");
+  const condition = (atMatch ? conditionText.slice(0, atMatch.index) : conditionText).trim();
+  const at = atMatch ? conditionText.slice(atMatch.index + atMatch.keyword.length).trim() : undefined;
+  if (!condition) {
+    diagnostics.push(error("INVALID_JOIN", `Invalid join declaration: ${text}`, file, line));
+    return undefined;
+  }
+  return { ...parsedTarget, operator, condition, at };
+}
+
+function parseJoinTarget(
+  text: string,
+  line: SourceLine,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): { target: string; targetSource?: SourceExpression } | undefined {
+  if (/^[A-Za-z_][A-Za-z0-9_]*\.(?:table|sql)\(/.test(text)) {
+    const source = parseSourceExpression(text, file, line, diagnostics);
+    return source ? { target: source.expression, targetSource: source } : undefined;
+  }
+  const referenceMatch = /^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)$/.exec(text);
+  if (referenceMatch) return { target: referenceMatch[1]! };
+  diagnostics.push(error("INVALID_JOIN", `Invalid join target: ${text}`, file, line));
+  return undefined;
+}
+
+function findTopLevelKeyword(text: string, keywords: string[]): { index: number; keyword: string } | undefined {
+  for (let i = 0; i < text.length; i += 1) {
+    const state = sourceExpressionScannerState(text, i);
+    if (state.depth > 0 || state.quote) continue;
+    const keyword = keywords.find((candidate) => text.startsWith(candidate, i));
+    if (keyword) return { index: i, keyword };
+  }
+  return undefined;
+}
+
+function findTopLevelKeywordFromRight(text: string, keyword: string): { index: number; keyword: string } | undefined {
+  let match: { index: number; keyword: string } | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const state = sourceExpressionScannerState(text, i);
+    if (state.depth > 0 || state.quote) continue;
+    if (text.startsWith(keyword, i)) match = { index: i, keyword };
+  }
+  return match;
+}
+
+function sourceExpressionScannerState(text: string, end: number): { depth: number; quote?: string } {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < end; i += 1) {
+    const char = text[i]!;
+    const next = text.slice(i, i + 3);
+    if (quote) {
+      if (quote.length === 3 && next === quote) {
+        quote = undefined;
+        i += 2;
+      } else if (quote.length === 1 && char === quote && text[i - 1] !== "\\") {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (next === "'''" || next === '"""') {
+      quote = next;
+      i += 2;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === "(") {
+      depth += 1;
+    } else if (char === ")" && depth > 0) {
+      depth -= 1;
+    }
+  }
+  return { depth, quote };
 }
 
 function parseRole(

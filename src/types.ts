@@ -190,6 +190,7 @@ export interface JoinDecl {
   name: string;
   optional: boolean;
   target: string;
+  targetSource?: SourceExpression;
   on: string;
   with?: string;
   at?: string;

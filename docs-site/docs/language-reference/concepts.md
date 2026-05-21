@@ -94,6 +94,7 @@ The trailing `?` marks a nullable value. The optional `unique` marker records un
 join_one customer?: Customer on customer_id
 join_many returns: ReturnLine on line_item_id = original_line_item_id
 join_one store: Store with store_id
+join_one profile: duckdb.table('customer_profiles') on customer_id = profile.customer_id
 join_cross fiscal_calendar: FiscalCalendar
 ```
 
@@ -101,6 +102,29 @@ The `?` marker after the join name means participation is optional. It is semant
 `with` joins use Malloy's foreign-key shorthand and require a target identity when SemLang can resolve the target concept.
 
 A join target can also name a role. V1 resolves the role to its base concept and applies the role predicate as part of validation and expression lowering.
+For one-to-one auxiliary tables, `join_one` can target an inline named-connection source expression. The owning concept's `from` source remains the master row population; the inline source is a Malloy-shaped enrichment join.
+Inline filters are not part of `join_one` syntax. To filter an auxiliary source before joining it, declare a named source query:
+
+```semlang
+source: active_profiles is duckdb.table('customer_profiles') -> {
+  where: is_active
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: CustomerId
+  join_one profile: active_profiles on customer_id = profile.customer_id
+}
+```
+
+Alternatively, use a SQL source when the filter belongs in SQL:
+
+```semlang
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: CustomerId
+  join_one profile: duckdb.sql("""select * from customer_profiles where is_active""")
+    on customer_id = profile.customer_id
+}
+```
 
 ## Temporal Axes
 

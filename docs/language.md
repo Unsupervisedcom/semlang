@@ -109,11 +109,35 @@ field:
 join_one customer?: Customer on customer_id
 join_many returns: ReturnLine on line_item_id = original_line_item_id
 join_one store: Store with store_id
+join_one profile: duckdb.table('customer_profiles') on customer_id = profile.customer_id
 join_cross fiscal_calendar: FiscalCalendar
 ```
 
 The `?` marker means participation is optional. It is semantic metadata; Malloy emission still uses the appropriate join kind.
 `with` joins use Malloy's foreign-key shorthand and require the target concept to have an identity when the target is known.
+When a one-to-one auxiliary table should enrich a concept without changing the concept's master row population, `join_one` may target an inline named-connection source expression. This mirrors Malloy source-extension syntax and keeps the primary `from` source as the concept's master list.
+Inline filters are not part of `join_one` syntax. To filter an auxiliary source before joining it, declare a named source query:
+
+```semlang
+source: active_profiles is duckdb.table('customer_profiles') -> {
+  where: is_active
+}
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: CustomerId
+  join_one profile: active_profiles on customer_id = profile.customer_id
+}
+```
+
+Alternatively, use a SQL source when the filter belongs in SQL:
+
+```semlang
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: CustomerId
+  join_one profile: duckdb.sql("""select * from customer_profiles where is_active""")
+    on customer_id = profile.customer_id
+}
+```
 
 Temporal axes give business time description:
 
