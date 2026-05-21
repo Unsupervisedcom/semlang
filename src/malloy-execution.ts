@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { MalloyConfig, Runtime } from "@malloydata/malloy";
 import type { LogMessage, URLReader } from "@malloydata/malloy";
 import type { JsonValue } from "./mcp.js";
@@ -17,6 +18,7 @@ export interface MalloyExecutionOptions {
   malloy: string;
   queryName: string;
   context: MalloyExecutionContext;
+  queryLimitSeconds: number;
   rowLimit?: number;
 }
 
@@ -25,6 +27,11 @@ export interface MalloyValidationOptions {
   context: MalloyExecutionContext;
   sourceMap?: MalloySourceMapEntry[];
 }
+
+type WorkerMessage =
+  | { type: "result"; result: Record<string, JsonValue> }
+  | { type: "error"; error: string }
+  | { type: string; result?: unknown; error?: unknown };
 
 export async function validateMalloyModel(options: MalloyValidationOptions): Promise<Diagnostic[]> {
   let runtime: Runtime | undefined;
@@ -49,6 +56,11 @@ export async function validateMalloyModel(options: MalloyValidationOptions): Pro
 }
 
 export async function executeMalloyQuery(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
+  return executeMalloyQueryInWorker(options);
+}
+
+export async function executeMalloyQueryDirect(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
+  const startedAt = Date.now();
   let runtime: Runtime | undefined;
   let configSource: "explicit" | "discovered" | undefined;
   let configLog: JsonValue | undefined;
@@ -66,15 +78,18 @@ export async function executeMalloyQuery(options: MalloyExecutionOptions): Promi
       ok: true,
       engine: "malloy",
       queryName: options.queryName,
+      query_limit_seconds: options.queryLimitSeconds,
+      execution_time_ms: elapsedMs(startedAt),
+      timed_out: false,
       sql,
       rows: result.data.toJSON() as JsonValue,
       totalRows: result.totalRows,
       malloyConfig: {
-        source: configSource,
+        source: configSource ?? null,
         projectDir: options.context.projectDir,
         path: options.context.malloyConfigPath ?? null,
         connectionTypes,
-        log: configLog,
+        log: configLog ?? [],
       },
     };
   } catch (error) {
@@ -82,6 +97,9 @@ export async function executeMalloyQuery(options: MalloyExecutionOptions): Promi
       ok: false,
       engine: "malloy",
       queryName: options.queryName,
+      query_limit_seconds: options.queryLimitSeconds,
+      execution_time_ms: elapsedMs(startedAt),
+      timed_out: false,
       error: error instanceof Error ? error.message : String(error),
       malloyConfig: {
         source: configSource ?? null,
@@ -94,6 +112,142 @@ export async function executeMalloyQuery(options: MalloyExecutionOptions): Promi
   } finally {
     await runtime?.shutdown("close");
   }
+}
+
+async function executeMalloyQueryInWorker(options: MalloyExecutionOptions): Promise<Record<string, JsonValue>> {
+  const startedAt = Date.now();
+  const workerTarget = await malloyExecutionWorkerTarget();
+  const worker = new Worker(workerTarget.url, { workerData: options, execArgv: workerTarget.execArgv });
+  const limitMs = options.queryLimitSeconds * 1000;
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(timeoutResult(options, startedAt));
+      void worker.terminate();
+    }, limitMs);
+
+    const finish = (result: Record<string, JsonValue>) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({ ...result, execution_time_ms: elapsedMs(startedAt) });
+    };
+
+    worker.once("message", (message: WorkerMessage) => {
+      if (isWorkerResultMessage(message)) {
+        finish(message.result);
+        return;
+      }
+      finish(
+        workerErrorResult(
+          options,
+          startedAt,
+          isWorkerErrorMessage(message) ? message.error : "Unexpected worker message.",
+        ),
+      );
+    });
+
+    worker.once("error", (error) => {
+      finish(workerErrorResult(options, startedAt, error.message));
+    });
+
+    worker.once("exit", (code) => {
+      if (!settled)
+        finish(
+          workerErrorResult(
+            options,
+            startedAt,
+            `Malloy execution worker exited with code ${code} before returning a result.`,
+          ),
+        );
+    });
+  });
+}
+
+async function malloyExecutionWorkerTarget(): Promise<{ url: URL; execArgv?: string[] }> {
+  const adjacent = new URL("./malloy-execution-worker.js", import.meta.url);
+  if (await pathExists(fileURLToPath(adjacent))) return { url: adjacent };
+  const source = new URL("./malloy-execution-worker.ts", import.meta.url);
+  const sourceExecArgv = sourceWorkerExecArgv();
+  if (sourceExecArgv && fileURLToPath(import.meta.url).endsWith(".ts") && (await pathExists(fileURLToPath(source)))) {
+    return { url: source, execArgv: sourceExecArgv };
+  }
+  const built = pathToFileURL(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/src/malloy-execution-worker.js"),
+  );
+  if (await pathExists(fileURLToPath(built))) return { url: built };
+  return { url: adjacent };
+}
+
+function sourceWorkerExecArgv(): string[] | undefined {
+  return process.execArgv.some((arg) => arg.includes("tsx")) ? process.execArgv : undefined;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function timeoutResult(options: MalloyExecutionOptions, startedAt: number): Record<string, JsonValue> {
+  return {
+    ok: false,
+    engine: "malloy",
+    queryName: options.queryName,
+    query_limit_seconds: options.queryLimitSeconds,
+    execution_time_ms: elapsedMs(startedAt),
+    timed_out: true,
+    error: `Query ${options.queryName} exceeded query_limit_seconds=${options.queryLimitSeconds}.`,
+    malloyConfig: {
+      source: options.context.malloyConfigSource ?? null,
+      projectDir: options.context.projectDir,
+      path: options.context.malloyConfigPath ?? null,
+      connectionTypes: [],
+      log: [],
+    },
+  };
+}
+
+function workerErrorResult(
+  options: MalloyExecutionOptions,
+  startedAt: number,
+  error: string,
+): Record<string, JsonValue> {
+  return {
+    ok: false,
+    engine: "malloy",
+    queryName: options.queryName,
+    query_limit_seconds: options.queryLimitSeconds,
+    execution_time_ms: elapsedMs(startedAt),
+    timed_out: false,
+    error,
+    malloyConfig: {
+      source: options.context.malloyConfigSource ?? null,
+      projectDir: options.context.projectDir,
+      path: options.context.malloyConfigPath ?? null,
+      connectionTypes: [],
+      log: [],
+    },
+  };
+}
+
+function isWorkerResultMessage(
+  message: WorkerMessage,
+): message is { type: "result"; result: Record<string, JsonValue> } {
+  return message.type === "result" && isRecord(message.result);
+}
+
+function isWorkerErrorMessage(message: WorkerMessage): message is { type: "error"; error: string } {
+  return message.type === "error" && typeof message.error === "string";
+}
+
+function elapsedMs(startedAt: number): number {
+  return Date.now() - startedAt;
 }
 
 async function createMalloyRuntime(context: MalloyExecutionContext): Promise<{

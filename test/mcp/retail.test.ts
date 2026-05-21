@@ -53,7 +53,7 @@ describe("SemLang MCP retail narratives", () => {
 
     // After validation, query.run should generate Malloy and execute it through
     // the Malloy runtime using the discovered DuckDB connection.
-    const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns" });
+    const run = await mcp.tools.query_run({ query: "monthly_margin_and_returns", query_limit_seconds: 30 });
     expectQuery(run, "monthly_margin_and_returns", "SaleLine");
     expect(text(run.malloy)).toContain("source: retail_line_items is __semlang_base_retail_line_items extend");
     expect(text(run.queryMalloy)).toContain("query: monthly_margin_and_returns is retail_line_items ->");
@@ -138,7 +138,10 @@ describe("SemLang MCP retail narratives", () => {
 
     // The example query encodes the resulting store filter; query.run should
     // hand it to Malloy execution.
-    const run = await mcp.tools.query_run({ query: "denver_store_customer_count_on_2025_09_15" });
+    const run = await mcp.tools.query_run({
+      query: "denver_store_customer_count_on_2025_09_15",
+      query_limit_seconds: 30,
+    });
     expectQuery(run, "denver_store_customer_count_on_2025_09_15", "Sale");
     const execution = asObject(run.execution);
     expect(execution).toMatchObject({ ok: true, engine: "malloy" });
@@ -243,7 +246,7 @@ describe("SemLang MCP retail narratives", () => {
 
     // Running a lens query should produce lens-local Malloy and hand execution
     // to the Malloy runtime rather than fixture-specific local lowering.
-    const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue" });
+    const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue", query_limit_seconds: 30 });
     expectQuery(run, "western_margin_intervention_queue", "SaleLine");
     expect(text(run.malloy)).toContain(
       "source: retail_line_items__western_margin_intervention_queue is __semlang_base_retail_line_items__western_margin_intervention_queue extend",

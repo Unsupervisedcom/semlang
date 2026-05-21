@@ -62,25 +62,34 @@ Validates a query and executes it through the Malloy SDK.
 
 ### Inputs
 
-Accepts the same query inputs as `query.validate`.
+Accepts the same query inputs as `query.validate`, plus the required execution-control parameter
+`query_limit_seconds`.
+
+| Field                 | Type    | Notes                                                   |
+| --------------------- | ------- | ------------------------------------------------------- |
+| `query_limit_seconds` | integer | Required positive query execution limit, in seconds.    |
+| `rowLimit`            | integer | Optional maximum rows to request from Malloy execution. |
 
 ### Output
 
 Returns validation fields plus generated `malloy`, extracted `queryMalloy`, and an `execution` object.
 
-Execution uses the Malloy project/config context captured by `set_ontology_source`. Named queries and temporary root/body queries are both eligible for execution. If no config was explicitly supplied or discovered, `set_ontology_source` fails before queries are run.
+Execution uses the Malloy project/config context captured by `set_ontology_source`. Named queries and temporary root/body queries are both eligible for execution. If no config was explicitly supplied or discovered, `set_ontology_source` fails before queries are run. If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
 
 Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config. If a model references an unknown custom connection, `query.run` returns a clear Malloy execution error naming the missing connection. See [Malloy Connections](./malloy-connections.md).
 
 ### Execution Results
 
-| Field              | Meaning                                                      |
-| ------------------ | ------------------------------------------------------------ |
-| `execution.ok`     | Whether Malloy execution succeeded.                          |
-| `execution.engine` | `malloy` when query execution reached the Malloy SDK.        |
-| `execution.sql`    | SQL produced by Malloy when available.                       |
-| `execution.rows`   | JSON rows returned by the configured connection.             |
-| `execution.error`  | Clear error text when Malloy compilation or execution fails. |
+| Field                           | Meaning                                                      |
+| ------------------------------- | ------------------------------------------------------------ |
+| `execution.ok`                  | Whether Malloy execution succeeded.                          |
+| `execution.engine`              | `malloy` when query execution reached the Malloy SDK.        |
+| `execution.query_limit_seconds` | The requested execution limit, in seconds.                   |
+| `execution.execution_time_ms`   | Wall-clock elapsed execution time in milliseconds.           |
+| `execution.timed_out`           | Whether the execution failed by exceeding the query limit.   |
+| `execution.sql`                 | SQL produced by Malloy when available.                       |
+| `execution.rows`                | JSON rows returned by the configured connection.             |
+| `execution.error`               | Clear error text when Malloy compilation or execution fails. |
 
 ## `action.invoke`
 

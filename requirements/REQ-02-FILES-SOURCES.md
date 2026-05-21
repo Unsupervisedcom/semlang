@@ -68,3 +68,6 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.006: SemLang source connection names MUST remain independent of Malloy config connection types; changing the execution engine SHOULD be a config change unless the model's connection name or table path intentionally changes.
 - 02.05.007: The MCP Malloy runtime MUST load/register connection packages for supported configured connection types before execution.
 - 02.05.008: If Malloy config uses an unsupported connection type, ontology source loading or `query.run` MUST return a clear diagnostic or execution error naming the unsupported type.
+- 02.05.009: `query.run` MUST require a positive integer `query_limit_seconds` execution-control parameter.
+- 02.05.010: Successful `query.run` execution results MUST include `execution_time_ms`.
+- 02.05.011: Queries that exceed `query_limit_seconds` MUST return a timeout execution error with elapsed runtime information.

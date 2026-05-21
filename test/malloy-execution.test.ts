@@ -29,6 +29,26 @@ async function writeMalloyConfig(projectDir: string): Promise<string> {
 }
 
 describe("Malloy SDK validation", () => {
+  it("rejects execution work that exceeds the query limit deadline", async () => {
+    // 02.05.011: timeout paths report an execution error when the query limit
+    // deadline expires, and the worker running Malloy execution is terminated.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-query-timeout-"));
+    const malloyConfigPath = await writeMalloyConfig(projectDir);
+    const result = await executeMalloyQuery({
+      context: { projectDir, malloyConfigPath },
+      malloy: 'query: q is duckdb.sql("""select 1 as one""") -> { select: one }',
+      queryName: "q",
+      queryLimitSeconds: 0.001,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      timed_out: true,
+      error: expect.stringContaining("query_limit_seconds=0.001"),
+      execution_time_ms: expect.any(Number),
+    });
+  });
+
   it("accepts emitted Malloy for composite identity concepts", async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-composite-identity-"));
     const malloyConfigPath = await writeMalloyConfig(projectDir);
@@ -94,6 +114,7 @@ query: message_attractions is MessageTracking -> {
       context: { projectDir, malloyConfigPath },
       malloy,
       queryName: "message_attractions",
+      queryLimitSeconds: 30,
     });
 
     expect(result.ok).toBe(true);
@@ -147,6 +168,7 @@ query: account_attraction_messages is AccountAttraction -> {
       context: { projectDir, malloyConfigPath },
       malloy,
       queryName: "account_attraction_messages",
+      queryLimitSeconds: 30,
     });
 
     expect(result.ok).toBe(true);

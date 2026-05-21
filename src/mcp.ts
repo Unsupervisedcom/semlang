@@ -50,6 +50,8 @@ export interface SemLangMcpApi {
   getContext(): SemLangMcpContext;
 }
 
+type QueryLimitSecondsResult = { ok: true; value: number } | { ok: false; error: string };
+
 interface ToolSpec {
   name: string;
   description: string;
@@ -402,8 +404,10 @@ export function createSemLangMcp(): SemLangMcpApi {
   }
 
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const queryLimitSeconds = queryLimitSecondsValue(args);
+    if (!queryLimitSeconds.ok) return queryLimitSeconds;
     const validation = await validateOrRunQuery(args);
-    const execution = await executeQuery(context, args, validation);
+    const execution = await executeQuery(context, args, validation, queryLimitSeconds.value);
     return { ...validation, execution: jsonSafe(execution) };
   }
 
@@ -749,6 +753,7 @@ async function executeQuery(
   context: SemLangMcpContext,
   args: Record<string, unknown>,
   validation: Record<string, JsonValue>,
+  queryLimitSeconds: number,
 ): Promise<Record<string, unknown>> {
   if (validation.ok !== true) return { ok: false, skipped: true, reason: "Query validation failed." };
   const malloy = stringValue(validation.malloy);
@@ -761,6 +766,7 @@ async function executeQuery(
   return executeMalloyQuery({
     malloy,
     queryName,
+    queryLimitSeconds,
     rowLimit: numberValue(args.rowLimit ?? args.row_limit ?? args.maxRows ?? args.max_rows),
     context: {
       projectDir,
@@ -2353,6 +2359,29 @@ function stringList(value: unknown): string[] {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
+  const raw =
+    args.query_limit_seconds ??
+    args.queryLimitSeconds ??
+    args.query_time_limit_seconds ??
+    args.queryTimeLimitSeconds ??
+    args.query_time_limit ??
+    args.queryTimeLimit;
+  if (raw === undefined) {
+    return {
+      ok: false,
+      error: "query.run requires query_limit_seconds as a positive integer number of seconds.",
+    };
+  }
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    return {
+      ok: false,
+      error: "query_limit_seconds must be a positive integer number of seconds.",
+    };
+  }
+  return { ok: true, value: raw };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

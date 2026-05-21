@@ -57,9 +57,21 @@ concept InlineOrder is event from duckdb.sql("""
       malloyConfigSource: "discovered",
     });
 
+    const missingLimit = await mcp.tools.query_run({
+      root: "InlineOrder",
+      aggregate: ["order_count"],
+    });
+    expect(missingLimit).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("query_limit_seconds"),
+    });
+
+    // 02.05.009 and 02.05.010: query.run requires an explicit
+    // query_limit_seconds execution limit and returns elapsed runtime.
     const run = await mcp.tools.query_run({
       root: "InlineOrder",
       aggregate: ["order_count", "total_order_amount"],
+      query_limit_seconds: 30,
     });
     expectOk(run);
     expect(run).toMatchObject({
@@ -71,6 +83,9 @@ concept InlineOrder is event from duckdb.sql("""
     expect(execution).toMatchObject({
       ok: true,
       engine: "malloy",
+      query_limit_seconds: 30,
+      execution_time_ms: expect.any(Number),
+      timed_out: false,
     });
     expect(records(execution.rows)[0]).toMatchObject({
       order_count: 2,
@@ -144,7 +159,7 @@ query: customer_order_counts is Customer -> {
     });
     expectOk(source);
 
-    const run = await mcp.tools.query_run({ query: "customer_order_counts" });
+    const run = await mcp.tools.query_run({ query: "customer_order_counts", query_limit_seconds: 30 });
     expectQuery(run, "customer_order_counts", "Customer");
     expect(text(run.malloy)).toContain("join_many: orders is __semlang_base_orders");
     const execution = asObject(run.execution);

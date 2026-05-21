@@ -724,7 +724,7 @@ query: denver_store_customer_count_on_2025_09_15 is Sale -> {
   //   -> customer?: Customer, so null customer means unrecognized buyer
   //   mcp.catalog.resolve_entity({ concept: "Store", business_name: "Denver store" })
   //   -> store.store_code = 'DEN-01', store_name = "Denver Cherry Creek"
-  //   mcp.query.run(...)
+  //   mcp.query.run({ query: "denver_store_customer_count_on_2025_09_15", query_limit_seconds: 30 })
   //   -> sales: 7500
   //   -> identified_customer_sales: 4000
   //   -> identified_customers: 3700
