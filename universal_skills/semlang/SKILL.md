@@ -1,10 +1,4 @@
 ---
-title: SemLang Skill
-sidebar_position: 8
----
-
-````markdown
----
 name: semlang
 description: Use when reading, writing, or running SemLang semantic-model files, including reusable ontology changes, query workflows, and one-off SemLang analysis packages.
 ---
@@ -186,4 +180,3 @@ concept SupplierLot is kind from duckdb.table('supplier_lots') {
 ## When Unsure
 
 Choose the Malloy-shaped expression first, then add SemLang semantics only where they clarify package structure, source reuse, identity, concept type, role meaning, time, validation, query-time context, JSON Schema metadata, or write intent.
-````

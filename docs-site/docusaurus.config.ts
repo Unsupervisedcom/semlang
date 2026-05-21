@@ -34,6 +34,25 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
+  plugins: [
+    function rawSkillFilePlugin() {
+      return {
+        name: "raw-skill-file-loader",
+        configureWebpack() {
+          return {
+            module: {
+              rules: [
+                {
+                  resourceQuery: /raw/,
+                  type: "asset/source",
+                },
+              ],
+            },
+          };
+        },
+      };
+    },
+  ],
   themeConfig: {
     navbar: {
       title: "SemLang",
