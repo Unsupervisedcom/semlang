@@ -85,7 +85,7 @@ SemLang is best understood as Malloy with a semantic ontology layer. Keep Malloy
 ## Global MCP Install
 
 - Use the live source-backed MCP command when configuring agents: `semlang-mcp`.
-- To install it globally, run `npm install` and `npm link` from `/Users/noah/Documents/semlang2`.
+- To install it globally, run `npm install` and `npm link` from your SemLang checkout.
 - Project MCP configs should use `{ "command": "semlang-mcp", "args": [] }` under an `mcpServers.semlang` entry.
 - The command resolves SemLang server code from the linked checkout, while model paths passed to `set_ontology_source` resolve from the agent project's working directory.
 - `set_ontology_source` accepts `configPath` or `malloyConfigPath`; otherwise it discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
