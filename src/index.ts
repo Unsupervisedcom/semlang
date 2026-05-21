@@ -1,3 +1,8 @@
+/*
+ * Purpose: Exposes the public SemLang API and coordinates parse, resolve, lint, emit, and schema compilation steps.
+ * Encapsulation: Keep thin public orchestration here; phase-specific compiler logic should remain in parser, resolver, lint, emitter, and schema modules.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { emitMalloy } from "./emitter.js";

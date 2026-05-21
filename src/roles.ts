@@ -1,3 +1,8 @@
+/*
+ * Purpose: Builds and queries role indexes for SemLang concepts.
+ * Encapsulation: Keep role naming and lookup mechanics here; broader model validation and path resolution belong in the resolver.
+ */
+
 import type { ResolvedConcept, RoleDecl, SemanticModel } from "./types.js";
 
 export interface RoleResolution {

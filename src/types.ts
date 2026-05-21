@@ -1,3 +1,8 @@
+/*
+ * Purpose: Defines SemLang compiler, AST, semantic model, diagnostic, and JSON Schema shared types.
+ * Encapsulation: Keep structural contracts here without behavior; construction, validation, and emission logic belong in implementation modules.
+ */
+
 export type Severity = "error" | "warning";
 
 export interface SourceLocation {

@@ -1,3 +1,8 @@
+/*
+ * Purpose: Parses and validates SemLang type metadata shared by parsing, linting, resolving, and JSON Schema emission.
+ * Encapsulation: Keep metadata literal handling and metadata keyword policy here; full type and concept validation belongs in resolver/schema modules.
+ */
+
 import type { Diagnostic, MetadataEntry } from "./types.js";
 
 // 01.01.007: JSON-Schema-compatible type metadata is parsed centrally so

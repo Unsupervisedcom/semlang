@@ -1,3 +1,8 @@
+/*
+ * Purpose: Provides line, comment, block, and expression text helpers for SemLang parsing.
+ * Encapsulation: Keep source text mechanics here; grammar-specific parsing decisions should remain in src/parser.ts.
+ */
+
 import type { SourceLocation } from "./types.js";
 
 export interface SourceLine {

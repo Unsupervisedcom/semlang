@@ -1,3 +1,8 @@
+/*
+ * Purpose: Defines the documentation site's sidebar hierarchy.
+ * Encapsulation: Keep docs navigation structure here; page content and generated docs behavior belong in docs-site/docs and docusaurus.config.ts.
+ */
+
 import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
 
 const sidebars: SidebarsConfig = {

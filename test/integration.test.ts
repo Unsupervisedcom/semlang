@@ -1,3 +1,8 @@
+/*
+ * Purpose: Runs broad integration checks against example SemLang files through the public compileFile API.
+ * Encapsulation: Keep filesystem-backed pipeline coverage here; lower-level phase tests belong in focused test files.
+ */
+
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { compileFile } from "../src/index.js";

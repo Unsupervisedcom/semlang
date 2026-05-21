@@ -1,3 +1,8 @@
+/*
+ * Purpose: Produces non-fatal quality diagnostics for resolved SemLang models.
+ * Encapsulation: Keep advisory model linting here; hard semantic correctness checks belong in the resolver.
+ */
+
 import { parseMetadataLiteral } from "./schema-metadata.js";
 import type { Diagnostic, IdentityField, FieldDecl, ResolvedConcept, SemanticModel, TypeDecl } from "./types.js";
 

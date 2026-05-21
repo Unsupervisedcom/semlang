@@ -1,3 +1,8 @@
+/*
+ * Purpose: Emits JSON Schema documents from resolved SemLang semantic models.
+ * Encapsulation: Keep schema projection and vocabulary metadata here; compiler phases and Malloy lowering belong in their respective modules.
+ */
+
 import {
   jsonSchemaMetadataKeywords,
   semlangTypeMetadataKeywords,

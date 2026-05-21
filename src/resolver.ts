@@ -1,4 +1,10 @@
+/*
+ * Purpose: Resolves parsed SemLang ASTs into validated semantic models, including includes, lenses, roles, actions, and query checks.
+ * Encapsulation: Keep cross-declaration semantic validation and model merging here; parsing and Malloy emission should stay in their own phases.
+ */
+
 import path from "node:path";
+import { primitiveTypes } from "./language-constants.js";
 import { parseSemLang } from "./parser.js";
 import { buildRoleIndex, findRoleOnConcept, roleBaseNames, type RoleIndex, type RoleResolution } from "./roles.js";
 import { parseMetadataLiteral, validateTypeMetadataEntry } from "./schema-metadata.js";
@@ -20,7 +26,6 @@ import {
   type SourceExpression,
 } from "./types.js";
 
-const primitiveTypes = new Set(["string", "number", "date", "timestamp", "currency", "boolean"]);
 const expressionKeywords = new Set([
   "and",
   "or",

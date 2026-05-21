@@ -1,3 +1,8 @@
+/*
+ * Purpose: Implements the SemLang command-line interface and maps CLI commands to compiler, schema, and MCP entry points.
+ * Encapsulation: Keep argument parsing, process IO, and command wiring here; compiler behavior, MCP tool logic, and Malloy execution should stay in their dedicated modules.
+ */
+
 import fs from "node:fs/promises";
 import { Command, Option } from "commander";
 import { compileFile, resolveSemLangMcpSettings, runSemLangMcpStdioServerWithSettings } from "./index.js";

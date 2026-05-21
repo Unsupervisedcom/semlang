@@ -1,3 +1,8 @@
+/*
+ * Purpose: Starts the SemLang MCP server over stdio for the standalone MCP binary.
+ * Encapsulation: Keep this as a tiny process entry point; server construction and settings resolution belong in src/mcp.ts.
+ */
+
 import { runSemLangMcpStdioServerWithSettings } from "./mcp.js";
 
 runSemLangMcpStdioServerWithSettings().catch((error) => {

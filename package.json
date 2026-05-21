@@ -7,8 +7,7 @@
     "node": ">=20"
   },
   "bin": {
-    "semlang": "./bin/semlang.js",
-    "semlang-mcp": "./bin/semlang-mcp.js"
+    "semlang": "./bin/semlang.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

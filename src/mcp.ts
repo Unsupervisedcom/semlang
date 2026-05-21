@@ -1,3 +1,8 @@
+/*
+ * Purpose: Defines the SemLang MCP API, tool registry, context lifecycle, and tool-level orchestration.
+ * Encapsulation: Keep MCP request handling and composition here; generic argument utilities, Malloy execution, and shared language constants belong in separate modules.
+ */
+
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
@@ -15,6 +20,19 @@ import {
   validateMalloyModel,
 } from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
+import {
+  booleanValue,
+  hasErrors,
+  isRecord,
+  jsonSafe,
+  numberValue,
+  prettyJsonLineCount,
+  resolved,
+  resolveOptionalPath,
+  stringList,
+  stringValue,
+  type JsonValue,
+} from "./mcp-utils.js";
 import { qualifiedRoleName } from "./roles.js";
 import type {
   ActionDecl,
@@ -31,7 +49,8 @@ import type {
   SourceExpression,
 } from "./types.js";
 
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export { prettyJsonLineCount } from "./mcp-utils.js";
+export type { JsonValue } from "./mcp-utils.js";
 export type SemLangMcpTool = (args?: Record<string, unknown>) => Promise<Record<string, JsonValue>>;
 
 const execFileAsync = promisify(execFile);
@@ -978,21 +997,6 @@ function compactExecutionMetadata(execution: Record<string, unknown>): Record<st
  */
 function envSetting(name: string): string | undefined {
   return process.env[`SEMLANG_${name}`] ?? process.env[`semlang_${name.toLowerCase()}`];
-}
-
-export function prettyJsonLineCount(value: unknown): number {
-  if (value === null || typeof value !== "object") return 1;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return 1;
-    return 2 + value.length + value.reduce((count, item) => count + prettyJsonLineCount(item) - 1, 0);
-  }
-  const jsonObject = value as Record<string, unknown>;
-  const jsonKeys = Object.keys(jsonObject).filter((key) => {
-    const item = jsonObject[key];
-    return item !== undefined && typeof item !== "function" && typeof item !== "symbol";
-  });
-  if (jsonKeys.length === 0) return 1;
-  return 2 + jsonKeys.length + jsonKeys.reduce((count, key) => count + prettyJsonLineCount(jsonObject[key]) - 1, 0);
 }
 
 function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
@@ -2733,27 +2737,6 @@ function tokenize(text: string): string[] {
   return [...new Set(text.toLowerCase().match(/[a-z0-9_]+/g) ?? [])].filter((token) => token.length > 1);
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function resolveOptionalPath(value: string | undefined): string | undefined {
-  return value ? path.resolve(value) : undefined;
-}
-
-function stringList(value: unknown): string[] {
-  if (typeof value === "string" && value.trim()) return [value.trim()];
-  if (Array.isArray(value))
-    return value
-      .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
-      .map((item) => item.trim());
-  return [];
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
   const raw =
     args.query_limit_seconds ??
@@ -2795,44 +2778,10 @@ function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimit
   return { ok: true, value: raw };
 }
 
-function booleanValue(value: unknown): boolean {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.trim().toLowerCase() === "true";
-  return false;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function hasErrors(diagnostics: Diagnostic[]): boolean {
-  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
-}
-
 function notFound(kind: string, name: unknown, model: SemanticModel): Record<string, JsonValue> {
   return {
     ok: false,
     error: `No ${kind} found for ${typeof name === "string" ? name : JSON.stringify(name)}.`,
     context: jsonSafe(modelSummary(model)),
   };
-}
-
-function resolved(value: Record<string, unknown>): Promise<Record<string, JsonValue>> {
-  return Promise.resolve(jsonSafe(value) as Record<string, JsonValue>);
-}
-
-function jsonSafe(value: unknown): JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean")
-    return value;
-  if (value === undefined) return null;
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (value instanceof Map)
-    return Object.fromEntries([...value.entries()].map(([key, item]) => [String(key), jsonSafe(item)]));
-  if (value instanceof Set) return [...value].map(jsonSafe);
-  if (typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, jsonSafe(item)]),
-    );
-  }
-  return String(value);
 }

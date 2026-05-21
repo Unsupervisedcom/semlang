@@ -1,6 +1,11 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+/*
+ * Purpose: Verifies MCP semantic search, catalog, ontology, lens, and query behavior on the retail example.
+ * Encapsulation: Keep retail-domain MCP expectations here; cross-domain examples and execution-specific checks live in separate files.
+ */
+
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";

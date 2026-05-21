@@ -1,3 +1,8 @@
+/*
+ * Purpose: Configures the SemLang documentation site and local raw-skill import plugin.
+ * Encapsulation: Keep Docusaurus site metadata, navigation, and docs build hooks here; documentation content belongs under docs-site/docs.
+ */
+
 import type { Config } from "@docusaurus/types";
 import type { Preset } from "@docusaurus/preset-classic";
 

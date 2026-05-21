@@ -1,10 +1,15 @@
+/*
+ * Purpose: Validates and executes generated Malloy models, queries, and SQL using Malloy runtimes and worker timeouts.
+ * Encapsulation: Keep Malloy SDK integration, connection discovery, and execution diagnostics here; SemLang MCP tool orchestration belongs in src/mcp.ts.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { MalloyConfig, Runtime } from "@malloydata/malloy";
 import type { LogMessage, URLReader } from "@malloydata/malloy";
-import type { JsonValue } from "./mcp.js";
+import type { JsonValue } from "./mcp-utils.js";
 import type { Diagnostic, GeneratedSourceContextLine, MalloySourceMapEntry } from "./types.js";
 
 export interface MalloyExecutionContext {

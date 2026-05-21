@@ -1,3 +1,8 @@
+/*
+ * Purpose: Lowers a resolved SemLang semantic model into Malloy source and source-map diagnostics.
+ * Encapsulation: Keep Malloy text generation and lowering conventions here; parsing, semantic validation, and runtime execution belong outside this module.
+ */
+
 import { applyQueryLenses } from "./resolver.js";
 import { buildRoleIndex, findRoleOnConcept, type RoleIndex, type RoleResolution } from "./roles.js";
 import {

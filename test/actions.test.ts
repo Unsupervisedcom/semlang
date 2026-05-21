@@ -1,3 +1,8 @@
+/*
+ * Purpose: Verifies SemLang action parsing, validation, schema metadata, and Malloy lowering behavior.
+ * Encapsulation: Keep action-focused behavior assertions here; shared test setup belongs in helper files.
+ */
+
 import { describe, expect, it } from "vitest";
 import { compileSemLang, parseSemLang } from "../src/index.js";
 

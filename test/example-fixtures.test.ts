@@ -1,3 +1,8 @@
+/*
+ * Purpose: Confirms bundled domain example fixtures compile as maintained SemLang examples.
+ * Encapsulation: Keep example fixture coverage here; detailed language behavior belongs in compiler and diagnostics tests.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

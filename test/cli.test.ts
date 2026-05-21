@@ -1,3 +1,8 @@
+/*
+ * Purpose: Exercises the SemLang CLI as an external process.
+ * Encapsulation: Keep command-line integration assertions here; compiler unit behavior belongs in compiler and diagnostics tests.
+ */
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

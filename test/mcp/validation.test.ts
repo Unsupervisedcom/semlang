@@ -1,6 +1,11 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+/*
+ * Purpose: Verifies MCP source validation and diagnostic responses for invalid ontology inputs.
+ * Encapsulation: Keep MCP validation behavior here; compiler diagnostic details belong in test/diagnostics.test.ts.
+ */
+
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
 import { asObject, expectOk, records, setInlineOntology } from "./helpers.js";

@@ -1,3 +1,8 @@
+/*
+ * Purpose: Provides small primitives for assembling Malloy text while preserving source-map origins.
+ * Encapsulation: Keep emitted-line formatting and indentation helpers here; semantic lowering decisions belong in src/emitter.ts.
+ */
+
 import type { Diagnostic, MalloySourceMapEntry, SourceLocation } from "./types.js";
 
 export interface MalloySourceOrigin {

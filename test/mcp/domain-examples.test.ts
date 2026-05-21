@@ -1,6 +1,11 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+/*
+ * Purpose: Exercises MCP tools against bundled domain examples.
+ * Encapsulation: Keep example-backed MCP workflow coverage here; reusable setup and value extraction helpers belong in helpers.ts.
+ */
+
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";

@@ -1,3 +1,8 @@
+/*
+ * Purpose: Runs Malloy query or SQL execution inside a worker thread for timeout isolation.
+ * Encapsulation: Keep worker message bridging here; execution implementation should stay in src/malloy-execution.ts.
+ */
+
 import { parentPort, workerData } from "node:worker_threads";
 import { executeMalloyQueryDirect, executeMalloySqlDirect } from "./malloy-execution.js";
 import type {

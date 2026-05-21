@@ -1,6 +1,11 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+/*
+ * Purpose: Verifies MCP settings resolution, Malloy config discovery, and configuration-sensitive tool behavior.
+ * Encapsulation: Keep MCP configuration scenarios here; generic MCP helpers and domain behavior belong in separate test files.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

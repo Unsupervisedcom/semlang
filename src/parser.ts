@@ -1,4 +1,10 @@
+/*
+ * Purpose: Parses SemLang source text into an AST with syntax diagnostics and source locations.
+ * Encapsulation: Keep syntax recognition and AST construction here; include loading, semantic validation, and lowering belong to resolver and emitter phases.
+ */
+
 import { lexSemLang } from "./lexer.js";
+import { primitiveTypes } from "./language-constants.js";
 import { parseMetadataLiteral, parseMetadataStringArray } from "./schema-metadata.js";
 import {
   collectBraceBlock,
@@ -46,8 +52,6 @@ import {
   type ViewDecl,
   type WriteMappingDecl,
 } from "./types.js";
-
-const primitiveTypes = new Set(["string", "number", "date", "timestamp", "currency", "boolean"]);
 
 export function parseSemLang(source: string, options: CompileOptions = {}): ParseResult {
   const diagnostics: Diagnostic[] = [];

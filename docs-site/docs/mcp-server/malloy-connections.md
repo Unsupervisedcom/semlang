@@ -145,7 +145,7 @@ The connection name used in the SemLang model must appear in these commands. If 
 
 ## MCP Usage
 
-Configure and start `semlang-mcp` as usual, then load a SemLang file that uses the same connection names:
+Configure and start `semlang mcp` as usual, then load a SemLang file that uses the same connection names:
 
 ```json
 {

@@ -1,3 +1,8 @@
+/*
+ * Purpose: Verifies MCP action.invoke SQL generation and execution behavior for action edits.
+ * Encapsulation: Keep action.invoke SQL tool coverage here; shared MCP fixture helpers belong in test/mcp/helpers.ts.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

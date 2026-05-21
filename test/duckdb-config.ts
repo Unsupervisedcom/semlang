@@ -1,3 +1,8 @@
+/*
+ * Purpose: Provides test-only DuckDB configuration derived from environment flags.
+ * Encapsulation: Keep test runtime configuration here; production MCP settings must flow through SEMLANG_* handling.
+ */
+
 const duckDbExternalAccessEnv = "SEMLANG_TEST_DUCKDB_ENABLE_EXTERNAL_ACCESS";
 
 export function testDuckDbExternalAccessConfig(): { enableExternalAccess?: boolean } {

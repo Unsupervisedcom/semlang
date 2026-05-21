@@ -1,6 +1,11 @@
 // These MCP tests are written as agent narratives: each test calls tools in the
 // order an agent would, with comments explaining why the next request follows.
 
+/*
+ * Purpose: Verifies MCP query.run validation, execution, limits, and exported result behavior.
+ * Encapsulation: Keep MCP query execution assertions here; lower-level Malloy runtime coverage belongs in test/malloy-execution.test.ts.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

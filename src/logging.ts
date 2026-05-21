@@ -1,3 +1,8 @@
+/*
+ * Purpose: Centralizes structured logging for SemLang runtime transactions.
+ * Encapsulation: Keep logger setup and transaction log shape here; callers should pass context instead of configuring logging themselves.
+ */
+
 import pino from "pino";
 
 type LogLevel = "debug" | "info" | "warn" | "error";

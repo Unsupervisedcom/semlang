@@ -1,3 +1,8 @@
+/*
+ * Purpose: Ensures requirement IDs are explicitly referenced from test comments.
+ * Encapsulation: Keep repository traceability enforcement here; individual feature tests own the requirement citations they cover.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

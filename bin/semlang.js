@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*
+ * Purpose: Launches the SemLang CLI from source during development or from dist after builds.
+ * Encapsulation: Keep binary resolution and process spawning here; command behavior belongs in src/cli.ts.
+ */
+
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

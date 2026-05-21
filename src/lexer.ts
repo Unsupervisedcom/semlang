@@ -1,3 +1,8 @@
+/*
+ * Purpose: Runs lightweight lexical validation for SemLang source using Chevrotain's lexer.
+ * Encapsulation: Keep tokenization concerns here; line-oriented parsing and semantic diagnostics belong to parser and resolver.
+ */
+
 import { createToken, Lexer } from "chevrotain";
 
 export const WhiteSpace = createToken({ name: "WhiteSpace", pattern: /\s+/, group: Lexer.SKIPPED });

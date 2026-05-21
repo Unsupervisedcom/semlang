@@ -1,3 +1,8 @@
+/*
+ * Purpose: Provides shared fixture, temporary project, and response assertion helpers for MCP tests.
+ * Encapsulation: Keep test-only setup and typed extraction helpers here; individual MCP behavior assertions belong in focused test files.
+ */
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

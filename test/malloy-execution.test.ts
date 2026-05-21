@@ -1,3 +1,8 @@
+/*
+ * Purpose: Verifies Malloy validation and query execution behavior against temporary Malloy projects.
+ * Encapsulation: Keep Malloy runtime integration assertions here; MCP tool behavior belongs under test/mcp.
+ */
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

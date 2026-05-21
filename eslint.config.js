@@ -1,3 +1,8 @@
+/*
+ * Purpose: Configures ESLint for SemLang TypeScript and JavaScript source files.
+ * Encapsulation: Keep static analysis policy here; formatting policy belongs in Prettier config and runtime behavior belongs in source modules.
+ */
+
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";

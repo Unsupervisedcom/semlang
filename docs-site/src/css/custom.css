@@ -1,3 +1,8 @@
+/*
+ * Purpose: Holds small documentation-site theme overrides.
+ * Encapsulation: Keep global Docusaurus CSS customizations here; component or content structure belongs in docs-site config and docs.
+ */
+
 :root {
   --ifm-color-primary: #246b5f;
   --ifm-color-primary-dark: #205f55;

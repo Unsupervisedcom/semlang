@@ -1,3 +1,8 @@
+/*
+ * Purpose: Verifies parser, resolver, and lint diagnostics for invalid or risky SemLang models.
+ * Encapsulation: Keep diagnostic expectations here; successful compilation scenarios belong in compiler tests.
+ */
+
 import { describe, expect, it } from "vitest";
 import { compileSemLang, parseSemLang } from "../src/index.js";
 import type { Diagnostic } from "../src/types.js";

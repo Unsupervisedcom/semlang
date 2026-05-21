@@ -1,3 +1,8 @@
+/*
+ * Purpose: Covers end-to-end compiler behavior for SemLang language features and Malloy emission.
+ * Encapsulation: Keep compiler pipeline assertions here; CLI, MCP, and runtime execution have separate test files.
+ */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
