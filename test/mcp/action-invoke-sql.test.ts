@@ -373,6 +373,32 @@ concept ReturnLine is event from warehouse.table('return_lines') {
       query_limit_seconds: 30,
       timed_out: false,
     });
+
+    // Covers: 02.05.023
+    const stringLimitResult = await mcp.tools.action_invoke({
+      concept: "ReturnLine",
+      action: "settle_return",
+      subject: { return_line_id: "RET-1" },
+      query_limit_seconds: "45",
+    });
+    expect(stringLimitResult).toMatchObject({
+      ok: false,
+      engine: "malloy",
+      query_limit_seconds: 45,
+      timed_out: false,
+    });
+
+    // Covers: 02.05.023
+    const oversizedStringLimit = await mcp.tools.action_invoke({
+      concept: "ReturnLine",
+      action: "settle_return",
+      subject: { return_line_id: "RET-1" },
+      query_limit_seconds: "2147484",
+    });
+    expect(oversizedStringLimit).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("no greater than 2147483"),
+    });
   });
 
   it("generates action SQL for non-DuckDB Malloy connection names", async () => {

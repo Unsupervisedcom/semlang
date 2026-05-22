@@ -121,6 +121,30 @@ concept InlineOrder is event from duckdb.sql("""
       order_count: 2,
     });
 
+    // 02.05.023: MCP argument serialization can pass numeric execution controls
+    // as strings, and query.run still treats valid integer seconds as deadlines.
+    const stringLimitRun = await mcp.tools.query_run({
+      root: "InlineOrder",
+      aggregate: ["order_count"],
+      query_limit_seconds: "30",
+    });
+    expectOk(stringLimitRun);
+    expect(records(asObject(stringLimitRun.execution).rows)[0]).toMatchObject({
+      order_count: 2,
+    });
+
+    // 02.05.023: string deadlines still have to fit within the runtime timer
+    // ceiling so Node does not clamp an oversized timeout.
+    const oversizedStringLimit = await mcp.tools.query_run({
+      root: "InlineOrder",
+      aggregate: ["order_count"],
+      query_limit_seconds: "2147484",
+    });
+    expect(oversizedStringLimit).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("no greater than 2147483"),
+    });
+
     const exportDir = await fs.mkdtemp(path.join(projectDir, "exports-"));
     // 02.05.016 and 02.05.017: query.run returns a transaction id and exports
     // row output larger than 10 lines to a transaction-named file.

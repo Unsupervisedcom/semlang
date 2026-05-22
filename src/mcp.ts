@@ -107,6 +107,7 @@ type TemporaryQueryResult =
 
 const maxSearchResults = 20;
 const defaultActionQueryLimitSeconds = 30;
+const maxQueryLimitSeconds = Math.floor(2_147_483_647 / 1000);
 
 export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpApi {
   const context: SemLangMcpContext = { settings: resolveSemLangMcpSettings(settings) };
@@ -2751,13 +2752,14 @@ function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecond
       error: "query.run requires query_limit_seconds as a positive integer number of seconds.",
     };
   }
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+  const parsed = positiveIntegerSecondsValue(raw);
+  if (parsed === undefined) {
     return {
       ok: false,
-      error: "query_limit_seconds must be a positive integer number of seconds.",
+      error: `query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
     };
   }
-  return { ok: true, value: raw };
+  return { ok: true, value: parsed };
 }
 
 function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
@@ -2769,13 +2771,21 @@ function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimit
     args.query_time_limit ??
     args.queryTimeLimit;
   if (raw === undefined) return { ok: true, value: defaultActionQueryLimitSeconds };
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+  const parsed = positiveIntegerSecondsValue(raw);
+  if (parsed === undefined) {
     return {
       ok: false,
-      error: "action.invoke query_limit_seconds must be a positive integer number of seconds.",
+      error: `action.invoke query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
     };
   }
-  return { ok: true, value: raw };
+  return { ok: true, value: parsed };
+}
+
+function positiveIntegerSecondsValue(raw: unknown): number | undefined {
+  const parsed = typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : raw;
+  return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed > 0 && parsed <= maxQueryLimitSeconds
+    ? parsed
+    : undefined;
 }
 
 function notFound(kind: string, name: unknown, model: SemanticModel): Record<string, JsonValue> {
