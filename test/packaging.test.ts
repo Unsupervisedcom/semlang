@@ -23,14 +23,14 @@ describe("package publishing metadata", () => {
 
     expect(packageJson).toMatchObject({
       name: "semlang",
-      bin: { semlang: "./bin/semlang.js" },
+      bin: { semlang: "bin/semlang.js" },
       main: "./dist/src/index.js",
       types: "./dist/src/index.d.ts",
       repository: {
         type: "git",
         url: "git+https://github.com/Unsupervisedcom/semlang.git",
       },
-      publishConfig: { registry: "https://registry.npmjs.org/" },
+      publishConfig: { registry: "https://registry.npmjs.org/", access: "public" },
     });
     expect(packageJson.private).not.toBe(true);
     expect(packageJson.exports?.["."]).toMatchObject({
@@ -59,7 +59,8 @@ describe("package publishing metadata", () => {
   });
 
   it("publishes to npm only after GitHub releases are published", async () => {
-    // 07.02.001, 07.02.002, 07.02.003, 07.02.004, 07.02.005: release
+    // 07.02.001, 07.02.002, 07.02.003, 07.02.004, 07.02.005,
+    // 07.02.006: release
     // automation must validate first, use the npm token secret, and publish
     // the obfuscated npm pack output with provenance.
     const workflow = await fs.readFile(path.join(root, ".github/workflows/release.yml"), "utf8");
@@ -69,7 +70,7 @@ describe("package publishing metadata", () => {
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("registry-url: https://registry.npmjs.org/");
     expect(workflow).toContain("npm run check");
-    expect(workflow).toContain("npm publish --provenance");
+    expect(workflow).toContain("npm publish --provenance --access public");
     expect(workflow).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
   });
 

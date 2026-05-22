@@ -26,3 +26,4 @@ GitHub releases are the distribution boundary for npm publication.
 - 07.02.003: The release workflow MUST authenticate to npm with the repository `NPM_TOKEN` secret.
 - 07.02.004: The release workflow SHOULD publish with npm provenance when supported by the runner and registry.
 - 07.02.005: The release workflow MUST publish the obfuscated release build rather than the plain TypeScript compiler output.
+- 07.02.006: The release workflow MUST explicitly publish the package with public npm access.

@@ -25,10 +25,11 @@
     "node": ">=20"
   },
   "bin": {
-    "semlang": "./bin/semlang.js"
+    "semlang": "bin/semlang.js"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
