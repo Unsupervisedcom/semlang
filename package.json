@@ -1,19 +1,42 @@
 {
   "name": "semlang",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Unsupervisedcom/semlang.git"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist/src",
+    "docs",
+    "examples",
+    "requirements"
+  ],
   "engines": {
     "node": ">=20"
   },
   "bin": {
     "semlang": "./bin/semlang.js"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:release": "npm run build && node scripts/obfuscate-dist.mjs",
     "check": "prettier --check . && eslint . && npm test",
     "fix": "eslint . --fix && prettier --write .",
     "prepare": "git config core.hooksPath .husky || true",
+    "prepack": "npm run build:release",
     "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --exclude test/integration.test.ts",
@@ -39,6 +62,7 @@
     "eslint": "^10.4.0",
     "globals": "^17.6.0",
     "husky": "^9.1.7",
+    "js-confuser": "^2.0.1",
     "prettier": "^3.8.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

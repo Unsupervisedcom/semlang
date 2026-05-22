@@ -34,6 +34,7 @@ import {
   type JsonValue,
 } from "./mcp-utils.js";
 import { qualifiedRoleName } from "./roles.js";
+import { getSemLangVersion } from "./version.js";
 import type {
   ActionDecl,
   ActionEditDecl,
@@ -859,7 +860,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 }
 
 export function createSemLangMcpServer(api: SemLangMcpApi = createSemLangMcp()): McpServer {
-  const server = new McpServer({ name: "semlang-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "semlang-mcp", version: getSemLangVersion() });
   const inputSchema = z.object({}).passthrough();
   for (const [name, handler] of Object.entries(api.tools)) {
     server.registerTool(

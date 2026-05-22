@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import { Command, Option } from "commander";
 import { compileFile, resolveSemLangMcpSettings, runSemLangMcpStdioServerWithSettings } from "./index.js";
 import type { SemLangMcpSettings } from "./mcp.js";
+import { getSemLangVersion } from "./version.js";
 
 const allowedEmits = ["ast", "model", "malloy", "json-schema"] as const;
 type CompileEmit = (typeof allowedEmits)[number];
@@ -21,7 +22,7 @@ async function main(argv: string[]): Promise<void> {
 function createProgram(): Command {
   const app = new Command()
     .name("semlang")
-    .version("0.1.0")
+    .version(getSemLangVersion())
     .description("Compile SemLang semantic models into Malloy or start SemLang MCP mode.");
 
   app
