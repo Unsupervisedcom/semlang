@@ -62,15 +62,16 @@ describe("package publishing metadata", () => {
     // 07.02.001, 07.02.002, 07.02.003, 07.02.004, 07.02.005,
     // 07.02.006: release
     // automation must validate first, use the npm token secret, and publish
-    // the obfuscated npm pack output with provenance.
+    // the obfuscated npm pack output with public npm access.
     const workflow = await fs.readFile(path.join(root, ".github/workflows/release.yml"), "utf8");
 
     expect(workflow).toContain("release:");
     expect(workflow).toContain("published");
-    expect(workflow).toContain("id-token: write");
+    expect(workflow).not.toContain("id-token: write");
     expect(workflow).toContain("registry-url: https://registry.npmjs.org/");
     expect(workflow).toContain("npm run check");
-    expect(workflow).toContain("npm publish --provenance --access public");
+    expect(workflow).toContain("npm publish --access public");
+    expect(workflow).not.toContain("--provenance");
     expect(workflow).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
   });
 
