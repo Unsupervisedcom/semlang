@@ -6,6 +6,13 @@
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import maxTestsPerFile from "./eslint-rules/max-tests-per-file.js";
+
+const semlangRules = {
+  rules: {
+    "max-tests-per-file": maxTestsPerFile,
+  },
+};
 
 export default tseslint.config(
   {
@@ -30,6 +37,15 @@ export default tseslint.config(
           varsIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    files: ["test/**/*.test.ts"],
+    plugins: {
+      semlang: semlangRules,
+    },
+    rules: {
+      "semlang/max-tests-per-file": ["error", { max: 10 }],
     },
   },
 );
