@@ -272,6 +272,26 @@ describe("SemLang MCP retail narratives", () => {
     const piiQuery = expectQuery(piiValidated, "pii_customer_service_returns", "ReturnLine");
     expect(piiQuery.lenses).toEqual(["with_pii"]);
 
+    // 02.05.024: temporary lens queries reuse the cached base Malloy and only
+    // append the lens-local Malloy needed for the requested query.
+    mcp.getContext().sourceText = "package retail.corrupted\nthis is not valid SemLang";
+    const temporaryLensQuery = await mcp.tools.query_run({
+      root: "SaleLine",
+      lens: "western_margin_operations",
+      where: 'margin_risk_band = "intervene"',
+      aggregate: ["lines_to_intervene", "intervention_net_sales"],
+      query_limit_seconds: 30,
+    });
+    expectOk(temporaryLensQuery);
+    expect(temporaryLensQuery).toMatchObject({
+      queryName: "__mcp_query",
+      root: "SaleLine",
+      lenses: ["western_margin_operations"],
+    });
+    expect(temporaryLensQuery).not.toHaveProperty("malloy");
+    expect(text(temporaryLensQuery.queryMalloy)).toContain("query: __mcp_query is retail_line_items____mcp_query ->");
+    expect(asObject(temporaryLensQuery.execution)).toMatchObject({ ok: true });
+
     // 02.05.012: Running a lens query should produce lens-local query Malloy
     // and hand execution to the Malloy runtime without the full model.
     const run = await mcp.tools.query_run({ query: "western_margin_intervention_queue", query_limit_seconds: 30 });

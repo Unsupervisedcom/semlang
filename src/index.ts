@@ -12,7 +12,7 @@ import { resolveSemLang } from "./resolver.js";
 import { emitJsonSchema } from "./schema.js";
 import type { CompileOptions, CompileResult, PackageLoader } from "./types.js";
 
-export { emitMalloy } from "./emitter.js";
+export { emitMalloy, emitMalloyQuery } from "./emitter.js";
 export {
   createSemLangMcp,
   createSemLangMcpServer,
@@ -21,8 +21,8 @@ export {
   runSemLangMcpStdioServerWithSettings,
 } from "./mcp.js";
 export { lintSemanticModel } from "./lint.js";
-export { parseSemLang } from "./parser.js";
-export { applyQueryLenses, resolveSemLang } from "./resolver.js";
+export { parseSemLang, parseSemLangQuery } from "./parser.js";
+export { applyQueryLenses, resolveSemLang, validateQueryAgainstModel } from "./resolver.js";
 export { emitJsonSchema, semlangVocabularyUri } from "./schema.js";
 export type * from "./types.js";
 

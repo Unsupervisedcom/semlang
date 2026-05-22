@@ -44,6 +44,11 @@ export interface CompileOptions {
   lintWarnings?: boolean;
 }
 
+export interface ParseQueryResult {
+  query?: QueryDecl;
+  diagnostics: Diagnostic[];
+}
+
 export interface PackageLoader {
   load(
     path: string,

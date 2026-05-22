@@ -12,7 +12,15 @@ import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { applyQueryLenses, compileFile, compileSemLang, emitMalloy, filePackageLoader } from "./index.js";
+import {
+  applyQueryLenses,
+  compileFile,
+  compileSemLang,
+  emitMalloyQuery,
+  filePackageLoader,
+  parseSemLangQuery,
+  validateQueryAgainstModel,
+} from "./index.js";
 import {
   discoverMalloyConfigPath,
   executeMalloyQuery,
@@ -633,31 +641,48 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     ) {
       const diagnostics: Diagnostic[] = [];
       const queryModel = query.lenses.length > 0 ? applyQueryLenses(model, query, diagnostics) : model;
-      const emitted = queryModel ? emitMalloy(model) : { malloy: "", diagnostics };
-      const allDiagnostics = [...diagnostics, ...emitted.diagnostics];
+      const malloy = queryModel ? (context.malloy ?? "") : "";
       return {
-        ok: !hasErrors(allDiagnostics),
+        ok: Boolean(queryModel) && !hasErrors(diagnostics),
         query: jsonSafe(query),
-        diagnostics: jsonSafe(allDiagnostics),
-        malloy: emitted.malloy,
-        queryMalloy: extractMalloyQuery(emitted.malloy, query.name),
+        diagnostics: jsonSafe(diagnostics),
+        malloy,
+        queryMalloy: extractMalloyQuery(malloy, query.name),
       };
     }
 
     const queryDecl = buildTemporaryQuery(model, args);
     if (queryDecl.ok !== true) return jsonSafe(queryDecl) as Record<string, JsonValue>;
-    const compiled = await compileSemLang(`${context.sourceText ?? ""}\n\n${queryDecl.queryText}`, {
-      filePath: context.filePath,
-      packageLoader: filePackageLoader(),
-    });
+    const parsed = parseSemLangQuery(queryDecl.queryText, { filePath: context.filePath });
+    const duplicateDiagnostics: Diagnostic[] =
+      parsed.query && model.queries.some((candidate) => candidate.name === parsed.query?.name)
+        ? [
+            {
+              severity: "error",
+              code: "DUPLICATE_QUERY",
+              message: `Duplicate query ${parsed.query.name}.`,
+              location: parsed.query.location,
+            },
+          ]
+        : [];
+    const validationDiagnostics = parsed.query ? validateQueryAgainstModel(model, parsed.query) : [];
+    const emitted = parsed.query ? emitMalloyQuery(model, parsed.query) : { malloy: "", diagnostics: [] };
+    const diagnostics = [
+      ...parsed.diagnostics,
+      ...duplicateDiagnostics,
+      ...validationDiagnostics,
+      ...emitted.diagnostics,
+    ];
+    const ok = Boolean(parsed.query) && !hasErrors(diagnostics);
+    const malloy = ok ? cachedMalloyWithQuery(context, emitted.malloy) : null;
     return {
-      ok: Boolean(compiled.model) && !hasErrors(compiled.diagnostics),
-      queryName: queryDecl.queryName,
-      root: queryDecl.root,
-      lenses: jsonSafe(queryDecl.lenses),
-      diagnostics: jsonSafe(compiled.diagnostics),
-      malloy: compiled.malloy ?? null,
-      queryMalloy: compiled.malloy ? extractMalloyQuery(compiled.malloy, queryDecl.queryName) : null,
+      ok,
+      queryName: parsed.query?.name ?? queryDecl.queryName,
+      root: parsed.query?.root ?? queryDecl.root,
+      lenses: jsonSafe(parsed.query?.lenses ?? queryDecl.lenses),
+      diagnostics: jsonSafe(diagnostics),
+      malloy,
+      queryMalloy: malloy ? extractMalloyQuery(malloy, parsed.query?.name ?? queryDecl.queryName) : null,
     };
   }
 
@@ -1009,6 +1034,13 @@ function executionQueryName(args: Record<string, unknown>, validation: Record<st
     stringValue(args.queryName ?? args.query_name) ??
     stringValue(args.name)
   );
+}
+
+function cachedMalloyWithQuery(context: SemLangMcpContext, queryMalloy: string): string {
+  const baseMalloy = context.malloy?.trimEnd();
+  if (!baseMalloy) return queryMalloy;
+  if (!queryMalloy) return baseMalloy;
+  return `${baseMalloy}\n\n${queryMalloy}`;
 }
 
 function executionModelFilePath(context: SemLangMcpContext): string | undefined {

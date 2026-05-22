@@ -1017,6 +1017,37 @@ export function applyQueryLenses(
   return clone;
 }
 
+export function validateQueryAgainstModel(model: SemanticModel, query: QueryDecl): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const queryModel = applyQueryLenses(model, query, diagnostics);
+  if (!queryModel) return diagnostics;
+  const queryRoleIndex = buildRoleIndex(queryModel);
+  for (const concept of queryModel.concepts.values()) {
+    validateConceptMembers(queryModel, queryRoleIndex, concept, concept, diagnostics);
+  }
+  const root = queryModel.concepts.get(query.root);
+  if (!root) {
+    diagnostics.push({
+      severity: "error",
+      code: "UNKNOWN_QUERY_ROOT",
+      message: `Query ${query.name} targets unknown concept ${query.root}.`,
+      location: query.location,
+    });
+    return diagnostics;
+  }
+  if (query.view && !root.views.some((view) => view.name === query.view)) {
+    diagnostics.push({
+      severity: "error",
+      code: "UNKNOWN_VIEW",
+      message: `Query ${query.name} targets unknown view ${query.view} on ${root.name}.`,
+      location: query.location,
+    });
+    return diagnostics;
+  }
+  validateQueryBody(queryModel, queryRoleIndex, root, query, diagnostics);
+  return diagnostics;
+}
+
 function applyLens(
   model: SemanticModel,
   lensName: string,

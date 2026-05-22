@@ -84,3 +84,4 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.021: `action.invoke` generated write SQL SHOULD avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default lowering path.
 - 02.05.022: `action.invoke` SQL execution MUST apply a positive integer execution deadline, defaulting to 30 seconds when no `query_limit_seconds` value is supplied.
 - 02.05.023: MCP execution-control parameters for query deadlines MUST accept timer-safe positive integer second values that arrive as strings through MCP argument serialization.
+- 02.05.024: `query.run` MUST reuse the compiled Malloy model cached by `set_ontology_source` for named and temporary queries instead of regenerating the ontology's base Malloy model for each call.

@@ -102,6 +102,43 @@ export function emitMalloy(model: SemanticModel): {
   return buildMalloy(chunks, diagnostics);
 }
 
+export function emitMalloyQuery(
+  model: SemanticModel,
+  query: QueryDecl,
+): {
+  malloy: string;
+  diagnostics: Diagnostic[];
+  sourceMap: MalloySourceMapEntry[];
+} {
+  const diagnostics: Diagnostic[] = [];
+  const chunks: EmittedBlock[] = [];
+  const queryModel = query.lenses.length > 0 ? applyQueryLenses(model, query, diagnostics) : model;
+  if (!queryModel) return buildMalloy(chunks, diagnostics);
+  const names = new Map(
+    [...queryModel.concepts].map(([name, concept]) => {
+      const sourceName = query.lenses.length > 0 ? `${concept.sourceName}__${query.name}` : concept.sourceName;
+      return [name, sourceName];
+    }),
+  );
+  if (query.lenses.length > 0) {
+    const lensConcepts = [...queryModel.concepts.values()];
+    const lensBaseSources = conceptBaseSourceNames(lensConcepts, names);
+    chunks.push(...emitConceptBaseSources(queryModel, lensConcepts, lensBaseSources, names));
+    const lensDeclaredSources = baseDeclaredSourceNames(model);
+    for (const concept of queryModel.concepts.values()) {
+      chunks.push(emitConcept(queryModel, concept, names, lensDeclaredSources, lensBaseSources));
+      lensDeclaredSources.add(names.get(concept.name) ?? concept.sourceName);
+    }
+  }
+  const rootSource = names.get(query.root) ?? query.root;
+  chunks.push(emitQuery(query, rootSource, queryModel, queryModel.concepts.get(query.root)));
+  return buildMalloy(chunks, diagnostics);
+}
+
+function baseDeclaredSourceNames(model: SemanticModel): Set<string> {
+  return new Set([...model.sources.keys(), ...[...model.concepts.values()].map((concept) => concept.sourceName)]);
+}
+
 function conceptUsesQuerySource(model: SemanticModel, concept: ResolvedConcept): boolean {
   const source = concept.source;
   if (source.kind !== "reference") return false;

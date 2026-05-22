@@ -88,6 +88,10 @@ concept InlineOrder is event from duckdb.sql("""
     });
     expect(text(asObject(invalidQuery.execution).transactionId)).toMatch(/^[0-9a-f-]{36}$/);
 
+    // 02.05.024: temporary query.run calls use the cached Malloy base model
+    // from set_ontology_source instead of recompiling the stored source text.
+    mcp.getContext().sourceText = "package mcp.corrupted\nthis is no longer valid SemLang";
+
     // 02.05.009 and 02.05.010: query.run requires an explicit
     // query_limit_seconds execution limit and returns elapsed runtime.
     const run = await mcp.tools.query_run({

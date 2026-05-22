@@ -35,14 +35,15 @@ import {
   type JoinDecl,
   type LensDecl,
   type MetadataEntry,
-  type SemLangAst,
   type ParseResult,
+  type ParseQueryResult,
   type QueryBodyDecl,
   type QueryDecl,
   type QueryItemDecl,
   type QueryNestDecl,
   type RefinementDecl,
   type RoleDecl,
+  type SemLangAst,
   type SourceDecl,
   type SourceExpression,
   type SourceLocation,
@@ -181,6 +182,50 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
   }
 
   return { ast: diagnostics.some((diagnostic) => diagnostic.severity === "error") ? undefined : ast, diagnostics };
+}
+
+export function parseSemLangQuery(source: string, options: CompileOptions = {}): ParseQueryResult {
+  const diagnostics: Diagnostic[] = [];
+  const lines = toLines(source);
+  let query: QueryDecl | undefined;
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const trimmed = line.stripped.trim();
+    if (trimmed === "") {
+      i += 1;
+      continue;
+    }
+    if (!/^query:/.test(trimmed)) {
+      diagnostics.push(
+        error("UNEXPECTED_TOP_LEVEL", `Unexpected top-level syntax: ${trimmed}`, options.filePath, line),
+      );
+      i += 1;
+      continue;
+    }
+    if (query) {
+      diagnostics.push(error("DUPLICATE_QUERY", "Only one query declaration is allowed.", options.filePath, line));
+      i += 1;
+      continue;
+    }
+    const block = collectBraceBlock(lines, i);
+    diagnoseUnclosedBlock(block, options.filePath, diagnostics);
+    query = parseQuery(block.header, block.body, options.filePath, diagnostics);
+    i = block.end;
+  }
+
+  const hasParseErrors = diagnostics.some((diagnostic) => diagnostic.severity === "error");
+  if (!query && !hasParseErrors) {
+    diagnostics.push({
+      severity: "error",
+      code: "MISSING_QUERY",
+      message: "Provide a query declaration.",
+      location: { file: options.filePath, line: 1, column: 1 },
+    });
+  }
+
+  return { query: diagnostics.some((diagnostic) => diagnostic.severity === "error") ? undefined : query, diagnostics };
 }
 
 function parseType(
