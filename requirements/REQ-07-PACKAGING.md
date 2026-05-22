@@ -27,3 +27,12 @@ GitHub releases are the distribution boundary for npm publication.
 - 07.02.004: The release workflow MUST NOT request npm provenance while the source repository is private because npm provenance only supports public GitHub repositories.
 - 07.02.005: The release workflow MUST publish the obfuscated release build rather than the plain TypeScript compiler output.
 - 07.02.006: The release workflow MUST explicitly publish the package with public npm access.
+
+## 07.03 Published Package Validation
+
+The repository must document and exercise the consumer-facing npm package after publication.
+
+- 07.03.001: The root README MUST document installing SemLang from the published `semlang` npm package.
+- 07.03.002: The repository MUST provide a reusable smoke-test utility that installs the published npm package in an isolated temporary project.
+- 07.03.003: The published package smoke-test utility MUST validate both the public ESM import surface and the `semlang` CLI entrypoint.
+- 07.03.004: The published package smoke-test utility SHOULD clean up its temporary project after validation unless a debugging option asks to keep it.

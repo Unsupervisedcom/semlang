@@ -40,7 +40,34 @@ describe("package publishing metadata", () => {
     expect(packageJson.files).toEqual(expect.arrayContaining(["bin", "dist/src"]));
     expect(packageJson.scripts["build:release"]).toBe("npm run build && node scripts/obfuscate-dist.mjs");
     expect(packageJson.scripts.prepack).toBe("npm run build:release");
+    expect(packageJson.scripts["validate:published"]).toBe("node scripts/validate-published-package.mjs");
     expect(packageJson.devDependencies).toHaveProperty("js-confuser");
+  });
+
+  it("documents npm installation from the published package", async () => {
+    // 07.03.001: npm consumers must be able to discover the published package
+    // install path from the repository README.
+    const readme = await fs.readFile(path.join(root, "README.md"), "utf8");
+
+    expect(readme).toContain("npm install semlang");
+    expect(readme).toContain('import { compileSemLang } from "semlang"');
+    expect(readme).toContain("semlang compile");
+  });
+
+  it("provides a reusable published package smoke-test utility", async () => {
+    // 07.03.002, 07.03.003, 07.03.004: published package validation must
+    // install from npm in isolation, cover library import and CLI behavior, and
+    // clean up temporary projects unless debugging keeps them.
+    const script = await fs.readFile(path.join(root, "scripts", "validate-published-package.mjs"), "utf8");
+
+    expect(script).toContain("npm");
+    expect(script).toContain("install");
+    expect(script).toContain('import { compileSemLang, parseSemLang } from "semlang"');
+    expect(script).toContain('bin", "semlang.js"');
+    expect(script).toContain("compile");
+    expect(script).toContain("--keep-temp");
+    expect(script).toContain("SEMLANG_KEEP_PUBLISHED_SMOKE_TEMP");
+    expect(script).toContain("fs.rm(tempDir, { recursive: true, force: true })");
   });
 
   it("resolves runtime version surfaces from package metadata", async () => {
