@@ -169,13 +169,16 @@ function emitFieldSchema(
   options: { identity?: boolean; unique?: boolean } = {},
 ): Record<string, unknown> {
   const schema = typeReferenceOrPrimitive(model, field.typeName);
+  const description = field.description ? { description: stripQuoted(field.description) } : {};
   if (field.nullable) {
     return {
       anyOf: [schema, { type: "null" }],
+      ...description,
       ...(options.identity ? { "x-semlang-identity": true } : {}),
       ...(options.unique ? { "x-semlang-unique": true } : {}),
     };
   }
+  Object.assign(schema, description);
   if (options.identity) schema["x-semlang-identity"] = true;
   if (options.unique) schema["x-semlang-unique"] = true;
   return schema;
@@ -188,6 +191,7 @@ function emitDefinition(model: SemanticModel, definition: DefinitionDecl): Recor
     type: definition.typeName
       ? nullableSchema(typeReferenceOrPrimitive(model, definition.typeName), Boolean(definition.nullable))
       : undefined,
+    description: definition.description ? stripQuoted(definition.description) : undefined,
   };
 }
 

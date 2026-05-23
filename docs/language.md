@@ -100,8 +100,12 @@ V1 concept stereotypes are:
 ```semlang
 field:
   store_id :: StoreId
-  closed_date :: BusinessDate?
+  closed_date :: BusinessDate? {
+    description: "Date the store stopped accepting orders."
+  }
 ```
+
+Identities, fields, dimensions, and measures may include a block-level `description`. Field and definition blocks can also carry write mappings where write behavior is declared.
 
 Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading. Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
 
@@ -191,7 +195,9 @@ dimension:
   margin_amount is net_sales_amount - merchandise_cost_amount
 
 measure:
-  net_sales is sum(net_sales_amount)
+  net_sales is sum(net_sales_amount) {
+    description: "Total recognized net sales."
+  }
 
 view: sales_by_region_category is {
   group_by:

@@ -96,6 +96,72 @@ concept Customer is kind from duckdb.table('customers') {
     });
   });
 
+  it("surfaces member descriptions in ontology introspection and semantic search", async () => {
+    // 03.03.008, 03.04.008, and 04.02.008: member descriptions are preserved
+    // for MCP ontology introspection and search.
+    const mcp = createSemLangMcp();
+
+    const source = await setInlineOntology(
+      mcp,
+      `
+package mcp.member_descriptions
+
+concept Booking is kind from duckdb.table('bookings') {
+  identity booking_id :: string {
+    description: "Stable booking key used by support."
+  }
+  field:
+    amount :: number {
+      description: "Booked commercial value before refunds."
+    }
+  dimension:
+    amount_band :: string is case when amount > 100 then 'large' else 'standard' end {
+      description: "Commercial booking size bucket."
+    }
+  measure:
+    booked_value :: number is sum(amount) {
+      description: "Total booked commercial value."
+    }
+}
+`,
+    );
+    expectOk(source);
+
+    const described = await mcp.tools.ontology_describe_concept({ concept: "Booking" });
+    expectOk(described);
+    const concept = asObject(described.concept);
+    expect(records(concept.identities)[0]).toMatchObject({
+      name: "booking_id",
+      description: "Stable booking key used by support.",
+    });
+    expect(records(concept.fields)[0]).toMatchObject({
+      name: "amount",
+      description: "Booked commercial value before refunds.",
+    });
+    expect(records(concept.dimensions)[0]).toMatchObject({
+      name: "amount_band",
+      description: "Commercial booking size bucket.",
+    });
+    expect(records(concept.measures)[0]).toMatchObject({
+      name: "booked_value",
+      description: "Total booked commercial value.",
+    });
+
+    const metric = await mcp.tools.ontology_explain_metric({ metric: "booked_value" });
+    expectOk(metric);
+    expect(records(metric.metrics)[0]).toMatchObject({
+      name: "booked_value",
+      description: "Total booked commercial value.",
+    });
+
+    const search = await mcp.tools.semantic_search_terms({ question: "commercial value" });
+    expectOk(search);
+    expect(records(search.metrics)[0]).toMatchObject({ name: "booked_value" });
+    expect(records(search.members).map((member) => member.name)).toEqual(
+      expect.arrayContaining(["amount", "amount_band", "booked_value"]),
+    );
+  });
+
   it("returns lint warnings when setting ontology source but not during query validation", async () => {
     // 05.07.001: lint warnings are validation-surface diagnostics and should
     // not be repeated by ordinary query validation.

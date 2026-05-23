@@ -67,18 +67,30 @@ Concept row schemas export under `$defs` names beginning with `concept.`:
       "type": "object",
       "required": ["store_id", "closed_date"],
       "properties": {
-        "store_id": { "$ref": "#/$defs/type.StoreId", "x-semlang-identity": true },
+        "store_id": {
+          "$ref": "#/$defs/type.StoreId",
+          "description": "Stable store key.",
+          "x-semlang-identity": true
+        },
         "closed_date": {
+          "description": "Date the store stopped accepting orders.",
           "anyOf": [{ "$ref": "#/$defs/type.BusinessDate" }, { "type": "null" }]
         }
       },
+      "x-semlang-measures": [
+        {
+          "name": "store_count",
+          "description": "Count of store rows.",
+          "expression": "count()"
+        }
+      ],
       "x-semlang-stereotype": "kind"
     }
   }
 }
 ```
 
-Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata. Role metadata includes the local name, qualified name, predicate, optional label, and aliases.
+Identity and field descriptions export as property-level `description` values. Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata; dimension and measure descriptions are preserved inside those metadata objects. Role metadata includes the local name, qualified name, predicate, optional label, and aliases.
 
 ## CLI
 

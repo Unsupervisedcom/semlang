@@ -327,6 +327,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
         .map((measure) => ({
           concept: concept.name,
           name: measure.name,
+          description: measure.description ?? null,
           expression: measure.expression,
           typeName: measure.typeName ?? null,
           dependencies: expressionIdentifiers(measure.expression),
@@ -2125,11 +2126,13 @@ async function resolveBusinessEntity(
         identifiers: identifiers.map((field) => ({
           name: field.name,
           typeName: field.typeName,
+          description: field.description ?? null,
           unique: "unique" in field ? field.unique : true,
         })),
         candidateFields: candidateFields.map((field) => ({
           name: field.name,
           kind: "expression" in field ? "dimension" : "field",
+          description: field.description ?? null,
           typeName: field.typeName ?? null,
           expression: "expression" in field ? field.expression : null,
         })),
@@ -2224,8 +2227,9 @@ function searchModel(model: SemanticModel, text: string, limit: number) {
       concept.measures.map((measure) => ({
         concept: concept.name,
         name: measure.name,
+        description: measure.description ?? null,
         expression: measure.expression,
-        text: `${concept.name} ${measure.name} ${measure.expression}`,
+        text: `${concept.name} ${measure.name} ${measure.description ?? ""} ${measure.expression}`,
       })),
     ),
     tokens,
@@ -2313,8 +2317,18 @@ function scored<T extends { text: string }>(
 
 function memberSearchItems(concept: ResolvedConcept) {
   return [
-    ...concept.identities.map((value) => ({ kind: "identity", name: value.name, text: value.typeName, value })),
-    ...concept.fields.map((value) => ({ kind: "field", name: value.name, text: value.typeName, value })),
+    ...concept.identities.map((value) => ({
+      kind: "identity",
+      name: value.name,
+      text: `${value.description ?? ""} ${value.typeName}`,
+      value,
+    })),
+    ...concept.fields.map((value) => ({
+      kind: "field",
+      name: value.name,
+      text: `${value.description ?? ""} ${value.typeName}`,
+      value,
+    })),
     ...concept.joins.map((value) => ({
       kind: "join",
       name: value.name,
@@ -2332,8 +2346,18 @@ function memberSearchItems(concept: ResolvedConcept) {
         aliases: value.aliases,
       },
     })),
-    ...concept.dimensions.map((value) => ({ kind: "dimension", name: value.name, text: value.expression, value })),
-    ...concept.measures.map((value) => ({ kind: "measure", name: value.name, text: value.expression, value })),
+    ...concept.dimensions.map((value) => ({
+      kind: "dimension",
+      name: value.name,
+      text: `${value.description ?? ""} ${value.expression}`,
+      value,
+    })),
+    ...concept.measures.map((value) => ({
+      kind: "measure",
+      name: value.name,
+      text: `${value.description ?? ""} ${value.expression}`,
+      value,
+    })),
     ...concept.validations.map((value) => ({
       kind: "validation",
       name: value.name,
@@ -2348,8 +2372,8 @@ function memberSearchItems(concept: ResolvedConcept) {
 
 function conceptMembersSearchText(members: ResolvedConcept | LensDecl["refinements"][number]["members"]) {
   return [
-    members.identities.map((item) => `${item.name} ${item.typeName}`).join(" "),
-    members.fields.map((item) => `${item.name} ${item.typeName}`).join(" "),
+    members.identities.map((item) => `${item.name} ${item.description ?? ""} ${item.typeName}`).join(" "),
+    members.fields.map((item) => `${item.name} ${item.description ?? ""} ${item.typeName}`).join(" "),
     members.joins.map((item) => `${item.name} ${item.target} ${item.on} ${item.at ?? ""}`).join(" "),
     members.roles
       .map(
@@ -2357,8 +2381,8 @@ function conceptMembersSearchText(members: ResolvedConcept | LensDecl["refinemen
           `${item.name} ${"sourceName" in members ? qualifiedRoleName(members.name, item.name) : ""} ${item.label ?? ""} ${item.aliases.join(" ")} ${item.predicate}`,
       )
       .join(" "),
-    members.dimensions.map((item) => `${item.name} ${item.expression}`).join(" "),
-    members.measures.map((item) => `${item.name} ${item.expression}`).join(" "),
+    members.dimensions.map((item) => `${item.name} ${item.description ?? ""} ${item.expression}`).join(" "),
+    members.measures.map((item) => `${item.name} ${item.description ?? ""} ${item.expression}`).join(" "),
     members.validations.map((item) => `${item.name} ${item.description ?? ""} ${item.predicate ?? ""}`).join(" "),
     members.temporal.map((item) => `${item.axis} ${item.expression}`).join(" "),
     members.where.map((item) => item.expression).join(" "),

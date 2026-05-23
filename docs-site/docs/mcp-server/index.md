@@ -77,9 +77,9 @@ If your MCP client does not start in the project directory, pass `--project-dir`
 Common tools include:
 
 - `set_ontology_source` compiles one or more SemLang files into the MCP context.
-- `semantic.search_terms` finds relevant concepts, fields, metrics, queries, lenses, and actions.
+- `semantic.search_terms` finds relevant concepts, fields, metrics, queries, lenses, and actions, including matches from declared descriptions.
 - `catalog.resolve_entity` resolves ontology names and, when local DuckDB example data is available, business labels.
-- `ontology.describe_concept` explains a concept and its semantic members.
+- `ontology.describe_concept` explains a concept and its semantic members, including member descriptions when declared.
 - `ontology.describe_action`, `ontology.describe_role`, `ontology.describe_roles`, `ontology.explain_metric`, and `ontology.describe_temporal_axes` expose focused ontology details.
 - `ontology.find_paths` finds join paths between concepts.
 - `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, and `lens.plan` help agents select and apply semantic overlays.

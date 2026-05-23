@@ -22,7 +22,7 @@ Describes one concept and its members, optionally after applying lenses.
 
 ### Output
 
-Returns source details, identities, fields, joins, roles, dimensions, measures, views, validations, temporal axes, actions, filters, and role base names.
+Returns source details, identities, fields, joins, roles, dimensions, measures, views, validations, temporal axes, actions, filters, and role base names. Member descriptions are included when declared.
 
 ## `ontology.describe_action`
 
@@ -87,7 +87,7 @@ Explains measures by name and optional concept.
 
 ### Output
 
-Returns matching measures with concept, expression, type name, dependencies, and source location.
+Returns matching measures with concept, description, expression, type name, dependencies, and source location.
 
 ## `ontology.describe_temporal_axes`
 

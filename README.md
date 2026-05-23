@@ -33,11 +33,17 @@ type: CustomerId is string {
 }
 
 concept Customer is kind from duckdb.table('customers') {
-  identity customer_id :: CustomerId
+  identity customer_id :: CustomerId {
+    description: "Stable customer key."
+  }
   field:
-    name :: string
+    name :: string {
+      description: "Display name for the customer."
+    }
   measure:
-    rows is count()
+    rows is count() {
+      description: "Count of customer rows."
+    }
 }
 
 query: customer_rollup is Customer -> {

@@ -43,7 +43,7 @@ Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded f
 
 ## `semantic.search_terms`
 
-Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase. Role search includes qualified role names, labels, aliases, and predicates.
+Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase. Member descriptions contribute to matches. Role search includes qualified role names, labels, aliases, and predicates.
 
 ### Inputs
 

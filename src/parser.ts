@@ -662,8 +662,15 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     }
 
     if (/^identity\b/.test(trimmed)) {
-      members.identities.push(...parseIdentityLine(line, file, diagnostics));
-      i += 1;
+      if (trimmed.includes("{")) {
+        const block = collectBraceBlock(lines, i);
+        diagnoseUnclosedBlock(block, file, diagnostics);
+        members.identities.push(...parseIdentityLine(block.header, block.body, file, diagnostics));
+        i = block.end;
+      } else {
+        members.identities.push(...parseIdentityLine(line, [], file, diagnostics));
+        i += 1;
+      }
       continue;
     }
 
@@ -788,15 +795,24 @@ function parseDescription(text: string): string {
   return quoted ? quoted[2]! : trimmed;
 }
 
-function parseIdentityLine(line: SourceLine, file: string | undefined, diagnostics: Diagnostic[]): IdentityField[] {
-  const rest = line.stripped.trim().replace(/^identity\s+/, "");
+function parseIdentityLine(
+  line: SourceLine,
+  body: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): IdentityField[] {
+  const rest = line.stripped
+    .trim()
+    .replace(/\s*\{\s*$/, "")
+    .replace(/^identity\s+/, "");
+  const description = parseMemberDescriptionOnly(body, file, diagnostics);
   return rest
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean)
     .flatMap((part) => {
       const parsed = parseTypedName(part, line, file, diagnostics);
-      return parsed ? [{ ...parsed, location: location(file, line.line, line.text, parsed.name) }] : [];
+      return parsed ? [{ ...parsed, description, location: location(file, line.line, line.text, parsed.name) }] : [];
     });
 }
 
@@ -836,13 +852,14 @@ function parseFieldHeader(
   const withoutModifiers = text.replace(/\s+(?:unique|writeable)\b/g, "").trim();
   const parsed = parseTypedName(withoutModifiers, header, file, diagnostics);
   if (!parsed) return undefined;
-  const explicitMappings = parseWriteMappings(body, file, diagnostics);
+  const metadata = parseDescribedWriteMappings(body, file, diagnostics);
   const writeMappings =
-    writeable && explicitMappings.length === 0
+    writeable && metadata.writeMappings.length === 0
       ? [{ kind: "default" as const, location: location(file, header.line, header.text, parsed.name) }]
-      : explicitMappings;
+      : metadata.writeMappings;
   return {
     ...parsed,
+    description: metadata.description,
     unique,
     writeable,
     writeMappings,
@@ -1042,14 +1059,16 @@ function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnos
       diagnostics.push(error("INVALID_DEFINITION", `Invalid definition: ${text}`, file, group[0]!));
       return [];
     }
+    const metadata = parseDescribedWriteMappings(bodyLines, file, diagnostics);
     return [
       {
         name: match[1]!,
         typeName: match[2],
         nullable: Boolean(match[3]),
         expression: match[4]!.trim(),
+        description: metadata.description,
         writeable,
-        writeMappings: parseWriteMappings(bodyLines, file, diagnostics),
+        writeMappings: metadata.writeMappings,
         location: location(file, header.line, header.text, match[1]),
       },
     ];
@@ -1063,6 +1082,46 @@ function splitDefinitionGroup(group: SourceLine[]): { headerLines: SourceLine[];
     headerLines: group.slice(0, braceIndex + 1),
     bodyLines: group.slice(braceIndex + 1, group.at(-1)?.stripped.trim() === "}" ? -1 : undefined),
   };
+}
+
+function parseDescribedWriteMappings(
+  lines: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): { description?: string; writeMappings: WriteMappingDecl[] } {
+  const writeLines: SourceLine[] = [];
+  let description: string | undefined;
+  for (const line of lines) {
+    const trimmed = line.stripped.trim();
+    if (!trimmed || trimmed === "}") {
+      writeLines.push(line);
+      continue;
+    }
+    if (/^description:\s*/.test(trimmed)) {
+      description = parseDescription(trimmed.replace(/^description:\s*/, ""));
+      continue;
+    }
+    writeLines.push(line);
+  }
+  return { description, writeMappings: parseWriteMappings(writeLines, file, diagnostics) };
+}
+
+function parseMemberDescriptionOnly(
+  lines: SourceLine[],
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): string | undefined {
+  let description: string | undefined;
+  for (const line of trimBlankEdges(lines)) {
+    const trimmed = line.stripped.trim();
+    if (!trimmed || trimmed === "}") continue;
+    if (/^description:\s*/.test(trimmed)) {
+      description = parseDescription(trimmed.replace(/^description:\s*/, ""));
+      continue;
+    }
+    diagnostics.push(error("INVALID_MEMBER_METADATA", `Invalid member metadata: ${trimmed}`, file, line));
+  }
+  return description;
 }
 
 function parseWriteMappings(
@@ -1584,10 +1643,13 @@ function parseNestItems(lines: SourceLine[], file: string | undefined, diagnosti
 function collectSection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {
   const collected: SourceLine[] = [];
   let i = start;
+  let depth = 0;
   while (i < lines.length) {
-    const trimmed = lines[i]!.stripped.trim();
-    if (trimmed !== "" && startsConceptMemberDeclaration(trimmed)) break;
-    collected.push(lines[i]!);
+    const line = lines[i]!;
+    const trimmed = line.stripped.trim();
+    if (depth === 0 && trimmed !== "" && startsConceptMemberDeclaration(trimmed)) break;
+    collected.push(line);
+    depth += countNetBraces(line.stripped);
     i += 1;
   }
   return { lines: collected, end: i };

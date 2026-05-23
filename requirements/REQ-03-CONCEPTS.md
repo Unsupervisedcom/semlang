@@ -39,6 +39,8 @@ Identities declare source-backed keys for concepts. They also drive Malloy prima
 - 03.03.004: A single identity MUST lower to a Malloy `primary_key` over that field.
 - 03.03.005: A composite identity MUST lower to a deterministic generated dimension and a Malloy primary key over that generated field.
 - 03.03.006: Identity field locations SHOULD be preserved for diagnostics.
+- 03.03.007: Identity fields MAY include a block-level `description`.
+- 03.03.008: Identity field descriptions MUST be preserved in the semantic model and exposed by ontology introspection, semantic search, and JSON Schema export.
 
 ## 03.04 Fields
 
@@ -50,6 +52,8 @@ Fields declare source-backed attributes and attach semantic types and metadata.
 - 03.04.004: A field MAY use the `unique` marker.
 - 03.04.005: The compiler MUST preserve field uniqueness metadata in the semantic model.
 - 03.04.006: Source-backed field declarations MUST NOT emit derived Malloy field definitions by default.
+- 03.04.007: Fields MAY include a block-level `description`.
+- 03.04.008: Field descriptions MUST be preserved in the semantic model and exposed by ontology introspection, semantic search, and JSON Schema export.
 
 ## 03.05 Joins
 

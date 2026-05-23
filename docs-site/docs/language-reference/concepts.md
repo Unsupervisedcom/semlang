@@ -81,10 +81,13 @@ When a concept lowers to Malloy, a single identity becomes `primary_key: field`.
 field:
   store_id :: StoreId
   closed_date :: BusinessDate?
-  email :: EmailAddress unique
+  email :: EmailAddress unique {
+    description: "Preferred email address for customer contact."
+  }
 ```
 
 The trailing `?` marks a nullable value. The optional `unique` marker records uniqueness metadata on a field.
+Identities, fields, dimensions, and measures may include a block-level `description`; descriptions are preserved for schema export and MCP ontology introspection.
 
 Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading. Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
 

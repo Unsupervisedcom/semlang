@@ -182,6 +182,7 @@ export interface IdentityField {
   name: string;
   typeName: string;
   nullable: boolean;
+  description?: string;
   location: SourceLocation;
 }
 
@@ -189,6 +190,7 @@ export interface FieldDecl {
   name: string;
   typeName: string;
   nullable: boolean;
+  description?: string;
   unique: boolean;
   writeable: boolean;
   writeMappings: WriteMappingDecl[];
@@ -221,6 +223,7 @@ export interface DefinitionDecl {
   expression: string;
   typeName?: string;
   nullable?: boolean;
+  description?: string;
   writeable: boolean;
   writeMappings: WriteMappingDecl[];
   location: SourceLocation;

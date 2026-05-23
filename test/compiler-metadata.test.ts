@@ -309,6 +309,8 @@ query: q is Sale -> {
     ]);
   });
 
+  // 03.03.007, 03.04.007, and 04.02.007: identities, fields,
+  // dimensions, and measures accept block-level descriptions.
   it("01.02.001 exports semantic types and concepts as JSON Schema", async () => {
     const result = await compileSemLang(`
 package schema.export
@@ -330,11 +332,23 @@ type: Dollars is currency {
 }
 
 concept Customer is kind from duckdb.table('customers') {
-  identity customer_id :: CustomerId
+  identity customer_id :: CustomerId {
+    description: "Stable customer source key."
+  }
   field:
-    email :: string? unique
+    email :: string? unique {
+      description: "Primary contact email for the customer."
+    }
     status :: CustomerStatus
     lifetime_value :: Dollars
+  dimension:
+    status_label :: string is status {
+      description: "Customer status label exposed for grouping."
+    }
+  measure:
+    customer_rows :: number is count() {
+      description: "Count of customer rows."
+    }
 }
 `);
     expect(result.diagnostics).toEqual([]);
@@ -364,12 +378,26 @@ concept Customer is kind from duckdb.table('customers') {
     const customerProperties = customerSchema.properties!;
     expect(customerProperties.customer_id).toMatchObject({
       $ref: "#/$defs/type.CustomerId",
+      description: "Stable customer source key.",
       "x-semlang-identity": true,
     });
     expect(customerProperties.email).toMatchObject({
       anyOf: [{ type: "string" }, { type: "null" }],
+      description: "Primary contact email for the customer.",
       "x-semlang-unique": true,
     });
+    expect(customerSchema["x-semlang-dimensions"]).toEqual([
+      expect.objectContaining({
+        name: "status_label",
+        description: "Customer status label exposed for grouping.",
+      }),
+    ]);
+    expect(customerSchema["x-semlang-measures"]).toEqual([
+      expect.objectContaining({
+        name: "customer_rows",
+        description: "Count of customer rows.",
+      }),
+    ]);
   });
 
   it("03.08.007 supports qualified role names plus role labels and alias metadata", async () => {

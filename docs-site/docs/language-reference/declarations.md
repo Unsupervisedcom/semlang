@@ -78,7 +78,9 @@ dimension:
   margin_amount is net_sales_amount - merchandise_cost_amount
 
 measure:
-  net_sales is sum(net_sales_amount)
+  net_sales is sum(net_sales_amount) {
+    description: "Total recognized net sales."
+  }
 ```
 
 Definitions may include an optional semantic type annotation:
@@ -87,6 +89,8 @@ Definitions may include an optional semantic type annotation:
 measure:
   gross_sales :: Dollars is sum(gross_sales_amount)
 ```
+
+Definitions may include a block-level `description`. Descriptions on identities, fields, dimensions, and measures are preserved in the semantic model and are exposed through JSON Schema export and MCP ontology introspection.
 
 ## Views
 

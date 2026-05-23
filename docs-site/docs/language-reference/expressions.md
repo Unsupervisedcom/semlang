@@ -25,10 +25,12 @@ dimension:
   margin_amount is net_sales_amount - merchandise_cost_amount
 
 measure:
-  net_sales is sum(net_sales_amount)
+  net_sales is sum(net_sales_amount) {
+    description: "Total recognized net sales."
+  }
 ```
 
-Definitions can wrap onto continuation lines when the expression is long.
+Definitions can wrap onto continuation lines when the expression is long. They may also include a block-level `description`, which is preserved for schema export, MCP introspection, and semantic search.
 
 ## Role Tests
 

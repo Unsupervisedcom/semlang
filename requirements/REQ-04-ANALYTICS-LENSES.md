@@ -28,6 +28,8 @@ Dimensions and measures are Malloy-shaped analytical members attached to concept
 - 04.02.004: Dimension and measure type annotations MUST resolve according to `REQ-01-TYPES.md`.
 - 04.02.005: Dimension and measure expressions MUST be validated against the owning concept.
 - 04.02.006: Derived dimensions and measures MUST lower to Malloy definitions on the emitted source.
+- 04.02.007: Dimensions and measures MAY include a block-level `description`.
+- 04.02.008: Dimension and measure descriptions MUST be preserved in the semantic model and exposed by ontology introspection, semantic search, and JSON Schema export.
 
 ## 04.03 Query and View Bodies
 
