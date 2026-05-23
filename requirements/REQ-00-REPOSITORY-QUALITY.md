@@ -11,3 +11,9 @@ These requirements govern repository-level validation rules that keep SemLang de
 Test files should stay small enough for the test runner to distribute work across files effectively.
 
 - 00.01.001: Lint validation MUST reject test files that contain more than ten individual test definitions.
+
+## 00.02 TypeScript Maintainability
+
+Source functions should stay small enough to review, test, and refactor without hiding decision-heavy control flow.
+
+- 00.02.001: Lint validation MUST enforce a maximum cyclomatic complexity for TypeScript and JavaScript functions.

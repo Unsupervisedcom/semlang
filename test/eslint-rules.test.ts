@@ -4,9 +4,12 @@
  */
 
 import { RuleTester } from "eslint";
-import { describe, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import maxTestsPerFile from "../eslint-rules/max-tests-per-file.js";
 
+const root = path.resolve(import.meta.dirname, "..");
 const tester = new RuleTester({
   languageOptions: {
     ecmaVersion: 2022,
@@ -36,5 +39,12 @@ describe("local ESLint rules", () => {
         },
       ],
     });
+  });
+
+  it("00.02.001 configures a cyclomatic complexity gate", () => {
+    // 00.02.001: repository lint must enforce a maximum function complexity.
+    const eslintConfig = fs.readFileSync(path.join(root, "eslint.config.js"), "utf8");
+
+    expect(eslintConfig).toContain('complexity: ["error", { max: 36 }]');
   });
 });
