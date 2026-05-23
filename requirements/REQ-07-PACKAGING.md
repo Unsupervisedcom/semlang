@@ -27,6 +27,7 @@ GitHub releases are the distribution boundary for npm publication.
 - 07.02.004: The release workflow MUST NOT request npm provenance while the source repository is private because npm provenance only supports public GitHub repositories.
 - 07.02.005: The release workflow MUST publish the obfuscated release build rather than the plain TypeScript compiler output.
 - 07.02.006: The release workflow MUST explicitly publish the package with public npm access.
+- 07.02.007: The release workflow MUST synchronize package, plugin, lockfile, and MCP package-spec versions from the GitHub release tag before validation and publication.
 
 ## 07.03 Published Package Validation
 
@@ -36,3 +37,14 @@ The repository must document and exercise the consumer-facing npm package after 
 - 07.03.002: The repository MUST provide a reusable smoke-test utility that installs the published npm package in an isolated temporary project.
 - 07.03.003: The published package smoke-test utility MUST validate both the public ESM import surface and the `semlang` CLI entrypoint.
 - 07.03.004: The published package smoke-test utility SHOULD clean up its temporary project after validation unless a debugging option asks to keep it.
+
+## 07.04 Claude Code Plugin Distribution
+
+The npm package must also act as a Claude Code plugin so SemLang skills and MCP tools can be installed from the same artifact as the CLI.
+
+- 07.04.001: The npm package MUST publish a Claude Code plugin manifest at `.claude-plugin/plugin.json`.
+- 07.04.002: The Claude Code plugin manifest MUST use the `semlang` plugin namespace and MUST version the plugin with the root npm package version.
+- 07.04.003: The Claude Code plugin MUST expose the canonical SemLang skill set from the conventional `skills` directory at the plugin root so Claude Code auto-discovers them.
+- 07.04.004: The plugin manifest MUST NOT specify explicit `skills` or `mcpServers` paths and MUST rely on Claude Code convention-based auto-discovery of the `skills` directory and `.mcp.json` file.
+- 07.04.005: The Claude Code plugin MUST expose a `semlang` MCP server via an auto-discovered `.mcp.json` that starts MCP stdio mode through an npm package spec pinned to the root npm package version.
+- 07.04.006: The Claude Code plugin release version, root npm package version, lockfile root version, and pinned MCP package spec MUST be synchronized by the release version utility.

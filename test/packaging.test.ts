@@ -37,11 +37,76 @@ describe("package publishing metadata", () => {
       types: "./dist/src/index.d.ts",
       import: "./dist/src/index.js",
     });
-    expect(packageJson.files).toEqual(expect.arrayContaining(["bin", "dist/src"]));
+    expect(packageJson.files).toEqual(
+      expect.arrayContaining([".claude-plugin", ".mcp.json", "bin", "dist/src", "skills"]),
+    );
     expect(packageJson.scripts["build:release"]).toBe("npm run build && node scripts/obfuscate-dist.mjs");
     expect(packageJson.scripts.prepack).toBe("npm run build:release");
     expect(packageJson.scripts["validate:published"]).toBe("node scripts/validate-published-package.mjs");
     expect(packageJson.devDependencies).toHaveProperty("js-confuser");
+  });
+
+  it("publishes a Claude Code plugin backed by npm-installed SemLang", async () => {
+    // 07.04.001, 07.04.002, 07.04.003, 07.04.004, 07.04.005: the npm
+    // artifact must double as a Claude Code plugin with auto-discovered skills
+    // and MCP server, matching the conventional plugin directory layout.
+    const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+    const pluginJson = JSON.parse(await fs.readFile(path.join(root, ".claude-plugin", "plugin.json"), "utf8"));
+    const mcpJson = JSON.parse(await fs.readFile(path.join(root, ".mcp.json"), "utf8"));
+
+    expect(pluginJson).toMatchObject({
+      name: "semlang",
+      description: expect.stringContaining("SemLang"),
+      version: packageJson.version,
+    });
+    expect(pluginJson).not.toHaveProperty("skills");
+    expect(pluginJson).not.toHaveProperty("mcpServers");
+
+    expect(mcpJson).toEqual({
+      mcpServers: {
+        semlang: {
+          command: "npx",
+          args: ["-y", `semlang@${packageJson.version}`, "mcp"],
+        },
+      },
+    });
+
+    const semlangSkill = await fs.stat(path.join(root, "skills", "semlang", "SKILL.md"));
+    const initialOntologySkill = await fs.stat(path.join(root, "skills", "initial_ontology_creation", "SKILL.md"));
+
+    expect(semlangSkill.isFile()).toBe(true);
+    expect(initialOntologySkill.isFile()).toBe(true);
+  });
+
+  it("synchronizes release versions across npm and Claude plugin metadata", async () => {
+    // 07.02.007, 07.04.006: release metadata must be derived from the GitHub
+    // release tag so npm package metadata, plugin metadata, lockfile metadata,
+    // and MCP package specs cannot drift.
+    const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-release-version-"));
+    const releaseVersion = "9.8.7";
+
+    await fs.cp(path.join(root, ".claude-plugin"), path.join(fixtureDir, ".claude-plugin"), { recursive: true });
+    await fs.copyFile(path.join(root, ".mcp.json"), path.join(fixtureDir, ".mcp.json"));
+    await fs.copyFile(path.join(root, "package.json"), path.join(fixtureDir, "package.json"));
+    await fs.copyFile(path.join(root, "package-lock.json"), path.join(fixtureDir, "package-lock.json"));
+
+    await execFileAsync("node", ["scripts/sync-release-version.mjs", `v${releaseVersion}`, `--root=${fixtureDir}`], {
+      cwd: root,
+    });
+
+    const packageJson = JSON.parse(await fs.readFile(path.join(fixtureDir, "package.json"), "utf8"));
+    const packageLock = JSON.parse(await fs.readFile(path.join(fixtureDir, "package-lock.json"), "utf8"));
+    const pluginJson = JSON.parse(await fs.readFile(path.join(fixtureDir, ".claude-plugin", "plugin.json"), "utf8"));
+    const mcpJson = JSON.parse(await fs.readFile(path.join(fixtureDir, ".mcp.json"), "utf8"));
+
+    expect(packageJson.version).toBe(releaseVersion);
+    expect(packageLock.version).toBe(releaseVersion);
+    expect(packageLock.packages[""].version).toBe(releaseVersion);
+    expect(pluginJson.version).toBe(releaseVersion);
+    expect(mcpJson.mcpServers.semlang).toEqual({
+      command: "npx",
+      args: ["-y", `semlang@${releaseVersion}`, "mcp"],
+    });
   });
 
   it("documents npm installation from the published package", async () => {
@@ -52,6 +117,7 @@ describe("package publishing metadata", () => {
     expect(readme).toContain("npm install semlang");
     expect(readme).toContain('import { compileSemLang } from "semlang"');
     expect(readme).toContain("semlang compile");
+    expect(readme).toContain("claude plugin install semlang@<marketplace-name>");
   });
 
   it("provides a reusable published package smoke-test utility", async () => {
@@ -87,15 +153,19 @@ describe("package publishing metadata", () => {
 
   it("publishes to npm only after GitHub releases are published", async () => {
     // 07.02.001, 07.02.002, 07.02.003, 07.02.004, 07.02.005,
-    // 07.02.006: release
-    // automation must validate first, use the npm token secret, and publish
-    // the obfuscated npm pack output with public npm access.
+    // 07.02.006, 07.02.007: release automation must synchronize release
+    // metadata from the GitHub release tag, validate first, use the npm token
+    // secret, and publish the obfuscated npm pack output with public npm
+    // access.
     const workflow = await fs.readFile(path.join(root, ".github/workflows/release.yml"), "utf8");
 
     expect(workflow).toContain("release:");
     expect(workflow).toContain("published");
     expect(workflow).not.toContain("id-token: write");
     expect(workflow).toContain("registry-url: https://registry.npmjs.org/");
+    expect(workflow).toContain('node scripts/sync-release-version.mjs "${GITHUB_REF_NAME}"');
+    expect(workflow.indexOf("Sync release version")).toBeLessThan(workflow.indexOf("Install dependencies"));
+    expect(workflow.indexOf("Sync release version")).toBeLessThan(workflow.indexOf("Run checks"));
     expect(workflow).toContain("npm run check");
     expect(workflow).toContain("npm publish --access public");
     expect(workflow).not.toContain("--provenance");

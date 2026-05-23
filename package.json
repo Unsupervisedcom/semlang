@@ -1,6 +1,6 @@
 {
   "name": "semlang",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "repository": {
     "type": "git",
@@ -15,11 +15,14 @@
     }
   },
   "files": [
+    ".claude-plugin",
+    ".mcp.json",
     "bin",
     "dist/src",
     "docs",
     "examples",
-    "requirements"
+    "requirements",
+    "skills"
   ],
   "engines": {
     "node": ">=20"

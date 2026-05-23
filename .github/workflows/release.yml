@@ -24,6 +24,9 @@ jobs:
           registry-url: https://registry.npmjs.org/
           cache: npm
 
+      - name: Sync release version
+        run: node scripts/sync-release-version.mjs "${GITHUB_REF_NAME}"
+
       - name: Install DuckDB CLI
         run: |
           curl --fail --location --show-error \

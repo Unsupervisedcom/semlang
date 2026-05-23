@@ -65,3 +65,34 @@ semlang mcp
 
 MCP path settings are configured with `SEMLANG_*` environment variables or the
 matching CLI parameters exposed by `semlang setup` and `semlang mcp`.
+
+## Claude Code Plugin
+
+The published npm package also contains a Claude Code plugin manifest, SemLang
+skills, and MCP configuration. Add SemLang to a Claude Code plugin marketplace
+with an npm source entry:
+
+```json
+{
+  "name": "semlang",
+  "source": {
+    "source": "npm",
+    "package": "semlang",
+    "version": "<release-version>"
+  }
+}
+```
+
+Then install it from that marketplace:
+
+```sh
+claude plugin marketplace add <marketplace-source>
+claude plugin install semlang@<marketplace-name>
+```
+
+Use `--scope project` or `--scope local` with `claude plugin install` when you
+want to install SemLang somewhere other than the user-level plugin scope.
+
+The release workflow pins the plugin MCP server to the published package version
+with `npx -y semlang@<release-version> mcp`, so it does not require a separate
+global `semlang` binary.
