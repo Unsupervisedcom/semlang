@@ -16,8 +16,8 @@ describe("SemLang MCP domain example narratives", () => {
     const mcp = createSemLangMcp();
     const sourcePath = await tempExamplePath("saas-product-usage-and-revenue");
 
-    const source = await mcp.tools.set_ontology_source({
-      path: sourcePath,
+    const source = await mcp.tools["load_ontology"]({
+      paths: [sourcePath],
       projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
@@ -27,8 +27,8 @@ describe("SemLang MCP domain example narratives", () => {
 
     // The SaaS fixture warns that ARR, recognized revenue, and usage have
     // distinct grains, so search should surface multiple candidate roots.
-    const search = await mcp.tools.semantic_search_terms({
-      question: "recognized revenue ARR movement subscription product usage",
+    const search = await mcp.tools["search"]({
+      query: "recognized revenue ARR movement subscription product usage",
     });
     expectOk(search);
     expect(names(search.concepts)).toEqual(
@@ -37,7 +37,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // Since "recognized revenue" is an accounting measure, the agent asks the
     // ontology to explain the metric rather than treating invoice total as ARR.
-    const metric = await mcp.tools.ontology_explain_metric({ metric: "recognized_revenue" });
+    const metric = await mcp.tools["describe"]({ kind: "metric", names: ["recognized_revenue"] });
     expectOk(metric);
     expect(records(metric.metrics)[0]).toMatchObject({
       concept: "RevenueRecognitionEntry",
@@ -47,7 +47,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // For entitlement-aware usage, the agent needs feature, entitlement, and
     // plan context from the FeatureUsageDay root in one array request.
-    const paths = await mcp.tools.ontology_find_paths({
+    const paths = await mcp.tools["find_paths"]({
       from: "FeatureUsageDay",
       to: ["ProductFeature", "EntitlementInterval", "ProductPlan"],
     });
@@ -65,18 +65,18 @@ describe("SemLang MCP domain example narratives", () => {
 
     // 02.05.014: With those joins confirmed, the named usage query should dry-run
     // validate at the FeatureUsageDay grain.
-    const validated = await mcp.tools.query_run({ query: "entitlement_aware_usage", dry_run_only: true });
+    const validated = await mcp.tools["run_query"]({ query: "entitlement_aware_usage", dry_run_only: true });
     expectQuery(validated, "entitlement_aware_usage", "FeatureUsageDay");
 
     // 06.07.004 / 06.10.003: subject:new actions should describe their insert
     // mappings and create rows in the temp-mounted DuckDB database.
-    const supportConcept = await mcp.tools.ontology_describe_concept({ concept: "SupportCase" });
+    const supportConcept = await mcp.tools["describe"]({ kind: "concept", names: ["SupportCase"] });
     expectOk(supportConcept);
     expect(names(asObject(supportConcept.concept).actions)).toEqual(["open_case"]);
 
-    const openCaseAction = await mcp.tools.ontology_describe_action({
-      concept: "SupportCase",
-      name: "open_case",
+    const openCaseAction = await mcp.tools["describe"]({
+      kind: "action",
+      names: ["SupportCase.open_case"],
     });
     expectOk(openCaseAction);
     expect(asObject(openCaseAction.action)).toMatchObject({
@@ -85,10 +85,10 @@ describe("SemLang MCP domain example narratives", () => {
       subject: { mode: "new" },
     });
 
-    const opened = await mcp.tools.action_invoke({
+    const opened = await mcp.tools["invoke_action"]({
       concept: "SupportCase",
       action: "open_case",
-      subject: { support_case_id: "CASE_MCP_OPEN_1" },
+      target: { support_case_id: "CASE_MCP_OPEN_1" },
       params: {
         account_id: "ACCT_ACME",
         workspace_id: "WS_ACME_PROD",
@@ -122,8 +122,8 @@ describe("SemLang MCP domain example narratives", () => {
     const mcp = createSemLangMcp();
     const sourcePath = await tempExamplePath("banking-credit-risk-and-customer-exposure", "example_with_lens.semlang");
 
-    const source = await mcp.tools.set_ontology_source({
-      path: sourcePath,
+    const source = await mcp.tools["load_ontology"]({
+      paths: [sourcePath],
       projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
@@ -137,19 +137,21 @@ describe("SemLang MCP domain example narratives", () => {
 
     // The banking question mixes regulatory scope, CRE concentration, and
     // officer action, so search should identify the exposure root and risk paths.
-    const search = await mcp.tools.semantic_search_terms({
-      question: "regulatory CRE watchlist exposure after guarantee collateral",
+    const search = await mcp.tools["search"]({
+      query: "regulatory CRE watchlist exposure after guarantee collateral",
     });
     expectOk(search);
     expect(names(search.concepts)).toEqual(
       expect.arrayContaining(["LoanExposureSnapshot", "Guarantee", "LoanCollateralLink"]),
     );
 
-    // The comment in the fixture points to lens.plan for composing the
+    // The comment in the fixture points to describe(kind: "lens", operation: "plan") for composing the
     // regulatory, CRE, and watchlist overlays before validating the queue.
-    const plan = await mcp.tools.lens_plan({
+    const plan = await mcp.tools["describe"]({
+      kind: "lens",
+      operation: "plan",
+      names: ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"],
       question: "regulatory CRE watchlist queue",
-      lenses: ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"],
     });
     expectOk(plan);
     expect(names(plan.lenses)).toEqual([
@@ -165,7 +167,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // 02.05.014: Once the lens stack is known, the composed named query should
     // dry-run validate on LoanExposureSnapshot with the regulatory_cre_watchlist lens applied.
-    const validated = await mcp.tools.query_run({ query: "cre_regulatory_watchlist_queue", dry_run_only: true });
+    const validated = await mcp.tools["run_query"]({ query: "cre_regulatory_watchlist_queue", dry_run_only: true });
     const query = expectQuery(validated, "cre_regulatory_watchlist_queue", "LoanExposureSnapshot");
     expect(query.lenses).toEqual(["regulatory_cre_watchlist"]);
   });
@@ -174,8 +176,8 @@ describe("SemLang MCP domain example narratives", () => {
     const mcp = createSemLangMcp();
     const sourcePath = await tempExamplePath("healthcare-patient-journey-and-quality-measures");
 
-    const source = await mcp.tools.set_ontology_source({
-      path: sourcePath,
+    const source = await mcp.tools["load_ontology"]({
+      paths: [sourcePath],
       projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
@@ -185,21 +187,21 @@ describe("SemLang MCP domain example narratives", () => {
 
     // The healthcare question asks about diagnoses active at discharge, so
     // search should keep the discharge denominator root and diagnosis interval.
-    const search = await mcp.tools.semantic_search_terms({
-      question: "readmission denominator diagnosis active at discharge",
+    const search = await mcp.tools["search"]({
+      query: "readmission denominator diagnosis active at discharge",
     });
     expectOk(search);
     expect(names(search.concepts)).toEqual(expect.arrayContaining(["InpatientStay", "DiagnosisInterval"]));
 
     // Active-at-discharge language is temporal, so the agent inspects the valid
     // time axes before asking for the join path.
-    const axes = await mcp.tools.ontology_describe_temporal_axes({ concept: "DiagnosisInterval" });
+    const axes = await mcp.tools["describe"]({ kind: "temporal_axes", names: ["DiagnosisInterval"] });
     expectOk(axes);
     expect(records(axes.axes).map((axis) => axis.axis)).toEqual(["valid_time", "observation_time", "recorded_time"]);
     expect(records(axes.axes)[0]?.expression).toBe("period(clinical_valid_start, clinical_valid_end)");
 
     // The path should make the discharge-date temporal join explicit.
-    const paths = await mcp.tools.ontology_find_paths({
+    const paths = await mcp.tools["find_paths"]({
       from: "InpatientStay",
       to: "DiagnosisInterval",
     });
@@ -214,7 +216,10 @@ describe("SemLang MCP domain example narratives", () => {
 
     // 02.05.014: With the temporal path established, the denominator audit query
     // should dry-run validate without changing the inpatient stay grain.
-    const validated = await mcp.tools.query_run({ query: "discharge_diagnosis_denominator_audit", dry_run_only: true });
+    const validated = await mcp.tools["run_query"]({
+      query: "discharge_diagnosis_denominator_audit",
+      dry_run_only: true,
+    });
     expectQuery(validated, "discharge_diagnosis_denominator_audit", "InpatientStay");
   });
 
@@ -222,8 +227,8 @@ describe("SemLang MCP domain example narratives", () => {
     const mcp = createSemLangMcp();
     const sourcePath = await tempExamplePath("manufacturing-supply-chain-traceability-and-quality");
 
-    const source = await mcp.tools.set_ontology_source({
-      path: sourcePath,
+    const source = await mcp.tools["load_ontology"]({
+      paths: [sourcePath],
       projectDir: path.dirname(sourcePath),
     });
     expectOk(source);
@@ -233,8 +238,8 @@ describe("SemLang MCP domain example narratives", () => {
 
     // The manufacturing question names lots, defects, warranties, and recall
     // scope, so search should surface both serial-unit and recall concepts.
-    const search = await mcp.tools.semantic_search_terms({
-      question: "supplier lots defects warranty recall scope",
+    const search = await mcp.tools["search"]({
+      query: "supplier lots defects warranty recall scope",
     });
     expectOk(search);
     expect(names(search.concepts)).toEqual(
@@ -243,7 +248,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // Recall scope is its own relator, so the agent describes the concept
     // before joining it into traceability questions.
-    const recallConcept = await mcp.tools.ontology_describe_concept({ concept: "RecallAffectedUnit" });
+    const recallConcept = await mcp.tools["describe"]({ kind: "concept", names: ["RecallAffectedUnit"] });
     expectOk(recallConcept);
     expect(asObject(recallConcept.concept)).toMatchObject({
       name: "RecallAffectedUnit",
@@ -253,7 +258,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // Supplier quality needs lots, defects, and warranty claims from the serial
     // number grain, so the agent asks for the whole path set together.
-    const paths = await mcp.tools.ontology_find_paths({
+    const paths = await mcp.tools["find_paths"]({
       from: "SerializedUnit",
       to: ["SupplierLot", "InspectionDefect", "WarrantyClaim"],
     });
@@ -272,7 +277,7 @@ describe("SemLang MCP domain example narratives", () => {
 
     // 02.05.014: Those paths are the prerequisites for dry-running the named
     // supplier scorecard query.
-    const validated = await mcp.tools.query_run({ query: "supplier_quality_scorecard", dry_run_only: true });
+    const validated = await mcp.tools["run_query"]({ query: "supplier_quality_scorecard", dry_run_only: true });
     expectQuery(validated, "supplier_quality_scorecard", "SerializedUnit");
   });
 });

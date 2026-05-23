@@ -1043,10 +1043,10 @@ query: supplier_quality_scorecard is SerializedUnit -> {
   //    and warranty cost?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: SerializedUnit, ProductionOrderLotConsumption,
   //      SupplierLot, Supplier, InspectionDefect, WarrantyClaim
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "SerializedUnit",
   //     to: ["SupplierLot", "InspectionDefect", "WarrantyClaim"]
   //   })
@@ -1054,7 +1054,7 @@ query: supplier_quality_scorecard is SerializedUnit -> {
   //      -> SupplierLot
   //   -> SerializedUnit -> InspectionDefect
   //   -> SerializedUnit -> WarrantyClaim
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; supplier lots are reached through the production-order
   //      consumption bridge, and warranty measures stay at serial-number grain.
   group_by:
@@ -1085,10 +1085,10 @@ query: recall_investigation_scope is RecallAffectedUnit -> {
   //    destination region, and how much field cost has appeared?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: RecallCampaign, RecallAffectedUnit, SupplierLot,
   //      SerializedUnit, ShipmentUnit, WarrantyClaim
-  //   mcp.catalog.describe_concept_source({ concept: "RecallAffectedUnit" })
+  //   mcp.describe({ kind: "concept", names: ["RecallAffectedUnit"] })
   //   -> source table recall_affected_units with joins to campaign, unit, lot,
   //      shipment rows, and warranty claims
   group_by:
@@ -1118,9 +1118,9 @@ query: bom_effectivity_audit is ProductionOrder -> {
   //    dates?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.describe_temporal_axes({ concept: "BOMVersion" })
+  //   mcp.describe({ kind: "temporal_axes", names: ["BOMVersion"] })
   //   -> valid_time: period(effective_from, effective_to)
-  //   mcp.ontology.find_paths({ from: "ProductionOrder", to: "BOMVersion" })
+  //   mcp.find_paths({ from: "ProductionOrder", to: "BOMVersion" })
   //   -> declared join bom_version on bom_version_id
   //   -> time-valid join bom_version_at_start using `at started_at`
   where:
@@ -1147,9 +1147,9 @@ query: quarantined_lot_build_exposure is SerializedUnit -> {
   //   "Which built units consumed quarantined or rejected supplier lots?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> role matches: QuarantinedSupplierLot, RejectedSupplierLot
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "SerializedUnit",
   //     to: ["QuarantinedSupplierLot", "RejectedSupplierLot"]
   //   })
@@ -1178,9 +1178,9 @@ query: field_quality_by_failure_and_bom is WarrantyClaim -> {
   //   "Which field failures are showing up by product model and BOM revision?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: WarrantyClaim, SerializedUnit, ProductModel, BOMVersion
-  //   mcp.ontology.find_paths({ from: "WarrantyClaim", to: ["ProductModel", "BOMVersion"] })
+  //   mcp.find_paths({ from: "WarrantyClaim", to: ["ProductModel", "BOMVersion"] })
   //   -> WarrantyClaim -> SerializedUnit -> ProductModel/BOMVersion
   group_by:
     claim_month
@@ -1204,9 +1204,9 @@ query: lot_genealogy_recall_candidates is SupplierLotGenealogy -> {
   //    consider?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concept: SupplierLotGenealogy
-  //   mcp.catalog.describe_concept_source({ concept: "SupplierLotGenealogy" })
+  //   mcp.describe({ kind: "concept", names: ["SupplierLotGenealogy"] })
   //   -> parent_lot and child_lot join to SupplierLot, which then joins to
   //      supplier and material
   where:
@@ -1225,11 +1225,11 @@ query: lot_genealogy_recall_candidates is SupplierLotGenealogy -> {
 }
 
 // MCP action narrative:
-//   mcp.ontology.describe_concept({ concept: "SupplierLot" })
+//   mcp.describe({ kind: "concept", names: ["SupplierLot"] })
 //   -> includes the quarantine action and lot_status write target.
-//   mcp.ontology.describe_action({ concept: "SupplierLot", action: "quarantine" })
+//   mcp.describe({ kind: "action", names: ["SupplierLot.quarantine"] })
 //   -> subject: single, reason/notify_supplier params, guard, set edit, effect, and log metadata.
-//   mcp.action.invoke({
+//   mcp.invoke_action({
 //     concept: "SupplierLot",
 //     action: "quarantine",
 //     subject: { supplier_lot_id: "LOT_CTRL_A100" },

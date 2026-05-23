@@ -3,75 +3,69 @@ title: Lens Tools
 sidebar_position: 5
 ---
 
-# Lens Tools
+# Lens Detail
 
-Lens tools help agents choose, inspect, apply, and audit SemLang lens overlays before validating queries.
+Lens capabilities are exposed through the consolidated `search` and `describe` tools. Use `search` to discover candidate lenses for a question, and use `describe` to inspect, expand, audit required fields, or plan lens application before validating queries.
 
-## `lens.suggest`
+## Discover Lenses
 
-Scores lenses against a user question or context phrase.
+Call `search` with a question or context phrase to score lenses against the user's goal.
 
 ### Inputs
 
-| Field          | Type   | Notes                                |
-| -------------- | ------ | ------------------------------------ |
-| `user_context` | string | Preferred context text.              |
-| `context`      | string | Alias for `user_context`.            |
-| `question`     | string | Alias for `user_context`.            |
-| `phrase`       | string | Alias for `user_context`.            |
-| `text`         | string | Alias for `user_context`.            |
-| `limit`        | number | Maximum lens results. Defaults to 8. |
+| Field   | Type   | Notes                                |
+| ------- | ------ | ------------------------------------ |
+| `query` | string | Question or context phrase.          |
+| `kind`  | string | Use `lens` for lens-only results.    |
+| `limit` | number | Maximum results per result category. |
 
 ### Output
 
 Returns scored lenses with description, parents, refined concepts, score, and matched terms.
 
-## `lens.describe`
+## Describe Lenses
 
-Describes one lens.
+Call `describe` with `kind: "lens"` to describe a lens or lens stack.
 
 ### Inputs
 
-| Field  | Type   | Notes             |
-| ------ | ------ | ----------------- |
-| `lens` | string | Lens name.        |
-| `name` | string | Alias for `lens`. |
+| Field   | Type         | Notes                  |
+| ------- | ------------ | ---------------------- |
+| `kind`  | string       | Use `lens`.            |
+| `names` | string array | Lens names to inspect. |
 
 ### Output
 
 Returns the lens name, parent lenses, description, declared types, and refinements.
 
-## `lens.expand`
+## Expand Lenses
 
-Applies one or more lenses and summarizes the expanded model.
+Call `describe` with `kind: "lens"` and `operation: "expand"` to apply one or more lenses and summarize the expanded model.
 
 ### Inputs
 
-| Field     | Type         | Notes                                |
-| --------- | ------------ | ------------------------------------ |
-| `lens`    | string       | Lens name.                           |
-| `lenses`  | string array | Lens stack to apply.                 |
-| `name`    | string       | Alias for `lens`.                    |
-| `root`    | string       | Optional root concept for expansion. |
-| `concept` | string       | Alias for `root`.                    |
+| Field       | Type         | Notes                                  |
+| ----------- | ------------ | -------------------------------------- |
+| `kind`      | string       | Use `lens`.                            |
+| `operation` | string       | Use `expand`.                          |
+| `names`     | string array | Lens names plus optional root concept. |
 
 ### Output
 
 Returns diagnostics, an expanded model summary, and refinements from the requested lenses. If expansion fails, the response includes diagnostics and an error.
 
-## `lens.required_fields`
+## Required Fields
 
-Reports fields exposed by lens refinements and fields referenced by lens expressions. This is useful when an agent needs to determine which lens grants access to sensitive, role-specific, or derived fields.
+Call `describe` with `kind: "lens"` and `operation: "required_fields"` to report fields exposed by lens refinements and fields referenced by lens expressions.
 
 ### Inputs
 
-| Field    | Type         | Notes                               |
-| -------- | ------------ | ----------------------------------- |
-| `lens`   | string       | Optional lens filter.               |
-| `lenses` | string array | Optional lens filters.              |
-| `name`   | string       | Alias for `lens`.                   |
-| `field`  | string       | Optional requested field to match.  |
-| `fields` | string array | Optional requested fields to match. |
+| Field       | Type         | Notes                               |
+| ----------- | ------------ | ----------------------------------- |
+| `kind`      | string       | Use `lens`.                         |
+| `operation` | string       | Use `required_fields`.              |
+| `names`     | string array | Optional lens filters.              |
+| `fields`    | string array | Optional requested fields to match. |
 
 ### Output
 
@@ -85,20 +79,18 @@ Returns one entry per selected lens refinement. Each entry includes exposed fiel
 }
 ```
 
-## `lens.plan`
+## Lens Plans
 
-Plans lens application for a question or explicit lens list.
+Call `describe` with `kind: "lens"` and `operation: "plan"` to plan lens application for a question or explicit lens list.
 
 ### Inputs
 
-| Field      | Type         | Notes                           |
-| ---------- | ------------ | ------------------------------- |
-| `question` | string       | Question or goal text.          |
-| `goal`     | string       | Alias for `question`.           |
-| `phrase`   | string       | Alias for `question`.           |
-| `text`     | string       | Alias for `question`.           |
-| `lens`     | string       | Explicit lens to include.       |
-| `lenses`   | string array | Explicit lens stack to include. |
+| Field       | Type         | Notes                           |
+| ----------- | ------------ | ------------------------------- |
+| `kind`      | string       | Use `lens`.                     |
+| `operation` | string       | Use `plan`.                     |
+| `question`  | string       | Question or goal text.          |
+| `names`     | string array | Explicit lens stack to include. |
 
 ### Output
 
@@ -109,6 +101,6 @@ Returns described lenses and ordered steps. Each step includes parent lenses to 
 ```json
 {
   "question": "regulatory CRE watchlist queue",
-  "lenses": ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"]
+  "names": ["regulatory_base_reporting", "commercial_real_estate_concentration", "watchlist_credit_review"]
 }
 ```

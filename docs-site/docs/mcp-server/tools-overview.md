@@ -5,22 +5,25 @@ sidebar_position: 2
 
 # Tools Overview
 
-The SemLang MCP server exposes ontology-aware tools for agents that need to discover a model, inspect semantic structure, plan lens overlays, validate queries, run Malloy-backed queries, and invoke supported local actions.
+The SemLang MCP server exposes a compact ontology-aware tool surface for agents that need to discover a model, inspect semantic structure, plan lens overlays, validate queries, run Malloy-backed queries, and invoke supported local actions.
 
-Call `set_ontology_source` first in each MCP session. All other tools read the compiled model held in the server context and return an error if no source has been loaded.
+Call `load_ontology` first in each MCP session. All other tools read the compiled model held in the server context and return an error if no source has been loaded.
 
-## Tool Groups
+## Public Tools
 
-| Group               | Tools                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source and search   | `set_ontology_source`, `semantic.search_terms`, `catalog.resolve_entity`                                                                                                                          |
-| Ontology inspection | `ontology.describe_concept`, `ontology.describe_action`, `ontology.describe_role`, `ontology.describe_roles`, `ontology.explain_metric`, `ontology.describe_temporal_axes`, `ontology.find_paths` |
-| Lenses              | `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, `lens.plan`                                                                                                               |
-| Queries and actions | `query.run`, `action.invoke`                                                                                                                                                                      |
-| Reasoning           | `reasoning.derive`                                                                                                                                                                                |
+| Tool            | Use it for                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `load_ontology` | Compile SemLang files or inline source into MCP session context and capture Malloy project/config settings.                                                        |
+| `search`        | Find relevant ontology objects, resolve names or business labels, and suggest lenses.                                                                              |
+| `describe`      | Inspect concepts, actions, roles, metrics, temporal axes, and lenses; expand lens overlays; report required lens fields; and produce lens application plan detail. |
+| `find_paths`    | Explore declared join paths between concepts or role targets.                                                                                                      |
+| `run_query`     | Validate named or temporary queries and execute them through the Malloy SDK unless `dry_run_only` is true.                                                         |
+| `invoke_action` | Generate and execute supported local action SQL through the configured Malloy connection, or return generated SQL with `dry_run_only`.                             |
+
+The public manifest intentionally avoids duplicate aliases and narrowly sliced helper tools. Consolidated tools use structured input schemas with explicit modes so agents can choose valid arguments without carrying a long list of overlapping tool names in context.
 
 ## Response Shape
 
 Tools return structured JSON. Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
 
-`set_ontology_source` captures Malloy project/config context. It uses an explicit `configPath` / `malloyConfigPath` when supplied; otherwise it discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang file. If no config is found, the tool fails with a clear setup error. `query.run` executes through the Malloy SDK using that captured config and requires `query_limit_seconds`. `action.invoke` uses the same captured Malloy connection context to execute generated action SQL.
+`load_ontology` captures Malloy project/config context. It uses an explicit `configPath` / `malloyConfigPath` when supplied; otherwise it discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang file. If no config is found, the tool fails with a clear setup error. `run_query` executes through the Malloy SDK using that captured config and requires `query_limit_seconds` unless `dry_run_only` is true. `invoke_action` uses the same captured Malloy connection context to execute generated action SQL.

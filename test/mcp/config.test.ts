@@ -61,10 +61,10 @@ concept Order is event from warehouse.table('orders') {
       ),
     );
 
-    const source = await mcp.tools.set_ontology_source({
-      path: modelPath,
-      projectPath: projectDir,
-      configPath,
+    const source = await mcp.tools["load_ontology"]({
+      paths: [modelPath],
+      projectDir,
+      malloyConfigPath: configPath,
     });
     expectOk(source);
     expect(asObject(source.context)).toMatchObject({
@@ -76,7 +76,7 @@ concept Order is event from warehouse.table('orders') {
   });
 
   it("uses managed MCP settings as source-loading defaults", async () => {
-    // 02.05.015: set_ontology_source falls back to managed MCP path settings
+    // 02.05.015: load_ontology falls back to managed MCP path settings
     // when project/config paths are not supplied on the tool call.
     const projectDir = await writeTempProject({
       "model.semlang": `
@@ -98,8 +98,8 @@ concept Order is event from duckdb.table('orders') {
       malloyConfigPath: configPath,
       exportDirectory: path.join(projectDir, "exports"),
     });
-    const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang"),
+    const source = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "model.semlang")],
     });
 
     expectOk(source);
@@ -132,8 +132,8 @@ concept Order is event from duckdb.table('orders') {
       JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
     );
 
-    const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "semlang", "model.semlang"),
+    const source = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "semlang", "model.semlang")],
       projectDir,
     });
     expectOk(source);
@@ -168,8 +168,8 @@ concept Order is event from duckdb.table('orders') {
       JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
     );
 
-    const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang"),
+    const source = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "model.semlang")],
     });
     expectOk(source);
     expect(asObject(source.context)).toMatchObject({
@@ -184,7 +184,7 @@ concept Order is event from duckdb.table('orders') {
   it("fails clearly when no Malloy config path is supplied and discovery finds no config", async () => {
     const mcp = createSemLangMcp();
 
-    const source = await mcp.tools.set_ontology_source({
+    const source = await mcp.tools["load_ontology"]({
       source: `
 package mcp.missing_config
 
@@ -199,7 +199,7 @@ concept Sale is event from duckdb.table('sales') {
 
     expect(source.ok).toBe(false);
     expect(text(source.error)).toMatch(
-      /^No Malloy config file was found for set_ontology_source\. Pass configPath or malloyConfigPath explicitly, or add malloy-config-local\.json or malloy-config\.json at or above the SemLang model directory\. Searched from .+ up to .+\.$/,
+      /^No Malloy config file was found for load_ontology\. Pass configPath or malloyConfigPath explicitly, or add malloy-config-local\.json or malloy-config\.json at or above the SemLang model directory\. Searched from .+ up to .+\.$/,
     );
   });
 
@@ -233,8 +233,8 @@ query: warehouse_order_count is WarehouseOrder -> {
       JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
     );
 
-    const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang"),
+    const source = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "model.semlang")],
       projectDir,
     });
     expect(source.ok).toBe(false);
@@ -284,8 +284,8 @@ query: warehouse_order_count is WarehouseOrder -> {
 `,
     });
 
-    const source = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang"),
+    const source = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "model.semlang")],
       projectDir,
     });
     expect(source.ok).toBe(false);

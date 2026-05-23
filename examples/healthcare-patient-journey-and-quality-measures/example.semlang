@@ -878,12 +878,12 @@ query: readmission_monitor is InpatientStay -> {
   //    by month, facility, service line, and payer type."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: InpatientStay, ReadmissionEvent, Facility, PayerCoverageInterval
-  //   mcp.ontology.describe_concept({ concept: "InpatientStay" })
+  //   mcp.describe({ kind: "concept", names: ["InpatientStay"] })
   //   -> grain: stay_id; role EligibleIndexDischarge; join readmissions
   //   -> temporal join coverage_at_discharge at discharge_date
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; readmission measures are declared on InpatientStay to avoid
   //      double counting through diagnosis or claim paths
   where:
@@ -906,11 +906,11 @@ query: quality_measure_scorecard is QualityMeasurePopulation -> {
   //    specialty using the official denominator rows."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concept: QualityMeasurePopulation
-  //   mcp.catalog.describe_concept_source({ concept: "QualityMeasurePopulation" })
+  //   mcp.describe({ kind: "concept", names: ["QualityMeasurePopulation"] })
   //   -> source table quality_measure_populations, grain population_member_id
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; denominator and numerator flags are explicit at this grain
   group_by:
     measure_id
@@ -931,13 +931,13 @@ query: payer_denial_and_coverage is Claim -> {
   //    coverage was active when the encounter began?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "Claim",
   //     to: ["Encounter", "Facility", "PayerCoverageInterval"]
   //   })
   //   -> Claim -> Encounter -> coverage_at_admit
   //   -> Claim -> Encounter -> Facility
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; amount measures remain on Claim and coverage is reached
   //      through Encounter at admit_at
   group_by:
@@ -962,11 +962,11 @@ query: diabetes_a1c_followup is LabResult -> {
   //    does outpatient lab turnaround take?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: LabResult, DiagnosisInterval, Patient, Facility
-  //   mcp.ontology.find_paths({ from: "LabResult", to: "DiagnosisInterval" })
+  //   mcp.find_paths({ from: "LabResult", to: "DiagnosisInterval" })
   //   -> LabResult.patient_id = DiagnosisInterval.patient_id at resulted_at
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> note: the base model exposes A1cResult on LabResult and
   //      DiabetesDiagnosis on DiagnosisInterval; use a temporal patient join
   where:
@@ -992,11 +992,11 @@ query: discharge_diagnosis_denominator_audit is InpatientStay -> {
   //    failure diagnoses at discharge?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.describe_temporal_axes({ concept: "DiagnosisInterval" })
+  //   mcp.describe({ kind: "temporal_axes", names: ["DiagnosisInterval"] })
   //   -> valid_time: clinical_valid_start to clinical_valid_end
-  //   mcp.ontology.find_paths({ from: "InpatientStay", to: "DiagnosisInterval" })
+  //   mcp.find_paths({ from: "InpatientStay", to: "DiagnosisInterval" })
   //   -> diagnoses_at_discharge uses `at discharge_date`
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; diagnosis filters do not change the discharge grain
   where:
     eligible_denominator_discharge

@@ -2,7 +2,7 @@
 // order an agent would, with comments explaining why the next request follows.
 
 /*
- * Purpose: Verifies MCP query.run validation, execution, limits, and exported result behavior.
+ * Purpose: Verifies MCP run_query validation, execution, limits, and exported result behavior.
  * Encapsulation: Keep MCP query execution assertions here; lower-level Malloy runtime coverage belongs in test/malloy-execution.test.ts.
  */
 
@@ -34,10 +34,10 @@ describe("SemLang MCP execution narratives", () => {
       JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
     );
 
-    const source = await mcp.tools.set_ontology_source({
+    const source = await mcp.tools["load_ontology"]({
       basePath: path.join(projectDir, "inline.semlang"),
       projectDir,
-      return_malloy_model: true,
+      returnMalloyModel: true,
       source: `
 package mcp.default_duckdb
 
@@ -67,18 +67,18 @@ concept InlineOrder is event from duckdb.sql("""
     // 02.05.013: Full compiled Malloy is available on source load only when requested.
     expect(text(source.malloyModel)).toContain("source: inline_order is __semlang_base_inline_order extend");
 
-    const missingLimit = await mcp.tools.query_run({
+    const missingLimit = await mcp.tools["run_query"]({
       root: "InlineOrder",
-      aggregate: ["order_count"],
+      body: { aggregate: ["order_count"] },
     });
     expect(missingLimit).toMatchObject({
       ok: false,
       error: expect.stringContaining("query_limit_seconds"),
     });
-    // 02.05.016: query.run failures still include a transaction id for traceability.
+    // 02.05.016: run_query failures still include a transaction id for traceability.
     expect(text(asObject(missingLimit.execution).transactionId)).toMatch(/^[0-9a-f-]{36}$/);
 
-    const invalidQuery = await mcp.tools.query_run({
+    const invalidQuery = await mcp.tools["run_query"]({
       query: "does_not_exist",
       query_limit_seconds: 30,
     });
@@ -88,15 +88,15 @@ concept InlineOrder is event from duckdb.sql("""
     });
     expect(text(asObject(invalidQuery.execution).transactionId)).toMatch(/^[0-9a-f-]{36}$/);
 
-    // 02.05.024: temporary query.run calls use the cached Malloy base model
-    // from set_ontology_source instead of recompiling the stored source text.
+    // 02.05.024: temporary run_query calls use the cached Malloy base model
+    // from load_ontology instead of recompiling the stored source text.
     mcp.getContext().sourceText = "package mcp.corrupted\nthis is no longer valid SemLang";
 
-    // 02.05.009 and 02.05.010: query.run requires an explicit
+    // 02.05.009 and 02.05.010: run_query requires an explicit
     // query_limit_seconds execution limit and returns elapsed runtime.
-    const run = await mcp.tools.query_run({
+    const run = await mcp.tools["run_query"]({
       root: "InlineOrder",
-      aggregate: ["order_count", "total_order_amount"],
+      body: { aggregate: ["order_count", "total_order_amount"] },
       query_limit_seconds: 30,
     });
     expectOk(run);
@@ -104,11 +104,11 @@ concept InlineOrder is event from duckdb.sql("""
       queryName: "__mcp_query",
       root: "InlineOrder",
     });
-    // 02.05.012: query.run keeps the default response compact by omitting the full Malloy model.
+    // 02.05.012: run_query keeps the default response compact by omitting the full Malloy model.
     expect(run).not.toHaveProperty("malloy");
     expect(text(run.queryMalloy)).toContain("query: __mcp_query is");
     const execution = asObject(run.execution);
-    // 02.05.018: query.run execution responses keep a compact public shape.
+    // 02.05.018: run_query execution responses keep a compact public shape.
     expect(Object.keys(execution).sort()).toEqual([
       "execution_time_ms",
       "malloyConfig",
@@ -126,10 +126,10 @@ concept InlineOrder is event from duckdb.sql("""
     });
 
     // 02.05.023: MCP argument serialization can pass numeric execution controls
-    // as strings, and query.run still treats valid integer seconds as deadlines.
-    const stringLimitRun = await mcp.tools.query_run({
+    // as strings, and run_query still treats valid integer seconds as deadlines.
+    const stringLimitRun = await mcp.tools["run_query"]({
       root: "InlineOrder",
-      aggregate: ["order_count"],
+      body: { aggregate: ["order_count"] },
       query_limit_seconds: "30",
     });
     expectOk(stringLimitRun);
@@ -139,9 +139,9 @@ concept InlineOrder is event from duckdb.sql("""
 
     // 02.05.023: string deadlines still have to fit within the runtime timer
     // ceiling so Node does not clamp an oversized timeout.
-    const oversizedStringLimit = await mcp.tools.query_run({
+    const oversizedStringLimit = await mcp.tools["run_query"]({
       root: "InlineOrder",
-      aggregate: ["order_count"],
+      body: { aggregate: ["order_count"] },
       query_limit_seconds: "2147484",
     });
     expect(oversizedStringLimit).toMatchObject({
@@ -150,11 +150,11 @@ concept InlineOrder is event from duckdb.sql("""
     });
 
     const exportDir = await fs.mkdtemp(path.join(projectDir, "exports-"));
-    // 02.05.016 and 02.05.017: query.run returns a transaction id and exports
+    // 02.05.016 and 02.05.017: run_query returns a transaction id and exports
     // row output larger than 10 lines to a transaction-named file.
-    const largeRun = await mcp.tools.query_run({
+    const largeRun = await mcp.tools["run_query"]({
       root: "InlineOrder",
-      group_by: ["order_id", "ordered_at", "order_amount"],
+      body: { group_by: ["order_id", "ordered_at", "order_amount"] },
       query_limit_seconds: 30,
       export_directory: exportDir,
     });
@@ -223,7 +223,7 @@ insert into orders values
       JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
     );
 
-    const source = await mcp.tools.set_ontology_source({
+    const source = await mcp.tools["load_ontology"]({
       basePath: path.join(projectDir, "reciprocal.semlang"),
       projectDir,
       source: `
@@ -258,13 +258,13 @@ query: customer_order_counts is Customer -> {
     expectOk(source);
 
     // 02.05.014: dry_run_only validates and returns query Malloy without executing.
-    const dryRun = await mcp.tools.query_run({ query: "customer_order_counts", dry_run_only: true });
+    const dryRun = await mcp.tools["run_query"]({ query: "customer_order_counts", dry_run_only: true });
     expectQuery(dryRun, "customer_order_counts", "Customer");
     expect(dryRun).not.toHaveProperty("malloy");
     expect(text(dryRun.queryMalloy)).toContain("query: customer_order_counts is customers ->");
     expect(asObject(dryRun.execution)).toMatchObject({ skipped: true });
 
-    const run = await mcp.tools.query_run({ query: "customer_order_counts", query_limit_seconds: 30 });
+    const run = await mcp.tools["run_query"]({ query: "customer_order_counts", query_limit_seconds: 30 });
     expectQuery(run, "customer_order_counts", "Customer");
     expect(run).not.toHaveProperty("malloy");
     const execution = asObject(run.execution);

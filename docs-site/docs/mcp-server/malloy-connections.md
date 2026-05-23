@@ -42,18 +42,18 @@ Built-in default-looking names such as `duckdb` are fine when Malloy can create 
 
 ## Project Config
 
-For shared projects, either pass an explicit config path to `set_ontology_source` or use Malloy's conventional config filenames.
+For shared projects, either pass an explicit config path to `load_ontology` or use Malloy's conventional config filenames.
 
 An explicit `configPath` / `malloyConfigPath` may point at any JSON config file:
 
 ```json
 {
-  "path": "models/orders.semlang",
+  "paths": ["models/orders.semlang"],
   "configPath": "config/databricks-malloy.json"
 }
 ```
 
-When no explicit config path is supplied, SemLang MCP auto-discovers `malloy-config-local.json` or `malloy-config.json` by walking up from the SemLang model file. If it finds no config, `set_ontology_source` fails with a setup error instead of silently falling back to another engine. The filename is only magic for this auto-discovery path.
+When no explicit config path is supplied, SemLang MCP auto-discovers `malloy-config-local.json` or `malloy-config.json` by walking up from the SemLang model file. If it finds no config, `load_ontology` fails with a setup error instead of silently falling back to another engine. The filename is only magic for this auto-discovery path.
 
 ```json
 {
@@ -106,7 +106,7 @@ Malloy's SDK needs a connection package loaded for each configured connection ty
 | `duckdb`          | `@malloydata/db-duckdb/native` |
 | `databricks`      | `@malloydata/db-databricks`    |
 
-If `malloy-config.json` uses a connection type that SemLang MCP does not yet register, `query.run` fails before execution with an error naming the missing type. Adding a new engine is a SemLang MCP code/dependency change; changing connection names or credentials is project configuration.
+If `malloy-config.json` uses a connection type that SemLang MCP does not yet register, `run_query` fails before execution with an error naming the missing type. Adding a new engine is a SemLang MCP code/dependency change; changing connection names or credentials is project configuration.
 
 Do not rewrite every SemLang model from `duckdb.table(...)` to `databricks.table(...)` just because the deployment target is Databricks. Update source declarations only when the connection name or table path should change. A model can use `warehouse.table('main.analytics.orders')` while config maps `warehouse` to `"is": "databricks"`.
 
@@ -149,7 +149,7 @@ Configure and start `semlang mcp` as usual, then load a SemLang file that uses t
 
 ```json
 {
-  "path": "models/orders.semlang"
+  "paths": ["models/orders.semlang"]
 }
 ```
 
@@ -160,13 +160,13 @@ The MCP server can then:
 - Return generated Malloy containing the configured connection names.
 - Execute named or temporary queries through the Malloy SDK.
 
-`query.run` requires the Malloy config captured by `set_ontology_source`. For custom names such as `warehouse`, add the connection to an explicit config file or to a discovered `malloy-config-local.json` / `malloy-config.json` before loading the ontology.
+`run_query` requires the Malloy config captured by `load_ontology`. For custom names such as `warehouse`, add the connection to an explicit config file or to a discovered `malloy-config-local.json` / `malloy-config.json` before loading the ontology.
 
 ## Troubleshooting
 
 | Symptom                                                                  | Check                                                                                                                                                    |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_ontology_source` says no Malloy config file was found               | Pass `configPath` / `malloyConfigPath`, or add `malloy-config-local.json` or `malloy-config.json` at or above the SemLang model directory.               |
+| `load_ontology` says no Malloy config file was found                     | Pass `configPath` / `malloyConfigPath`, or add `malloy-config-local.json` or `malloy-config.json` at or above the SemLang model directory.               |
 | `Source expression ... is missing a named Malloy connection`             | Change `table('orders')` to `connection_name.table('orders')` or define a named SemLang `source:` that uses a connection.                                |
 | Malloy says the connection is unknown                                    | Add the same connection name to `malloy-config.json`, `malloy-config-local.json`, or global Malloy config.                                               |
 | SemLang MCP says a connection type is configured but no package is known | The project config uses an engine that `src/malloy-execution.ts` does not register yet; add the relevant `@malloydata/db-*` dependency and registration. |

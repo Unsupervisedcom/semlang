@@ -614,11 +614,11 @@ query: monthly_margin_and_returns is SaleLine -> {
   //   "Show monthly margin and returns by region and product category."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: SaleLine, Sale, ReturnLine, Store, ProductSKUVersion
-  //   mcp.catalog.describe_concept_source({ concept: "SaleLine" })
+  //   mcp.describe({ kind: "concept", names: ["SaleLine"] })
   //   -> source table retail_line_items, joins sale/product_at_sale/returns
-  //   mcp.query.validate({ group_by, aggregate })
+  //   mcp.run_query({ group_by, aggregate })
   //   -> valid; all paths are reachable from SaleLine
   group_by:
     sold_month
@@ -658,7 +658,7 @@ query: inventory_exceptions is InventoryPosition -> {
   //   "Which store/SKU inventory positions look wrong or risky?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: InventoryPosition, Store, ProductSKU, ProductSKUVersion
   //   -> exception predicates: negative on hand, recalled, discontinued
   where:
@@ -681,13 +681,13 @@ query: vendor_funded_return_exposure is SaleLine -> {
   //   "Where are vendor-funded promotions creating returns exposure?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "SaleLine",
   //     to: ["Promotion", "ReturnLine"]
   //   })
   //   -> SaleLine -> PromotionAllocation -> Promotion
   //   -> SaleLine -> ReturnLine
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> warning: promotion allocations are one-to-many, so use declared
   //      fanout-safe measures where needed
   where:
@@ -718,18 +718,18 @@ query: denver_store_customer_count_on_2025_09_15 is Sale -> {
   // is not one exact count; it is observed facts plus a bound/estimate.
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: Sale, Store, Customer
-  //   mcp.ontology.describe_concept({ concept: "Sale" })
+  //   mcp.describe({ kind: "concept", names: ["Sale"] })
   //   -> customer?: Customer, so null customer means unrecognized buyer
-  //   mcp.catalog.resolve_entity({ concept: "Store", business_name: "Denver store" })
+  //   mcp.search({ kind: "entity", query: "Store Denver store" })
   //   -> store.store_code = 'DEN-01', store_name = "Denver Cherry Creek"
-  //   mcp.query.run({ query: "denver_store_customer_count_on_2025_09_15", query_limit_seconds: 30 })
+  //   mcp.run_query({ query: "denver_store_customer_count_on_2025_09_15", query_limit_seconds: 30 })
   //   -> sales: 7500
   //   -> identified_customer_sales: 4000
   //   -> identified_customers: 3700
   //   -> unrecognized_cash_sales: 3500
-  //   mcp.reasoning.derive(...)
+  //   mcp.search(...)
   //   -> max_possible_unique_customers = 3700 + 3500 = 7200
   //   -> identified_sales_per_customer = 4000 / 3700 = 1.0811
   //   -> estimated_total_customers_same_repeat_rate =
@@ -760,7 +760,7 @@ query: same_store_category_health is SaleLine -> {
   //   "How are active categories performing in comparable same-store locations?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "SaleLine",
   //     to: ["SameStore", "ActiveProduct"]
   //   })
@@ -814,11 +814,11 @@ query: same_store_category_health is SaleLine -> {
 //     functions, keeping row-grain and aggregate-grain expressions separate.
 //
 // MCP action narrative:
-//   mcp.ontology.describe_concept({ concept: "ReturnLine" })
+//   mcp.describe({ kind: "concept", names: ["ReturnLine"] })
 //   -> includes the settle_return action and its writeable fields.
-//   mcp.ontology.describe_action({ action: "settle_return" })
+//   mcp.describe({ kind: "action", names: ["ReturnLine.settle_return"] })
 //   -> subject: single, params, guard, set edits, write mappings, and log metadata.
-//   mcp.action.invoke({
+//   mcp.invoke_action({
 //     action: "settle_return",
 //     subject: { return_line_id: "RET_50002_1" },
 //     params: {

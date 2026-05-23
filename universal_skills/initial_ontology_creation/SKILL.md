@@ -23,7 +23,7 @@ Assume the ontology is for production analytics unless the user says otherwise. 
   - `phase` only for lifecycle stages of an entity, not table variants.
 - Keep SemLang Malloy-shaped where possible. Do not invent syntax that cannot lower clearly.
 - Model joins as a dedicated pass after the first concept inventory exists. Schema extraction usually exposes fields, not business relationships.
-- Validate incrementally with the SemLang MCP `set_ontology_source` command. Large ontologies should be organized into domain files and loaded in batches.
+- Validate incrementally with the SemLang MCP `load_ontology` tool. Large ontologies should be organized into domain files and loaded in batches.
 
 ## Phase 1: Intake
 
@@ -143,7 +143,7 @@ Use roles only when the name carries reusable business meaning. If a filter mere
 
 ## Phase 7: Draft And Validate The Ontology
 
-Create the first SemLang draft in small, valid increments. Valid means loading the entry-point file with the SemLang MCP `set_ontology_source` command and using the feedback to fix parse, semantic, source, and lowering issues.
+Create the first SemLang draft in small, valid increments. Valid means loading the entry-point file with the SemLang MCP `load_ontology` tool and using the feedback to fix parse, semantic, source, and lowering issues.
 
 - Put `package` first in every SemLang file.
 - Put `include` declarations immediately after `package`.
@@ -153,7 +153,7 @@ Create the first SemLang draft in small, valid increments. Valid means loading t
 - Keep source and concept audit notes in comments, especially row counts observed during introspection with the date stamp.
 - Move more inferred meaning out of comments and into declarations as confidence increases.
 - For ignored sources, use explicit ignored-source declarations with a reason when the project supports them.
-- Run `set_ontology_source` after each coherent batch instead of waiting for the complete ontology.
+- Run `load_ontology` after each coherent batch instead of waiting for the complete ontology.
 - Keep unresolved questions visible near the relevant source or concept so review can happen in context.
 
 ## Phase 8: Independent Audit

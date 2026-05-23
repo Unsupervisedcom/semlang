@@ -322,9 +322,9 @@ query: denver_readmission_monitor is InpatientStay with denver_market -> {
   // contributes the facility filters automatically.
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concept: InpatientStay; lens: denver_market
-  //   mcp.lens.expand({ lens: "denver_market", concept: "InpatientStay" })
+  //   mcp.describe({ kind: "lens", operation: "expand", names: ["denver_market", "InpatientStay"] })
   //   -> where facility.market = 'Denver' through Facility refinement
   where:
     eligible_denominator_discharge
@@ -367,11 +367,11 @@ query: patient_transition_call_list is InpatientStay with denver_readmission_ope
   // list for the discharges most likely to need follow-up.
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: InpatientStay, Patient, PayerCoverageInterval
-  //   mcp.lens.required_fields({ fields: ["patient_contact_phone"] })
+  //   mcp.describe({ kind: "lens", operation: "required_fields", fields: ["patient_contact_phone"] })
   //   -> requires lens with_patient_contact
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid with lenses; invalid without patient-contact lens
   where:
     needs_transition_review

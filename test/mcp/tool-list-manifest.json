@@ -1,0 +1,211 @@
+{
+  "tools": [
+    {
+      "name": "load_ontology",
+      "description": "Compile and store a SemLang ontology.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "projectDir": {
+            "type": "string"
+          },
+          "configPath": {
+            "type": "string"
+          },
+          "malloyConfigPath": {
+            "type": "string"
+          },
+          "returnMalloyModel": {
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search and resolve ontology objects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["any", "concept", "member", "metric", "lens", "query", "entity"]
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "describe",
+      "description": "Describe ontology objects and lens effects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["concept", "action", "role", "roles", "metric", "temporal_axes", "lens"]
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["detail", "expand", "required_fields", "plan"]
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "question": {
+            "type": "string"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "find_paths",
+      "description": "Find join paths between concepts or role targets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "maxDepth": {
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "run_query",
+      "description": "Validate or execute a Malloy-backed query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            ]
+          },
+          "lenses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run_only": {
+            "type": "boolean"
+          },
+          "query_limit_seconds": {
+            "type": "number"
+          },
+          "rowLimit": {
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "invoke_action",
+      "description": "Invoke a supported local action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "concept": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "target": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "dry_run_only": {
+            "type": "boolean"
+          },
+          "query_limit_seconds": {
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      }
+    }
+  ]
+}

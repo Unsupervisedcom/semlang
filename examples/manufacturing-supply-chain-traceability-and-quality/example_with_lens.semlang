@@ -361,10 +361,10 @@ query: active_recall_response_queue is RecallAffectedUnit with active_recall_res
   //    priority?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> lens candidate: active_recall_response
   //   -> concept: RecallAffectedUnit
-  //   mcp.query.validate({ with: ["active_recall_response"] })
+  //   mcp.run_query({ with: ["active_recall_response"] })
   //   -> active campaigns and open scope are already supplied by the lens.
   group_by:
     recall_campaign.campaign_code
@@ -391,10 +391,10 @@ query: supplier_certificate_escape_review is SerializedUnit with supplier_qualit
   //   "Do warranty escapes cluster around supplier certificates or batches?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> lens candidate: supplier_quality_audit because certificate fields are
   //      intentionally lens-scoped
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "SerializedUnit",
   //     to: ["SupplierLot", "WarrantyClaim", "InspectionDefect"]
   //   })

@@ -1,6 +1,6 @@
 /*
- * Purpose: Verifies MCP action.invoke SQL generation and execution behavior for action edits.
- * Encapsulation: Keep action.invoke SQL tool coverage here; shared MCP fixture helpers belong in test/mcp/helpers.ts.
+ * Purpose: Verifies MCP invoke_action SQL generation and execution behavior for action edits.
+ * Encapsulation: Keep invoke_action SQL tool coverage here; shared MCP fixture helpers belong in test/mcp/helpers.ts.
  */
 
 import fs from "node:fs/promises";
@@ -35,8 +35,8 @@ describe("SemLang MCP action SQL generation", () => {
         2,
       ),
     );
-    const loaded = await mcp.tools.set_ontology_source({
-      path: path.join(projectDir, "model.semlang"),
+    const loaded = await mcp.tools["load_ontology"]({
+      paths: [path.join(projectDir, "model.semlang")],
     });
     expectOk(loaded);
     return mcp;
@@ -66,10 +66,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       params: { approved_refund_amount: 12.5 },
       dry_run_only: true,
     });
@@ -117,10 +117,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "triage_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       dry_run_only: true,
     });
     expect(result).toMatchObject({
@@ -150,10 +150,10 @@ concept ReturnLine is event from warehouse.table('analytics.return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       dry_run_only: true,
     });
     expect(result).toMatchObject({ ok: true, skipped: true, operation: "update" });
@@ -188,10 +188,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "triage_return",
-      where: "return_line_id = 'RET-2'",
+      target: { where: "return_line_id = 'RET-2'" },
       dry_run_only: true,
     });
     expect(result).toMatchObject({
@@ -227,10 +227,10 @@ concept CustomerContact is kind from warehouse.table('customer_contacts') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "CustomerContact",
       action: "index_email",
-      subject: { customer_contact_id: "CON-1" },
+      target: { customer_contact_id: "CON-1" },
       params: { email: "ada@example.com" },
       dry_run_only: true,
     });
@@ -263,10 +263,10 @@ concept CustomerContact is kind from warehouse.table('customer_contacts') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "CustomerContact",
       action: "create_contact",
-      subject: { customer_contact_id: "CON-1" },
+      target: { customer_contact_id: "CON-1" },
       params: { email: "ada@example.com" },
       dry_run_only: true,
     });
@@ -295,10 +295,10 @@ concept SupportCase is kind from warehouse.table('support_cases') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "SupportCase",
       action: "purge_closed",
-      where: "support_case_id in ['C-1', 'C-2']",
+      target: { where: "support_case_id in ['C-1', 'C-2']" },
       dry_run_only: true,
     });
     expect(result).toMatchObject({
@@ -331,16 +331,16 @@ concept ReturnLine is event from warehouse.table('return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      where: "this.",
+      target: { where: "this." },
       dry_run_only: true,
     });
     expect(result).toMatchObject({
       ok: false,
       engine: "malloy",
-      diagnostics: expect.arrayContaining(["where must contain a non-empty predicate for action.invoke."]),
+      diagnostics: expect.arrayContaining(["where must contain a non-empty predicate for invoke_action."]),
     });
   });
 
@@ -362,10 +362,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
 }
 `);
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
     });
     expect(result).toMatchObject({
       ok: false,
@@ -375,10 +375,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
     });
 
     // Covers: 02.05.023
-    const stringLimitResult = await mcp.tools.action_invoke({
+    const stringLimitResult = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       query_limit_seconds: "45",
     });
     expect(stringLimitResult).toMatchObject({
@@ -389,10 +389,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
     });
 
     // Covers: 02.05.023
-    const oversizedStringLimit = await mcp.tools.action_invoke({
+    const oversizedStringLimit = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       query_limit_seconds: "2147484",
     });
     expect(oversizedStringLimit).toMatchObject({
@@ -432,10 +432,10 @@ concept ReturnLine is event from warehouse.table('return_lines') {
       },
     );
 
-    const result = await mcp.tools.action_invoke({
+    const result = await mcp.tools["invoke_action"]({
       concept: "ReturnLine",
       action: "settle_return",
-      subject: { return_line_id: "RET-1" },
+      target: { return_line_id: "RET-1" },
       dry_run_only: true,
     });
     expect(result).toMatchObject({

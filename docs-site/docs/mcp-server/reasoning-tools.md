@@ -1,40 +1,15 @@
 ---
-title: Reasoning Tools
+title: Reasoning Workflow
 sidebar_position: 7
 ---
 
-# Reasoning Tools
+# Reasoning Workflow
 
-Reasoning tools provide high-level hints that help an agent choose a semantic route before it commits to a query plan.
+SemLang does not expose a separate reasoning tool. Agents should compose the compact public tools instead:
 
-## `reasoning.derive`
+- Use `search` to find candidate concepts, members, metrics, queries, lenses, or entities.
+- Use `describe` to inspect the selected ontology objects and lens details.
+- Use `find_paths` when the route between concepts matters.
+- Use `run_query` with `dry_run_only` to validate generated Malloy before execution.
 
-Derives candidate concepts, metrics, lenses, and path hints for a question.
-
-### Inputs
-
-| Field      | Type   | Notes                          |
-| ---------- | ------ | ------------------------------ |
-| `question` | string | Preferred analytical question. |
-| `goal`     | string | Alias for `question`.          |
-| `text`     | string | Alias for `question`.          |
-
-### Output
-
-Returns:
-
-- `candidateConcepts`: concept search matches from `semantic.search_terms`.
-- `candidateMetrics`: measure matches from `semantic.search_terms`.
-- `candidateLenses`: scored lens matches.
-- `pathHints`: short join paths between the top candidate concepts.
-- `derivation`: notes describing the heuristic used.
-
-### Example
-
-```json
-{
-  "question": "recognized revenue ARR movement subscription product usage"
-}
-```
-
-Use `reasoning.derive` as a planning shortcut. Use the more specific ontology, lens, and query tools to verify any candidate before generating or running a query.
+This keeps heuristic planning out of the public manifest while preserving the same workflow through explicit, reviewable tool calls.

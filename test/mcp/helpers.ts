@@ -68,7 +68,7 @@ export async function setInlineOntology(
     path.join(projectDir, "malloy-config.json"),
     JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
   );
-  return mcp.tools.set_ontology_source({
+  return mcp.tools["load_ontology"]({
     basePath: path.join(projectDir, "inline.semlang"),
     projectDir,
     source,

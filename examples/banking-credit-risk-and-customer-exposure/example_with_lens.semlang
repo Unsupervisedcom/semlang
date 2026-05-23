@@ -340,10 +340,10 @@ query: regulatory_capital_snapshot is LoanExposureSnapshot with regulatory_base_
   //   "Give me regulatory base exposure, ECL, and capital density by segment."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concept: LoanExposureSnapshot
   //   -> candidate lens: regulatory_base_reporting
-  //   mcp.lens.describe({ lens: "regulatory_base_reporting" })
+  //   mcp.describe({ kind: "lens", names: ["regulatory_base_reporting"] })
   //   -> ambient filter: RegulatoryBaseExposure
   group_by:
     as_of_quarter
@@ -367,10 +367,10 @@ query: officer_watchlist_exposure_queue is LoanExposureSnapshot with watchlist_c
   //   "Which exposures need officer action today?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: LoanExposureSnapshot, CreditFacility, Loan, RiskRating
   //   -> candidate lens: watchlist_credit_review
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; credit_action_band exists only while this lens is active.
   group_by:
     as_of_date
@@ -399,10 +399,10 @@ query: model_validation_reconciliation is LoanExposureSnapshot with model_valida
   //    run, scenario, version, and accounting basis grain?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.describe_concept({ concept: "LoanExposureSnapshot" })
+  //   mcp.describe({ kind: "concept", names: ["LoanExposureSnapshot"] })
   //   -> model_scores join includes loan, as_of_date, run, version, scenario,
   //      and accounting basis
-  //   mcp.lens.describe({ lens: "model_validation" })
+  //   mcp.describe({ kind: "lens", names: ["model_validation"] })
   //   -> adds aggregate-safe model score reconciliation measures
   group_by:
     as_of_quarter
@@ -427,8 +427,10 @@ query: cre_regulatory_watchlist_queue is LoanExposureSnapshot with regulatory_cr
   //    after guarantee and collateral caps."
   //
   // Agent discovery sketch:
-  //   mcp.lens.plan({
-  //     lenses: [
+  //   mcp.describe({
+  //     kind: "lens",
+  //     operation: "plan",
+  //     names: [
   //       "regulatory_base_reporting",
   //       "commercial_real_estate_concentration",
   //       "watchlist_credit_review"
@@ -459,7 +461,7 @@ query: model_validation_evidence_gap is ReviewDocument with model_validation -> 
   //   "What model-validation evidence exists for the review packet?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> ReviewDocument role ModelValidationEvidence
   //   -> model_validation lens narrows ReviewDocument to that role.
   group_by:

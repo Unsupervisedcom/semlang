@@ -7,91 +7,66 @@ sidebar_position: 3
 
 Use these tools at the start of an agent workflow to load a model, find relevant ontology objects, and resolve business labels.
 
-## `set_ontology_source`
+## `load_ontology`
 
 Compiles one or more SemLang files or inline source strings and stores the resulting model in the MCP session.
 
 ### Inputs
 
-| Field                 | Type         | Notes                                                                                                                                                                                                                     |
-| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `path`                | string       | Path to one SemLang file.                                                                                                                                                                                                 |
-| `paths`               | string array | Paths to multiple SemLang files. The server creates an include-based context file.                                                                                                                                        |
-| `filePath`            | string       | Alias for `path` when loading a file, or a base file path for inline source.                                                                                                                                              |
-| `filePaths`           | string array | Alias for `paths`.                                                                                                                                                                                                        |
-| `source`              | string       | Inline SemLang source.                                                                                                                                                                                                    |
-| `sources`             | string array | Multiple inline sources joined with blank lines.                                                                                                                                                                          |
-| `basePath`            | string       | File path used for resolving includes when compiling inline source.                                                                                                                                                       |
-| `projectPath`         | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
-| `configPath`          | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
-| `return_malloy_model` | boolean      | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                                                                                                                                    |
-| `returnMalloyModel`   | boolean      | Alias for `return_malloy_model`.                                                                                                                                                                                          |
+| Field               | Type         | Notes                                                                                                                                                                                                                     |
+| ------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paths`             | string array | SemLang file paths to load. Use one item for a single file.                                                                                                                                                               |
+| `source`            | string       | Inline SemLang source.                                                                                                                                                                                                    |
+| `projectDir`        | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
+| `malloyConfigPath`  | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
+| `returnMalloyModel` | boolean      | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                                                                                                                                    |
 
-When `configPath` / `malloyConfigPath` is omitted, `set_ontology_source` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
+When `malloyConfigPath` is omitted, `load_ontology` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
 
 ### Output
 
-Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available. The full compiled Malloy model is omitted by default and returned as `malloyModel` only when requested with `return_malloy_model` or `returnMalloyModel`.
+Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available. The full compiled Malloy model is omitted by default and returned as `malloyModel` only when requested with `returnMalloyModel`.
 
 ### Example
 
 ```json
 {
-  "path": "examples/retail-omnichannel-margin-and-returns/example.semlang"
+  "paths": ["examples/retail-omnichannel-margin-and-returns/example.semlang"]
 }
 ```
 
-## `semantic.search_terms`
+## `search`
 
-Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase. Member descriptions contribute to matches. Role search includes qualified role names, labels, aliases, and predicates.
+Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase. It can also resolve ontology names or business labels when `kind` is `entity`.
 
 ### Inputs
 
-| Field      | Type   | Notes                                         |
-| ---------- | ------ | --------------------------------------------- |
-| `question` | string | Preferred natural-language search text.       |
-| `query`    | string | Alias for `question`.                         |
-| `phrase`   | string | Alias for `question`.                         |
-| `text`     | string | Alias for `question`.                         |
-| `limit`    | number | Maximum results per category. Defaults to 20. |
+| Field   | Type   | Notes                                                                                     |
+| ------- | ------ | ----------------------------------------------------------------------------------------- |
+| `query` | string | Search text, ontology name, or business label.                                            |
+| `kind`  | string | Optional result kind: `any`, `concept`, `member`, `metric`, `lens`, `query`, or `entity`. |
+| `limit` | number | Maximum results per category. Defaults to 20.                                             |
 
 ### Output
 
-Returns `concepts`, `metrics`, `members`, `queries`, and `lenses`. Each match includes a score and matched terms.
+Metadata search returns matching concepts, metrics, members, queries, lenses, actions, and roles. Each match includes a score and matched terms. Entity resolution returns matching sources, types, concepts, members, lenses, queries, candidate identifiers, candidate fields, matching rows when local DuckDB example data is available, and roles.
+
+Lens-oriented responses include scored lenses with descriptions, parents, refined concepts, scores, and matched terms. Use `find_paths` when the exact join route matters.
 
 ### Example
 
 ```json
 {
-  "question": "monthly margin and returns by region and product category",
+  "query": "monthly margin and returns by region and product category",
   "limit": 8
 }
 ```
 
-## `catalog.resolve_entity`
-
-Resolves a name or business label to ontology objects. When a concept and business label are supplied and local DuckDB example data is available, the tool also searches likely identifier, name, label, code, region, city, state, status, type, and market fields for matching rows.
-
-### Inputs
-
-| Field           | Type   | Notes                                                                      |
-| --------------- | ------ | -------------------------------------------------------------------------- |
-| `entity`        | string | Ontology name or term to resolve.                                          |
-| `name`          | string | Alias for `entity`.                                                        |
-| `term`          | string | Alias for `entity`.                                                        |
-| `concept`       | string | Optional concept to search for a business label.                           |
-| `business_name` | string | Business label to resolve against candidate fields and local example data. |
-| `businessName`  | string | Alias for `business_name`.                                                 |
-
-### Output
-
-Name resolution returns matching sources, types, concepts, members, lenses, and queries. Business-label resolution returns candidate identifiers, candidate fields, matching rows when available, roles, and a note explaining whether local DuckDB data was used.
-
 ### Example
 
 ```json
 {
-  "concept": "Store",
-  "business_name": "Denver"
+  "kind": "entity",
+  "query": "Store Denver"
 }
 ```

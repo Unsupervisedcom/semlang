@@ -13,7 +13,7 @@ This document defines the first implementation slice for SemLang actions. The la
 
 ## Non-Goals for the First Slice
 
-- Do not execute actions outside the MCP `action.invoke` adapter.
+- Do not execute actions outside the MCP `invoke_action` adapter.
 - Do not emit action SQL as part of Malloy read/query lowering.
 - Do not lower actions into Malloy.
 - Do not implement authorization, current-user resolution, notifications, webhooks, branch writes, or reverts yet.
@@ -174,7 +174,7 @@ Validation can defer expression type-checking for guard predicates, edit express
 
 Malloy emission must ignore actions and write mappings. Existing Malloy output for read models should remain stable except for harmless formatting changes around parsed declarations.
 
-The MCP `action.invoke` adapter may lower supported actions to SQL through the configured Malloy connection. SQL action lowering must remain separate from Malloy read/query lowering, avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default path, quote schema-qualified table path components separately, and reject write selectors that can fan out one subject identity into multiple rows.
+The MCP `invoke_action` adapter may lower supported actions to SQL through the configured Malloy connection. SQL action lowering must remain separate from Malloy read/query lowering, avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default path, quote schema-qualified table path components separately, and reject write selectors that can fan out one subject identity into multiple rows.
 
 The first implementation does not need to expose a public action manifest emitter, but the AST and semantic model should be structured so a manifest emitter can be added without reparsing action bodies.
 

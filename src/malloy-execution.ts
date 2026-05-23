@@ -448,7 +448,7 @@ async function createMalloyRuntime(context: MalloyExecutionContext): Promise<{
 
   if (!context.malloyConfigPath) {
     throw new Error(
-      "No Malloy config path is available. Call set_ontology_source with configPath/malloyConfigPath, or place malloy-config-local.json or malloy-config.json where it can be discovered.",
+      "No Malloy config path is available. Call load_ontology with malloyConfigPath, or place malloy-config-local.json or malloy-config.json where it can be discovered.",
     );
   }
   const configSource = context.malloyConfigSource ?? "explicit";

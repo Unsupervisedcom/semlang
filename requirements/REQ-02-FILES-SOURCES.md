@@ -61,27 +61,37 @@ Named sources can be declared from a root source plus a query body. These source
 
 MCP query execution uses Malloy connection configuration captured when an ontology source is loaded. Connection names in SemLang source text remain model-level names, while connection engine types live in Malloy config.
 
-- 02.05.001: `set_ontology_source` MUST accept an explicit Malloy config path through `configPath` or `malloyConfigPath`, and that explicit path MAY use any JSON filename.
-- 02.05.002: When no explicit Malloy config path is supplied, `set_ontology_source` MUST discover `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
-- 02.05.003: When no explicit Malloy config path is supplied and discovery fails, `set_ontology_source` MUST return a clear setup error and MUST NOT synthesize an implicit fallback connection.
-- 02.05.004: `set_ontology_source` MUST store the resolved Malloy project directory, config path, and config source in MCP context for later query execution.
-- 02.05.005: `query.run` MUST execute generated Malloy through the Malloy SDK using the config context captured by `set_ontology_source`.
+- 02.05.001: `load_ontology` MUST accept an explicit Malloy config path through `configPath` or `malloyConfigPath`, and that explicit path MAY use any JSON filename.
+- 02.05.002: When no explicit Malloy config path is supplied, `load_ontology` MUST discover `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
+- 02.05.003: When no explicit Malloy config path is supplied and discovery fails, `load_ontology` MUST return a clear setup error and MUST NOT synthesize an implicit fallback connection.
+- 02.05.004: `load_ontology` MUST store the resolved Malloy project directory, config path, and config source in MCP context for later query execution.
+- 02.05.005: `run_query` MUST execute generated Malloy through the Malloy SDK using the config context captured by `load_ontology`.
 - 02.05.006: SemLang source connection names MUST remain independent of Malloy config connection types; changing the execution engine SHOULD be a config change unless the model's connection name or table path intentionally changes.
 - 02.05.007: The MCP Malloy runtime MUST load/register connection packages for supported configured connection types before execution.
-- 02.05.008: If Malloy config uses an unsupported connection type, ontology source loading or `query.run` MUST return a clear diagnostic or execution error naming the unsupported type.
-- 02.05.009: `query.run` MUST require a positive integer `query_limit_seconds` execution-control parameter.
-- 02.05.010: Successful `query.run` execution results MUST include `execution_time_ms`.
+- 02.05.008: If Malloy config uses an unsupported connection type, ontology source loading or `run_query` MUST return a clear diagnostic or execution error naming the unsupported type.
+- 02.05.009: `run_query` MUST require a positive integer `query_limit_seconds` execution-control parameter.
+- 02.05.010: Successful `run_query` execution results MUST include `execution_time_ms`.
 - 02.05.011: Queries that exceed `query_limit_seconds` MUST return a timeout execution error with elapsed runtime information.
-- 02.05.012: `query.run` MUST omit the full compiled Malloy model from its default response while still returning the extracted query Malloy.
-- 02.05.013: `set_ontology_source` MUST return the full compiled Malloy model only when `return_malloy_model` or `returnMalloyModel` is true.
-- 02.05.014: `query.run` MUST support `dry_run_only` / `dryRunOnly` to validate and return query Malloy without executing the query or requiring `query_limit_seconds`.
+- 02.05.012: `run_query` MUST omit the full compiled Malloy model from its default response while still returning the extracted query Malloy.
+- 02.05.013: `load_ontology` MUST return the full compiled Malloy model only when `return_malloy_model` or `returnMalloyModel` is true.
+- 02.05.014: `run_query` MUST support `dry_run_only` / `dryRunOnly` to validate and return query Malloy without executing the query or requiring `query_limit_seconds`.
 - 02.05.015: MCP configuration paths MUST be manageable as settings from `SEMLANG_`-prefixed environment variables or equivalent CLI/tool parameters, including project directory, Malloy config path, and export directory.
-- 02.05.016: Every `query.run` request MUST generate and return a transaction GUID that can be used to trace logs and exported output.
-- 02.05.017: When executed `query.run` row output is larger than 10 lines, MCP MUST write the rows to a JSON file in the configured export directory using the transaction GUID as the file name and MUST return the export path and line count instead of inline rows.
-- 02.05.018: Executed `query.run` MCP responses MUST omit verbose execution internals including generated SQL, execution engine name, query name, query limit, and success-path timeout flags from the `execution` object.
-- 02.05.019: `action.invoke` MUST use the Malloy config context captured by `set_ontology_source` when executing generated action SQL.
-- 02.05.020: `action.invoke` MUST support `dry_run_only` / `dryRunOnly` to return generated action SQL without executing it.
-- 02.05.021: `action.invoke` generated write SQL SHOULD avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default lowering path.
-- 02.05.022: `action.invoke` SQL execution MUST apply a positive integer execution deadline, defaulting to 30 seconds when no `query_limit_seconds` value is supplied.
+- 02.05.016: Every `run_query` request MUST generate and return a transaction GUID that can be used to trace logs and exported output.
+- 02.05.017: When executed `run_query` row output is larger than 10 lines, MCP MUST write the rows to a JSON file in the configured export directory using the transaction GUID as the file name and MUST return the export path and line count instead of inline rows.
+- 02.05.018: Executed `run_query` MCP responses MUST omit verbose execution internals including generated SQL, execution engine name, query name, query limit, and success-path timeout flags from the `execution` object.
+- 02.05.019: `invoke_action` MUST use the Malloy config context captured by `load_ontology` when executing generated action SQL.
+- 02.05.020: `invoke_action` MUST support `dry_run_only` / `dryRunOnly` to return generated action SQL without executing it.
+- 02.05.021: `invoke_action` generated write SQL SHOULD avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default lowering path.
+- 02.05.022: `invoke_action` SQL execution MUST apply a positive integer execution deadline, defaulting to 30 seconds when no `query_limit_seconds` value is supplied.
 - 02.05.023: MCP execution-control parameters for query deadlines MUST accept timer-safe positive integer second values that arrive as strings through MCP argument serialization.
-- 02.05.024: `query.run` MUST reuse the compiled Malloy model cached by `set_ontology_source` for named and temporary queries instead of regenerating the ontology's base Malloy model for each call.
+- 02.05.024: `run_query` MUST reuse the compiled Malloy model cached by `load_ontology` for named and temporary queries instead of regenerating the ontology's base Malloy model for each call.
+- 02.05.025: The MCP `tools/list` manifest SHOULD stay within the current tested token budget so tool metadata does not unnecessarily inflate agent context.
+- 02.05.026: MCP tools MUST NOT be duplicated under alternate aliases such as both dot-separated and underscore-separated names, and the server MUST expose only the minimal tool names necessary for agent use.
+- 02.05.027: MCP tools MUST omit default task execution metadata when the protocol default already communicates that task support is forbidden.
+- 02.05.028: The public MCP tool manifest MUST expose the consolidated tool names `load_ontology`, `search`, `describe`, `find_paths`, `run_query`, and `invoke_action` for the core agent workflow.
+- 02.05.029: The public MCP tool manifest MUST NOT expose separate public tools for semantic search, entity resolution, lens suggestion, concept detail, action detail, role detail, metric explanation, temporal-axis detail, lens description, lens expansion, required lens fields, lens planning, or derive-style reasoning when those capabilities are covered by `search`, `describe`, or `find_paths`.
+- 02.05.030: Public MCP tool input schemas MUST be meaningful and specific enough for agents to choose valid arguments without relying on prose-only descriptions, including explicit modes or discriminators where a consolidated tool performs more than one operation.
+- 02.05.031: `search` MUST fold semantic metadata search, entity/name resolution, lens suggestion, and derive-style candidate ranking into one request surface without exposing implementation-shaped planning knobs.
+- 02.05.032: `describe` MUST fold concept, action, role, metric, temporal-axis, and lens detail into one request surface, including lens expansion, required lens fields, and lens plan details.
+- 02.05.033: `find_paths` MUST remain a separate public tool because path exploration has a distinct input shape and result contract.
+- 02.05.034: `run_query` and `invoke_action` MUST replace the previous public `query.run` and `action.invoke` names.

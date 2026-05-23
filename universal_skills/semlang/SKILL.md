@@ -96,11 +96,11 @@ SemLang is best understood as Malloy with a semantic ontology layer. Keep Malloy
 - Use the live source-backed CLI when configuring agents: `semlang mcp`.
 - To install it globally, run `npm install` and `npm link` from your SemLang checkout.
 - Project MCP configs should use `{ "command": "semlang", "args": ["mcp"] }` under an `mcpServers.semlang` entry.
-- The command resolves SemLang server code from the linked checkout, while model paths passed to `set_ontology_source` resolve from the agent project's working directory.
+- The command resolves SemLang server code from the linked checkout, while model paths passed to `load_ontology` resolve from the agent project's working directory.
 - Use `semlang setup` to inspect resolved MCP settings before starting agents.
 - Manage configuration paths through settings: `SEMLANG_PROJECT_DIR`, `SEMLANG_MALLOY_CONFIG_PATH`, and `SEMLANG_EXPORT_DIRECTORY`, or the equivalent `semlang mcp --project-dir`, `--malloy-config-path`, and `--export-directory` parameters. The project directory defaults to the MCP process current directory, and exports default to the operating system temp directory. Tool calls may still override project/config/export paths when a request needs a one-off value.
-- `set_ontology_source` accepts `configPath` or `malloyConfigPath`, falls back to managed settings, and otherwise discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
-- `query.run` uses the captured Malloy config, requires a positive integer `query_limit_seconds`, returns a transaction GUID, and exports row output larger than 10 lines to the managed export directory.
+- `load_ontology` accepts `configPath` or `malloyConfigPath`, falls back to managed settings, and otherwise discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang model directory.
+- `run_query` uses the captured Malloy config, requires a positive integer `query_limit_seconds`, returns a transaction GUID, and exports row output larger than 10 lines to the managed export directory.
 - Restart an already-running MCP session after changing server code; newly-started sessions pick up the latest source directly.
 
 ## Common Translations

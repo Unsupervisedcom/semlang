@@ -308,9 +308,9 @@ query: enterprise_finance_arr_movement is SubscriptionPeriod with enterprise_rev
   // the enterprise account scope and the region-focused operating view.
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question: "enterprise ARR movement" })
+  //   mcp.search({ query: "enterprise ARR movement" })
   //   -> concepts: SubscriptionPeriod, Account, ProductPlan
-  //   mcp.lens.suggest({ user_context: "enterprise revenue leader" })
+  //   mcp.search({ query: "enterprise revenue leader" })
   //   -> enterprise_revenue
   group_by:
     period_month
@@ -346,11 +346,11 @@ query: production_entitled_feature_adoption is FeatureUsageDay with production_a
   //   "Show production adoption for entitled feature usage."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: FeatureUsageDay, Workspace, EntitlementInterval
-  //   mcp.lens.suggest({ phrase: "production adoption" })
+  //   mcp.search({ query: "production adoption" })
   //   -> production_adoption_operations
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; lens filters workspace and entitlement status.
   group_by:
     activity_month
@@ -394,9 +394,9 @@ query: customer_success_renewal_risk_queue is Renewal with customer_success_risk
   //   "Which renewals need intervention, and how much ARR is attached?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: Renewal, Account
-  //   mcp.lens.suggest({ phrase: "needs intervention" })
+  //   mcp.search({ query: "needs intervention" })
   //   -> customer_success_risk contributes renewal_risk_band.
   where:
     renewal_risk_band = 'intervene'

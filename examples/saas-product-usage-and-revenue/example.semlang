@@ -1153,12 +1153,12 @@ query: finance_arr_movement is SubscriptionPeriod -> {
   //   "Show ARR movement by month, segment, region, and plan family."
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: SubscriptionPeriod, Account, ProductPlan
-  //   mcp.ontology.describe_concept({ concept: "SubscriptionPeriod" })
+  //   mcp.describe({ kind: "concept", names: ["SubscriptionPeriod"] })
   //   -> ARR movement is at subscription-period grain; invoices and recognized
   //      revenue are different facts and should not be joined unless requested.
-  //   mcp.query.validate({ group_by, aggregate })
+  //   mcp.run_query({ group_by, aggregate })
   //   -> valid; all measures are declared at the subscription period grain.
   group_by:
     period_month
@@ -1182,9 +1182,9 @@ query: recognized_revenue_trend is RevenueRecognitionEntry -> {
   //    basis?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: RevenueRecognitionEntry, Account, InvoiceLine
-  //   mcp.ontology.explain_metric({ metric: "recognized_revenue" })
+  //   mcp.describe({ kind: "metric", names: ["recognized_revenue"] })
   //   -> source table revenue_recognition; not invoice total and not ARR.
   group_by:
     recognized_month
@@ -1204,13 +1204,13 @@ query: entitlement_aware_usage is FeatureUsageDay -> {
   //    plan entitlement in force on the usage date?"
   //
   // Agent discovery sketch:
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "FeatureUsageDay",
   //     to: ["ProductFeature", "EntitlementInterval", "ProductPlan"]
   //   })
   //   -> FeatureUsageDay -> ProductFeature
   //   -> FeatureUsageDay -> EntitlementInterval at activity_date
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; `at activity_date` constrains the effective-dated entitlement.
   group_by:
     activity_month
@@ -1234,9 +1234,9 @@ query: renewal_risk_summary is Renewal -> {
   //   "Which renewal cohorts carry contraction or churn risk?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: Renewal, Account, Contract, Subscription
-  //   mcp.ontology.describe_role({ role: "AtRiskRenewal" })
+  //   mcp.describe({ kind: "role", names: ["AtRiskRenewal"] })
   //   -> contraction_arr_risk > 0 or churn_risk_reason is populated.
   group_by:
     renewal_due_month
@@ -1259,9 +1259,9 @@ query: support_and_incident_health is IncidentWorkspaceImpact -> {
   //   "Where are customer-visible incidents creating account impact?"
   //
   // Agent discovery sketch:
-  //   mcp.semantic.search_terms({ question })
+  //   mcp.search({ query: question })
   //   -> concepts: IncidentWorkspaceImpact, Incident, Workspace, Account
-  //   mcp.ontology.describe_concept({ concept: "IncidentWorkspaceImpact" })
+  //   mcp.describe({ kind: "concept", names: ["IncidentWorkspaceImpact"] })
   //   -> impact minutes are workspace-scoped; count distinct accounts and
   //      workspaces to avoid treating impact rows as account rows.
   where:
@@ -1290,12 +1290,12 @@ query: churned_account_pre_churn_activity is FeatureUsageDay -> {
   // through account/subscription if ARR denominators were needed.
   //
   // Agent discovery sketch:
-  //   mcp.ontology.find_paths({
+  //   mcp.find_paths({
   //     from: "FeatureUsageDay",
   //     to: ["Subscription", "SubscriptionPeriod"]
   //   })
   //   -> FeatureUsageDay.subscription -> Subscription.periods
-  //   mcp.query.validate(...)
+  //   mcp.run_query(...)
   //   -> valid; periods is one-to-many, so the where clause restricts to the
   //      churn period and group_by stays at feature/month dimensions.
   where:
@@ -1316,11 +1316,11 @@ query: churned_account_pre_churn_activity is FeatureUsageDay -> {
 }
 
 // MCP action narrative:
-//   mcp.ontology.describe_concept({ concept: "SupportCase" })
+//   mcp.describe({ kind: "concept", names: ["SupportCase"] })
 //   -> includes the open_case action for support workflow creation.
-//   mcp.ontology.describe_action({ concept: "SupportCase", action: "open_case" })
+//   mcp.describe({ kind: "action", names: ["SupportCase.open_case"] })
 //   -> subject: new, params, insert edit assignments, write mappings, and log metadata.
-//   mcp.action.invoke({
+//   mcp.invoke_action({
 //     concept: "SupportCase",
 //     action: "open_case",
 //     subject: { support_case_id: "CASE_MCP_OPEN_1" },

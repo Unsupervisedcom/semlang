@@ -39,7 +39,7 @@ concept EventTransaction is event from duckdb.table('event_transactions') {
       reason: '"Deprecated -- replaced by event_transactions as of 2025-Q3"',
     });
 
-    const search = await mcp.tools.semantic_search_terms({ question: "legacy ticket log deprecated" });
+    const search = await mcp.tools["search"]({ query: "legacy ticket log deprecated" });
     expectOk(search);
     expect(records(search.ignored)[0]).toMatchObject({
       source: "duckdb.table('legacy_ticket_log')",
@@ -68,7 +68,7 @@ concept Customer is kind from duckdb.table('customers') {
     );
     expectOk(source);
 
-    const role = await mcp.tools.ontology_describe_role({ role: "Customer.Active" });
+    const role = await mcp.tools["describe"]({ kind: "role", names: ["Customer.Active"] });
     expectOk(role);
     expect(records(role.roles)[0]).toMatchObject({
       concept: "Customer",
@@ -79,7 +79,7 @@ concept Customer is kind from duckdb.table('customers') {
       predicate: "status = 'active'",
     });
 
-    const search = await mcp.tools.semantic_search_terms({ question: "current customer" });
+    const search = await mcp.tools["search"]({ query: "current customer" });
     expectOk(search);
     const roleMatch = records(search.members).find((member) => member.kind === "role");
     expect(roleMatch).toMatchObject({
@@ -88,7 +88,7 @@ concept Customer is kind from duckdb.table('customers') {
       matchedTerms: expect.arrayContaining(["current", "customer"]),
     });
 
-    const entity = await mcp.tools.catalog_resolve_entity({ name: "Open Customer" });
+    const entity = await mcp.tools["search"]({ kind: "entity", query: "Open Customer" });
     expectOk(entity);
     expect(records(entity.matches).find((match) => match.kind === "role")).toMatchObject({
       name: "Active",
@@ -127,7 +127,7 @@ concept Booking is kind from duckdb.table('bookings') {
     );
     expectOk(source);
 
-    const described = await mcp.tools.ontology_describe_concept({ concept: "Booking" });
+    const described = await mcp.tools["describe"]({ kind: "concept", names: ["Booking"] });
     expectOk(described);
     const concept = asObject(described.concept);
     expect(records(concept.identities)[0]).toMatchObject({
@@ -147,14 +147,18 @@ concept Booking is kind from duckdb.table('bookings') {
       description: "Total booked commercial value.",
     });
 
-    const metric = await mcp.tools.ontology_explain_metric({ metric: "booked_value" });
+    const describedMultiple = await mcp.tools["describe"]({ kind: "concept", names: ["Booking", "Booking"] });
+    expectOk(describedMultiple);
+    expect(records(describedMultiple.results)).toHaveLength(2);
+
+    const metric = await mcp.tools["describe"]({ kind: "metric", names: ["booked_value"] });
     expectOk(metric);
     expect(records(metric.metrics)[0]).toMatchObject({
       name: "booked_value",
       description: "Total booked commercial value.",
     });
 
-    const search = await mcp.tools.semantic_search_terms({ question: "commercial value" });
+    const search = await mcp.tools["search"]({ query: "commercial value" });
     expectOk(search);
     expect(records(search.metrics)[0]).toMatchObject({ name: "booked_value" });
     expect(records(search.members).map((member) => member.name)).toEqual(
@@ -197,10 +201,10 @@ concept Account is kind from duckdb.table('accounts') {
     expect(records(source.diagnostics).map((diagnostic) => diagnostic.code)).toContain("FIELD_NAME_SHADOWS_KEYWORD");
 
     // 02.05.014: dry_run_only preserves query validation without requiring execution.
-    const validated = await mcp.tools.query_run({
+    const validated = await mcp.tools["run_query"]({
       dry_run_only: true,
       root: "Account",
-      aggregate: ["count()"],
+      body: { aggregate: ["count()"] },
     });
     expectOk(validated);
     expect(records(validated.diagnostics).map((diagnostic) => diagnostic.code)).not.toContain("MISSING_JOIN_CANDIDATE");
@@ -239,7 +243,7 @@ concept Sale is event from duckdb.table('sales') {
   it("returns Malloy SDK validation diagnostics when setting ontology source but not during query validation", async () => {
     // 05.07.006 and 05.07.007: ontology loading validates the full emitted
     // Malloy model and fails before bad generated Malloy reaches query use.
-    // 05.07.009 and 05.07.010: set_ontology_source returns generated Malloy
+    // 05.07.009 and 05.07.010: load_ontology returns generated Malloy
     // context and maps Malloy validation diagnostics back to SemLang source
     // locations when source mapping is available.
     const mcp = createSemLangMcp();

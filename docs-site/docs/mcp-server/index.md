@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # MCP Server
 
-The SemLang MCP server gives agents tools for semantic discovery, ontology navigation, lens planning, query validation, Malloy-backed query execution, and supported local action invocation.
+The SemLang MCP server gives agents a small set of tools for semantic discovery, ontology navigation, lens planning, query validation, Malloy-backed query execution, and supported local action invocation.
 
 SemLang models use Malloy-style named connections in source declarations. Configure those connections in Malloy project or global config using the same names referenced by `.semlang` files; see [Malloy Connections](./malloy-connections.md) for setup details.
 
@@ -36,11 +36,11 @@ Add a project-local MCP config that points at the global command:
 }
 ```
 
-Agents should load the relevant model with `set_ontology_source` before using ontology or query tools:
+Agents should load the relevant model with `load_ontology` before using ontology or query tools:
 
 ```json
 {
-  "path": "examples/retail-omnichannel-margin-and-returns/example.semlang"
+  "paths": ["examples/retail-omnichannel-margin-and-returns/example.semlang"]
 }
 ```
 
@@ -70,22 +70,20 @@ MCP client configuration can usually rely on those defaults:
 
 If your MCP client does not start in the project directory, pass `--project-dir`. If your Malloy config or export location is outside the defaults, pass `--malloy-config-path` or `--export-directory`.
 
-`query.run` returns a transaction GUID for tracing. If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
+`run_query` returns a transaction GUID for tracing. If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
 
 ## Tool Surface
 
-Common tools include:
+Public tools include:
 
-- `set_ontology_source` compiles one or more SemLang files into the MCP context.
-- `semantic.search_terms` finds relevant concepts, fields, metrics, queries, lenses, and actions, including matches from declared descriptions.
-- `catalog.resolve_entity` resolves ontology names and, when local DuckDB example data is available, business labels.
-- `ontology.describe_concept` explains a concept and its semantic members, including member descriptions when declared.
-- `ontology.describe_action`, `ontology.describe_role`, `ontology.describe_roles`, `ontology.explain_metric`, and `ontology.describe_temporal_axes` expose focused ontology details.
-- `ontology.find_paths` finds join paths between concepts.
-- `lens.suggest`, `lens.describe`, `lens.expand`, `lens.required_fields`, and `lens.plan` help agents select and apply semantic overlays.
-- `query.run` validates named or temporary queries and executes them with the Malloy SDK unless `dry_run_only` is true; executed queries require a `query_limit_seconds` deadline.
-- `action.invoke` generates supported action SQL and executes it through the configured Malloy connection.
-- `reasoning.derive` gathers concept, metric, lens, and path hints for an analytical question.
+- `load_ontology` compiles one or more SemLang files into the MCP context.
+- `search` finds relevant ontology objects, resolves ontology names and business labels, and suggests lenses.
+- `describe` explains concepts, actions, roles, metrics, temporal axes, and lenses, including lens expansion, required fields, and lens plans.
+- `find_paths` finds join paths between concepts or role targets.
+- `run_query` validates named or temporary queries and executes them with the Malloy SDK unless `dry_run_only` is true; executed queries require a `query_limit_seconds` deadline.
+- `invoke_action` generates supported action SQL and executes it through the configured Malloy connection.
+
+The manifest is intentionally non-duplicative: older narrow helper names are folded into the six public tools so agents see fewer overlapping choices with more meaningful schemas.
 
 See the tool reference pages for request shapes and response notes:
 

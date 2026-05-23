@@ -89,6 +89,7 @@ export interface SemLangMcpSettings {
 export interface SemLangMcpApi {
   tools: Record<string, SemLangMcpTool>;
   toolDescriptions: Record<string, string>;
+  toolInputSchemas: Record<string, z.ZodType>;
   getContext(): SemLangMcpContext;
 }
 
@@ -98,6 +99,7 @@ interface ToolSpec {
   name: string;
   description: string;
   handler: SemLangMcpTool;
+  inputSchema: z.ZodType;
 }
 
 interface ExampleDuckDbContext {
@@ -122,7 +124,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
   const context: SemLangMcpContext = { settings: resolveSemLangMcpSettings(settings) };
 
   function requireModel(): SemanticModel {
-    if (!context.model) throw new Error("No ontology source has been set. Call set_ontology_source first.");
+    if (!context.model) throw new Error("No ontology source has been set. Call load_ontology first.");
     return context.model;
   }
 
@@ -147,7 +149,12 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     if (paths.length > 0) {
       const absolutePaths = paths.map((item) => path.resolve(item));
       sourcePaths = absolutePaths;
-      if (absolutePaths.length === 1 && !inlineSource) {
+      if (absolutePaths.length === 1 && inlineSource) {
+        filePath = absolutePaths[0];
+        sourceText = inlineSource;
+        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
+        sourceKind = "inline";
+      } else if (absolutePaths.length === 1) {
         filePath = absolutePaths[0];
         sourceText = await fs.readFile(filePath, "utf8");
         result = await compileFile(filePath, { lintWarnings: true });
@@ -250,14 +257,6 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     return response;
   }
 
-  function semanticSearchTerms(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
-    const model = requireModel();
-    const text = stringValue(args.question ?? args.query ?? args.phrase ?? args.text) ?? "";
-    const limit = numberValue(args.limit) ?? maxSearchResults;
-    const matches = searchModel(model, text, limit);
-    return resolved({ ok: true, query: text, ...matches });
-  }
-
   async function resolveEntity(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const model = requireModel();
     const conceptName = stringValue(args.concept);
@@ -269,6 +268,26 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       >;
     const name = stringValue(args.entity ?? args.name ?? args.term) ?? "";
     return resolved({ ok: true, entity: name, matches: jsonSafe(resolveEntities(model, name)) });
+  }
+
+  async function search(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const kind = stringValue(args.kind)?.toLowerCase();
+    const text = stringValue(args.query ?? args.question ?? args.phrase ?? args.text ?? args.name ?? args.entity) ?? "";
+    if (kind === "entity") {
+      const entityArgs = entityArgsFromSearchText(requireModel(), text);
+      return resolveEntity({ ...args, ...entityArgs, name: text });
+    }
+    const limit = numberValue(args.limit) ?? maxSearchResults;
+    const matches = searchModel(requireModel(), text, limit);
+    const response = { ok: true, query: text, ...matches };
+    if (!kind || kind === "any") return resolved(response);
+    if (kind === "concept") return resolved({ ok: true, query: text, concepts: jsonSafe(matches.concepts) });
+    if (kind === "member") return resolved({ ok: true, query: text, members: jsonSafe(matches.members) });
+    if (kind === "metric" || kind === "measure")
+      return resolved({ ok: true, query: text, metrics: jsonSafe(matches.metrics) });
+    if (kind === "lens") return resolved({ ok: true, query: text, lenses: jsonSafe(matches.lenses) });
+    if (kind === "query") return resolved({ ok: true, query: text, queries: jsonSafe(matches.queries) });
+    return resolved(response);
   }
 
   function describeConcept(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -350,6 +369,42 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     return resolved({ ok: true, axes: jsonSafe(axes) });
   }
 
+  async function describe(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const kind = stringValue(args.kind)?.toLowerCase() ?? "concept";
+    const operation = stringValue(args.operation)?.toLowerCase();
+    const names = stringList(args.names);
+    if (names.length > 1 && canDescribeEachName(kind, operation)) {
+      const results = await Promise.all(names.map((name) => describe({ ...args, names: [name] })));
+      return resolved({ ok: true, kind, results: jsonSafe(results) });
+    }
+    const first = names[0];
+    if (kind === "concept") return describeConcept({ ...args, concept: first });
+    if (kind === "action") {
+      const action = actionArgsFromName(first);
+      return describeAction({ ...args, ...action });
+    }
+    if (kind === "role") return describeRole({ ...args, role: first });
+    if (kind === "roles") return describeRoles({ ...args, concept: first });
+    if (kind === "metric" || kind === "measure") return explainMetric({ ...args, metric: first });
+    if (kind === "temporal_axes") {
+      return describeTemporalAxes({ ...args, concept: first });
+    }
+    if (kind === "lens" && (!operation || operation === "detail")) return describeLens({ ...args, lens: first });
+    if (kind === "lens" && operation === "expand") {
+      const selected = describeLensSelection(requireModel(), names);
+      return expandLens({ ...args, lenses: selected.lenses, concept: selected.concept });
+    }
+    if (kind === "lens" && operation === "required_fields") {
+      return requiredFields({ ...args, lenses: describeLensSelection(requireModel(), names).lenses });
+    }
+    if (kind === "lens" && operation === "plan")
+      return lensPlan({ ...args, lenses: describeLensSelection(requireModel(), names).lenses });
+    return resolved({
+      ok: false,
+      error: `Unknown describe kind ${kind}.`,
+    });
+  }
+
   function findPaths(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const model = requireModel();
     const from = stringValue(args.from ?? args.source ?? args.root);
@@ -368,16 +423,6 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
           result.paths.map((pathResult) => ({ target: result.target, ...(pathResult as object) })),
         ),
       ),
-    });
-  }
-
-  function suggestLens(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
-    const model = requireModel();
-    const text = stringValue(args.user_context ?? args.context ?? args.question ?? args.phrase ?? args.text) ?? "";
-    return resolved({
-      ok: true,
-      query: text,
-      lenses: jsonSafe(scoreLenses(model, text, numberValue(args.limit) ?? 8)),
     });
   }
 
@@ -451,10 +496,10 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const transactionId = crypto.randomUUID();
-    logTransaction("info", transactionId, "query.run requested", { tool: "query.run" });
+    logTransaction("info", transactionId, "run_query requested", { tool: "run_query" });
     const validation = await validateOrRunQuery(args);
     if (booleanValue(args.dry_run_only ?? args.dryRunOnly)) {
-      logTransaction("debug", transactionId, "query.run skipped for dry_run_only", { tool: "query.run" });
+      logTransaction("debug", transactionId, "run_query skipped for dry_run_only", { tool: "run_query" });
       return {
         ...publicQueryResult(validation),
         execution: {
@@ -466,7 +511,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     }
     const queryLimitSeconds = queryLimitSecondsValue(args);
     if (!queryLimitSeconds.ok) {
-      logTransaction("info", transactionId, "query.run rejected before execution", { tool: "query.run" });
+      logTransaction("info", transactionId, "run_query rejected before execution", { tool: "run_query" });
       return {
         ...queryLimitSeconds,
         execution: {
@@ -478,8 +523,19 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     }
     const execution = await executeQuery(context, args, validation, queryLimitSeconds.value, transactionId);
     const compactExecution = await compactExecutionOutput(context, args, execution, transactionId);
-    logTransaction("info", transactionId, "query.run completed", { tool: "query.run" });
+    logTransaction("info", transactionId, "run_query completed", { tool: "run_query" });
     return { ...publicQueryResult(validation), execution: jsonSafe(compactExecution) };
+  }
+
+  async function invokeActionTool(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    const target = isRecord(args.target) ? args.target : undefined;
+    if (!target) return invokeAction(args);
+    const where = stringValue(target.where);
+    return invokeAction({
+      ...args,
+      ...(target.id !== undefined ? { id: target.id } : {}),
+      ...(where ? { where } : { subject: target }),
+    });
   }
 
   async function invokeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -732,153 +788,112 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     };
   }
 
-  function reasoningDerive(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
-    const model = requireModel();
-    const question = stringValue(args.question ?? args.goal ?? args.text) ?? "";
-    const search = searchModel(model, question, 8);
-    const lenses = scoreLenses(model, question, 5);
-    const concepts = search.concepts.map((item) => item.name);
-    const pathHints = concepts
-      .slice(0, 3)
-      .flatMap((from, index, all) =>
-        all.slice(index + 1).flatMap((to) => findConceptPaths(model, from, to, 3).slice(0, 2)),
-      );
-    return resolved({
-      ok: true,
-      question,
-      candidateConcepts: jsonSafe(search.concepts),
-      candidateMetrics: jsonSafe(search.metrics),
-      candidateLenses: jsonSafe(lenses),
-      pathHints: jsonSafe(pathHints),
-      derivation: jsonSafe([
-        "Search ontology names, descriptions, expressions, and comments for matching terms.",
-        "Prefer roots that own matching measures or dimensions.",
-        "Apply suggested lenses only when their descriptions or refinements match the question scope.",
-        "Use find_paths output to join related concepts through declared joins and role targets.",
-      ]),
-    });
-  }
+  const stringArrayInputSchema = z.array(z.string());
+  const stringOrStringArrayInputSchema = z.union([z.string(), stringArrayInputSchema]);
+  const toolSchemas = {
+    loadOntology: z
+      .object({
+        paths: stringArrayInputSchema.optional(),
+        source: z.string().optional(),
+        projectDir: z.string().optional(),
+        configPath: z.string().optional(),
+        malloyConfigPath: z.string().optional(),
+        returnMalloyModel: z.boolean().optional(),
+      })
+      .passthrough(),
+    search: z
+      .object({
+        query: z.string().optional(),
+        kind: z.enum(["any", "concept", "member", "metric", "lens", "query", "entity"]).optional(),
+        limit: z.number().optional(),
+      })
+      .passthrough(),
+    describe: z
+      .object({
+        kind: z.enum(["concept", "action", "role", "roles", "metric", "temporal_axes", "lens"]).optional(),
+        operation: z.enum(["detail", "expand", "required_fields", "plan"]).optional(),
+        names: stringArrayInputSchema.optional(),
+        question: z.string().optional(),
+        fields: stringOrStringArrayInputSchema.optional(),
+      })
+      .passthrough(),
+    findPaths: z
+      .object({
+        from: z.string().optional(),
+        to: stringOrStringArrayInputSchema.optional(),
+        maxDepth: z.number().optional(),
+      })
+      .passthrough(),
+    runQuery: z
+      .object({
+        query: z.string().optional(),
+        root: z.string().optional(),
+        body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+        lenses: stringArrayInputSchema.optional(),
+        dry_run_only: z.boolean().optional(),
+        query_limit_seconds: z.number().optional(),
+        rowLimit: z.number().optional(),
+      })
+      .passthrough(),
+    invokeAction: z
+      .object({
+        action: z.string().optional(),
+        concept: z.string().optional(),
+        params: z.record(z.string(), z.unknown()).optional(),
+        target: z.record(z.string(), z.unknown()).optional(),
+        dry_run_only: z.boolean().optional(),
+        query_limit_seconds: z.number().optional(),
+      })
+      .passthrough(),
+  } satisfies Record<string, z.ZodType>;
 
   const specs: ToolSpec[] = [
     {
-      name: "set_ontology_source",
-      description: "Compile and store a SemLang ontology from path/paths or inline source/sources.",
+      name: "load_ontology",
+      description: "Compile and store a SemLang ontology.",
       handler: compileSource,
+      inputSchema: toolSchemas.loadOntology,
     },
     {
-      name: "semantic.search_terms",
-      description: "Search concepts, fields, metrics, queries, and lenses by semantic terms.",
-      handler: semanticSearchTerms,
+      name: "search",
+      description: "Search and resolve ontology objects.",
+      handler: search,
+      inputSchema: toolSchemas.search,
     },
     {
-      name: "catalog.resolve_entity",
-      description: "Resolve a name to matching concepts, roles, members, lenses, sources, types, or queries.",
-      handler: resolveEntity,
+      name: "describe",
+      description: "Describe ontology objects and lens effects.",
+      handler: describe,
+      inputSchema: toolSchemas.describe,
     },
     {
-      name: "ontology.describe_concept",
-      description: "Describe a concept and its members, optionally after applying lenses.",
-      handler: describeConcept,
-    },
-    {
-      name: "ontology.describe_action",
-      description: "Describe an action, resolving by concept or unique action name.",
-      handler: describeAction,
-    },
-    {
-      name: "ontology.describe_role",
-      description: "Describe one role by name and optional concept.",
-      handler: describeRole,
-    },
-    {
-      name: "ontology.describe_roles",
-      description: "List roles across the ontology or on one concept.",
-      handler: describeRoles,
-    },
-    {
-      name: "ontology.explain_metric",
-      description: "Explain measures/metrics, expressions, and expression dependencies.",
-      handler: explainMetric,
-    },
-    {
-      name: "ontology.describe_temporal_axes",
-      description: "List temporal axes on one concept or the whole ontology.",
-      handler: describeTemporalAxes,
-    },
-    {
-      name: "ontology.find_paths",
+      name: "find_paths",
       description: "Find join paths between concepts or role targets.",
       handler: findPaths,
+      inputSchema: toolSchemas.findPaths,
     },
     {
-      name: "lens.suggest",
-      description: "Suggest lenses for a phrase, question, or user context.",
-      handler: suggestLens,
-    },
-    {
-      name: "lens.describe",
-      description: "Describe a lens, its parents, types, and refinements.",
-      handler: describeLens,
-    },
-    {
-      name: "lens.expand",
-      description: "Apply lenses to the model and summarize the expanded context.",
-      handler: expandLens,
-    },
-    {
-      name: "lens.required_fields",
-      description: "Extract fields referenced by lens filters, definitions, joins, and validations.",
-      handler: requiredFields,
-    },
-    {
-      name: "lens.plan",
-      description: "Plan lens application for a question or requested lens list.",
-      handler: lensPlan,
-    },
-    {
-      name: "query.run",
-      description: "Validate a query and execute it with Malloy SDK connections unless dry_run_only is true.",
+      name: "run_query",
+      description: "Validate or execute a Malloy-backed query.",
       handler: runQuery,
+      inputSchema: toolSchemas.runQuery,
     },
     {
-      name: "action.invoke",
-      description:
-        "Invoke a supported action by generating and executing SQL through the configured Malloy connection.",
-      handler: invokeAction,
-    },
-    {
-      name: "reasoning.derive",
-      description: "Derive candidate concepts, metrics, lenses, and path hints for a question.",
-      handler: reasoningDerive,
+      name: "invoke_action",
+      description: "Invoke a supported local action.",
+      handler: invokeActionTool,
+      inputSchema: toolSchemas.invokeAction,
     },
   ];
 
-  const tools = Object.fromEntries(
-    specs.flatMap((spec) => {
-      const alias = spec.name.replaceAll(".", "_");
-      return alias === spec.name
-        ? [[spec.name, spec.handler]]
-        : [
-            [spec.name, spec.handler],
-            [alias, spec.handler],
-          ];
-    }),
-  );
-  const toolDescriptions = Object.fromEntries(
-    specs.flatMap((spec) => {
-      const alias = spec.name.replaceAll(".", "_");
-      return alias === spec.name
-        ? [[spec.name, spec.description]]
-        : [
-            [spec.name, spec.description],
-            [alias, `${spec.description} Alias for ${spec.name}.`],
-          ];
-    }),
-  );
+  const tools = Object.fromEntries(specs.map((spec) => [spec.name, spec.handler]));
+  const toolDescriptions = Object.fromEntries(specs.map((spec) => [spec.name, spec.description]));
+  const toolInputSchemas = Object.fromEntries(specs.map((spec) => [spec.name, spec.inputSchema]));
 
   return {
     tools,
     toolDescriptions,
+    toolInputSchemas,
     getContext() {
       return { ...context };
     },
@@ -887,13 +902,12 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 
 export function createSemLangMcpServer(api: SemLangMcpApi = createSemLangMcp()): McpServer {
   const server = new McpServer({ name: "semlang-mcp", version: getSemLangVersion() });
-  const inputSchema = z.object({}).passthrough();
   for (const [name, handler] of Object.entries(api.tools)) {
-    server.registerTool(
+    const registeredTool = server.registerTool(
       name,
       {
         description: api.toolDescriptions[name],
-        inputSchema,
+        inputSchema: api.toolInputSchemas[name],
       },
       async (args) => {
         const structuredContent = await handler(args as Record<string, unknown>);
@@ -903,6 +917,7 @@ export function createSemLangMcpServer(api: SemLangMcpApi = createSemLangMcp()):
         };
       },
     );
+    registeredTool.execution = undefined;
   }
   return server;
 }
@@ -996,7 +1011,7 @@ async function compactExecutionOutput(
     2,
   )}\n`;
   await fs.writeFile(outputPath, exportOutput);
-  logTransaction("info", transactionId, "query.run rows exported", { outputPath, tool: "query.run" });
+  logTransaction("info", transactionId, "run_query rows exported", { outputPath, tool: "run_query" });
   const exportedCompact = { ...compact };
   delete exportedCompact.rows;
   return {
@@ -1088,7 +1103,7 @@ function actionExecutionContext(context: SemLangMcpContext):
     return {
       ok: false,
       error:
-        "No Malloy execution context is available. Call set_ontology_source first and ensure a Malloy config is provided or discoverable.",
+        "No Malloy execution context is available. Call load_ontology first and ensure a Malloy config is provided or discoverable.",
     };
   }
   return {
@@ -1157,6 +1172,34 @@ function actionCandidates(model: SemanticModel): Array<Record<string, unknown>> 
       subject: action.subject?.mode ?? null,
     })),
   );
+}
+
+function entityArgsFromSearchText(model: SemanticModel, text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  for (const concept of model.concepts.keys()) {
+    if (trimmed === concept) return { concept };
+    if (trimmed.startsWith(`${concept} `)) return { concept, business_name: trimmed.slice(concept.length).trim() };
+  }
+  return {};
+}
+
+function actionArgsFromName(name: string | undefined): Record<string, unknown> {
+  if (!name) return {};
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(name);
+  return match ? { concept: match[1], action: match[2] } : { action: name };
+}
+
+function canDescribeEachName(kind: string, operation: string | undefined): boolean {
+  return (
+    ["concept", "action", "role", "roles", "metric", "measure", "temporal_axes"].includes(kind) ||
+    (kind === "lens" && (!operation || operation === "detail"))
+  );
+}
+
+function describeLensSelection(model: SemanticModel, names: string[]): { lenses: string[]; concept?: string } {
+  const concept = names.find((name) => model.concepts.has(name));
+  const lenses = names.filter((name) => model.lenses.has(name));
+  return { lenses, concept };
 }
 
 function buildActionSql(
@@ -1481,7 +1524,7 @@ function subjectWhereSql(
   if (rawWhere !== undefined) {
     const normalizedWhere = normalizeActionExpression(rawWhere);
     if (normalizedWhere.trim().length === 0) {
-      diagnostics.push("where must contain a non-empty predicate for action.invoke.");
+      diagnostics.push("where must contain a non-empty predicate for invoke_action.");
       return "FALSE";
     }
     return normalizedWhere;
@@ -1863,7 +1906,7 @@ async function resolveMalloyExecutionContext(
   return {
     ok: false,
     error: [
-      "No Malloy config file was found for set_ontology_source.",
+      "No Malloy config file was found for load_ontology.",
       "Pass configPath or malloyConfigPath explicitly, or add malloy-config-local.json or malloy-config.json at or above the SemLang model directory.",
       `Searched from ${startDir} up to ${ceilingDir}.`,
     ].join(" "),
@@ -2806,7 +2849,7 @@ function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecond
   if (raw === undefined) {
     return {
       ok: false,
-      error: "query.run requires query_limit_seconds as a positive integer number of seconds.",
+      error: "run_query requires query_limit_seconds as a positive integer number of seconds.",
     };
   }
   const parsed = positiveIntegerSecondsValue(raw);
@@ -2832,7 +2875,7 @@ function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimit
   if (parsed === undefined) {
     return {
       ok: false,
-      error: `action.invoke query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
+      error: `invoke_action query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
     };
   }
   return { ok: true, value: parsed };
