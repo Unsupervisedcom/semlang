@@ -94,6 +94,8 @@ type QueryLimitSecondsOptions =
   | { required: true; toolName: string; invalidErrorPrefix?: string }
   | { required: false; defaultValue: number; toolName: string; invalidErrorPrefix?: string };
 
+const namedQueryOverrideKeys = ["body", "queryBody", "root", "concept", "source", "lens", "lenses", "with"] as const;
+
 interface ExampleDuckDbContext {
   sourceDir: string;
   dbPath: string;
@@ -658,18 +660,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     const model = requireModel();
     const name = stringValue(args.query ?? args.name);
     const query = name ? model.queries.find((candidate) => candidate.name === name) : undefined;
-    if (
-      query &&
-      !args.body &&
-      !args.queryBody &&
-      !args.root &&
-      !args.concept &&
-      !args.source &&
-      !args.lens &&
-      !args.lenses &&
-      !args.with &&
-      !hasQueryBodyKeys(args)
-    ) {
+    if (isNamedQueryValidationRequest(args, query)) {
       const diagnostics: Diagnostic[] = [];
       const queryModel = query.lenses.length > 0 ? applyQueryLenses(model, query, diagnostics) : model;
       const malloy = queryModel ? (context.malloy ?? "") : "";
@@ -715,6 +706,13 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       malloy,
       queryMalloy: malloy ? extractMalloyQuery(malloy, parsed.query?.name ?? queryDecl.queryName) : null,
     };
+  }
+
+  function isNamedQueryValidationRequest(
+    args: Record<string, unknown>,
+    query: QueryDecl | undefined,
+  ): query is QueryDecl {
+    return query !== undefined && namedQueryOverrideKeys.every((key) => !args[key]) && !hasQueryBodyKeys(args);
   }
 
   function buildTemporaryQuery(model: SemanticModel, args: Record<string, unknown>): TemporaryQueryResult {
