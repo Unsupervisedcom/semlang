@@ -17,3 +17,9 @@ Test files should stay small enough for the test runner to distribute work acros
 Source functions should stay small enough to review, test, and refactor without hiding decision-heavy control flow.
 
 - 00.02.001: Lint validation MUST enforce a maximum cyclomatic complexity for TypeScript and JavaScript functions.
+
+## 00.03 Worktree Dependency Setup
+
+Repository hooks should keep local npm dependencies present in linked worktrees without requiring a manual install after ordinary Git operations.
+
+- 00.03.001: Checkout and merge hooks MUST run an idempotent npm dependency setup check so worktrees with missing or stale dependencies are repaired even when lockfiles did not change between refs.

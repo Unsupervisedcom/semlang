@@ -47,9 +47,9 @@ describe("package publishing metadata", () => {
   });
 
   it("publishes a Claude Code plugin backed by npm-installed SemLang", async () => {
-    // 07.04.001, 07.04.002, 07.04.003, 07.04.004, 07.04.005: the npm
-    // artifact must double as a Claude Code plugin with auto-discovered skills
-    // and MCP server, matching the conventional plugin directory layout.
+    // 07.04.001, 07.04.002, 07.04.003, 07.04.004, 07.04.005, 07.04.007: the
+    // npm artifact must double as a Claude Code plugin with auto-discovered
+    // skills and MCP server, including the PR review loop skill.
     const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
     const pluginJson = JSON.parse(await fs.readFile(path.join(root, ".claude-plugin", "plugin.json"), "utf8"));
     const mcpJson = JSON.parse(await fs.readFile(path.join(root, ".mcp.json"), "utf8"));
@@ -73,9 +73,16 @@ describe("package publishing metadata", () => {
 
     const semlangSkill = await fs.stat(path.join(root, "skills", "semlang", "SKILL.md"));
     const initialOntologySkill = await fs.stat(path.join(root, "skills", "initial_ontology_creation", "SKILL.md"));
+    const pullAndReviewSkillPath = path.join(root, "skills", "pull_and_review", "SKILL.md");
+    const pullAndReviewSkill = await fs.stat(pullAndReviewSkillPath);
+    const pullAndReviewSkillText = await fs.readFile(pullAndReviewSkillPath, "utf8");
 
     expect(semlangSkill.isFile()).toBe(true);
     expect(initialOntologySkill.isFile()).toBe(true);
+    expect(pullAndReviewSkill.isFile()).toBe(true);
+    expect(pullAndReviewSkillText).toContain("name: pull_and_review");
+    expect(pullAndReviewSkillText).toContain("@copilot");
+    expect(pullAndReviewSkillText).toContain("Wait about 4 minutes");
   });
 
   it("synchronizes release versions across npm and Claude plugin metadata", async () => {

@@ -48,3 +48,4 @@ The npm package must also act as a Claude Code plugin so SemLang skills and MCP 
 - 07.04.004: The plugin manifest MUST NOT specify explicit `skills` or `mcpServers` paths and MUST rely on Claude Code convention-based auto-discovery of the `skills` directory and `.mcp.json` file.
 - 07.04.005: The Claude Code plugin MUST expose a `semlang` MCP server via an auto-discovered `.mcp.json` that starts MCP stdio mode through an npm package spec pinned to the root npm package version.
 - 07.04.006: The Claude Code plugin release version, root npm package version, lockfile root version, and pinned MCP package spec MUST be synchronized by the release version utility.
+- 07.04.007: The Claude Code plugin MUST include a `pull_and_review` skill that defines the Copilot pull-request review loop for opening PRs, waiting for review comments, addressing valid feedback, resolving addressed threads, re-requesting review, and reporting disputed unresolved comments.
