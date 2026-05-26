@@ -71,16 +71,33 @@ describe("package publishing metadata", () => {
       },
     });
 
+    const skillDirs = (await fs.readdir(path.join(root, "skills"), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const skillTexts = await Promise.all(
+      skillDirs.map(async (skillDir) => ({
+        name: skillDir,
+        text: await fs.readFile(path.join(root, "skills", skillDir, "SKILL.md"), "utf8"),
+      })),
+    );
     const semlangSkill = await fs.stat(path.join(root, "skills", "semlang", "SKILL.md"));
-    const initialOntologySkill = await fs.stat(path.join(root, "skills", "initial_ontology_creation", "SKILL.md"));
-    const pullAndReviewSkillPath = path.join(root, "skills", "pull_and_review", "SKILL.md");
+    const initialOntologySkillPath = path.join(root, "skills", "initial-ontology-creation", "SKILL.md");
+    const initialOntologySkill = await fs.stat(initialOntologySkillPath);
+    const initialOntologySkillText = await fs.readFile(initialOntologySkillPath, "utf8");
+    const pullAndReviewSkillPath = path.join(root, "skills", "pull-and-review", "SKILL.md");
     const pullAndReviewSkill = await fs.stat(pullAndReviewSkillPath);
     const pullAndReviewSkillText = await fs.readFile(pullAndReviewSkillPath, "utf8");
 
     expect(semlangSkill.isFile()).toBe(true);
     expect(initialOntologySkill.isFile()).toBe(true);
     expect(pullAndReviewSkill.isFile()).toBe(true);
-    expect(pullAndReviewSkillText).toContain("name: pull_and_review");
+    expect(skillDirs).toEqual(expect.arrayContaining(["semlang", "initial-ontology-creation", "pull-and-review"]));
+    expect(skillDirs.every((name) => /^[a-z0-9-]+$/.test(name))).toBe(true);
+    for (const skill of skillTexts) {
+      expect(skill.text).toContain(`name: ${skill.name}`);
+    }
+    expect(initialOntologySkillText).toContain("name: initial-ontology-creation");
+    expect(pullAndReviewSkillText).toContain("name: pull-and-review");
     expect(pullAndReviewSkillText).toContain("@copilot");
     expect(pullAndReviewSkillText).toContain("Wait about 4 minutes");
   });

@@ -1,5 +1,5 @@
 ---
-name: initial_ontology_creation
+name: initial-ontology-creation
 description: Use when creating an initial SemLang ontology from a data source, optional documentation, and user validation of core entities, relationships, roles, situations, measures, and sample questions.
 ---
 

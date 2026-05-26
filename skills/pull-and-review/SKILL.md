@@ -1,11 +1,11 @@
 ---
-name: pull_and_review
+name: pull-and-review
 description: Use when asked to open or continue a pull request review loop with GitHub Copilot, including creating the PR if needed, waiting for Copilot comments, addressing valid feedback, resolving addressed threads, re-requesting Copilot review, and reporting any disputed unresolved comments.
 ---
 
 # Pull And Review
 
-Use this skill when the user asks for `/pull_and_review` or asks to run the Copilot PR review loop.
+Use this skill when the user asks for `/pull-and-review` or asks to run the Copilot PR review loop.
 
 ## Workflow
 
