@@ -13,15 +13,14 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 
 ### Inputs
 
-| Field               | Type         | Notes                                                                                                                                                                                                                     |
-| ------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `paths`             | string array | SemLang file paths to load. Use one item for a single file.                                                                                                                                                               |
-| `source`            | string       | Inline SemLang source.                                                                                                                                                                                                    |
-| `projectDir`        | string       | Malloy project root to associate with the MCP context.                                                                                                                                                                    |
-| `malloyConfigPath`  | string       | Explicit Malloy config file to associate with the MCP context. This can be any JSON file path; `malloy-config.json` and `malloy-config-local.json` are only special for auto-discovery when no explicit path is supplied. |
-| `returnMalloyModel` | boolean      | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                                                                                                                                    |
+| Field               | Type    | Notes                                                                                                      |
+| ------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `path`              | string  | Explicit SemLang file path escape hatch. Normal projects should use `.semlang/settings.yml` and omit this. |
+| `source`            | string  | Inline SemLang source.                                                                                     |
+| `malloyConfigPath`  | string  | Explicit Malloy config file escape hatch. Normal projects should use `.semlang/settings.yml`.              |
+| `returnMalloyModel` | boolean | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                     |
 
-When `malloyConfigPath` is omitted, `load_ontology` walks upward from the SemLang file path looking for `malloy-config-local.json` or `malloy-config.json`. If discovery fails, the tool returns `ok: false` with a setup error instead of loading the ontology with an implicit connection.
+With no inputs, `load_ontology` uses the entrypoint and runtime paths from `.semlang/settings.yml`. If no config is available, it returns setup guidance instead of guessing paths.
 
 ### Output
 
@@ -30,9 +29,7 @@ Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded f
 ### Example
 
 ```json
-{
-  "paths": ["examples/retail-omnichannel-margin-and-returns/example.semlang"]
-}
+{}
 ```
 
 ## `search`

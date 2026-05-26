@@ -39,23 +39,18 @@ Add a project-local MCP config that points at the global command:
 Agents should load the relevant model with `load_ontology` before using ontology or query tools:
 
 ```json
-{
-  "paths": ["examples/retail-omnichannel-margin-and-returns/example.semlang"]
-}
+{}
 ```
 
-Relative model paths are resolved from the agent project's working directory, not from the SemLang repo.
-
-Managed settings may be supplied with CLI parameters on the Commander-backed `semlang setup` and `semlang mcp` commands. The `project-dir` option defaults to the current directory where `semlang mcp` is run, and the `export-directory` option defaults to the operating system temp directory.
-
-Any MCP parameter can also be set with a `SEMLANG_`-prefixed environment variable by uppercasing the option name and replacing separators with underscores; for example, `SEMLANG_PROJECT_DIR=/path/to/project semlang mcp` sets `--project-dir`.
+Create the project config first:
 
 ```bash
-semlang setup --project-dir /path/to/project --malloy-config-path /path/to/malloy-config.json --export-directory /path/to/exports
-semlang mcp --project-dir /path/to/project --malloy-config-path /path/to/malloy-config.json --export-directory /path/to/exports
+semlang setup
 ```
 
-MCP client configuration can usually rely on those defaults:
+`semlang setup --preview` prints the generated `.semlang/settings.yml` without writing it, and `--path <file>` chooses the ontology entrypoint when discovery is ambiguous.
+
+MCP client configuration can usually stay this small:
 
 ```json
 {
@@ -68,15 +63,13 @@ MCP client configuration can usually rely on those defaults:
 }
 ```
 
-If your MCP client does not start in the project directory, pass `--project-dir`. If your Malloy config or export location is outside the defaults, pass `--malloy-config-path` or `--export-directory`.
-
 `run_query` returns a transaction GUID for tracing. If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
 
 ## Tool Surface
 
 Public tools include:
 
-- `load_ontology` compiles one or more SemLang files into the MCP context.
+- `load_ontology` compiles the configured SemLang ontology, or an explicit source/path escape hatch, into the MCP context.
 - `search` finds relevant ontology objects, resolves ontology names and business labels, and suggests lenses.
 - `describe` explains concepts, actions, roles, metrics, temporal axes, and lenses, including lens expansion, required fields, and lens plans.
 - `find_paths` finds join paths between concepts or role targets.
@@ -87,6 +80,7 @@ The manifest is intentionally non-duplicative: older narrow helper names are fol
 
 See the tool reference pages for request shapes and response notes:
 
+- [Configuration](./configuration.md)
 - [Tools Overview](./tools-overview.md)
 - [Source and Search Tools](./source-and-search.md)
 - [Ontology Tools](./ontology-tools.md)

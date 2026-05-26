@@ -5,8 +5,9 @@
 
 import fs from "node:fs/promises";
 import { Command, Option } from "commander";
-import { compileFile, resolveSemLangMcpSettings, runSemLangMcpStdioServerWithSettings } from "./index.js";
+import { compileFile, runSemLangMcpStdioServerWithSettings } from "./index.js";
 import type { SemLangMcpSettings } from "./mcp.js";
+import { generateSemLangConfig, writeSemLangConfig } from "./semlang-config.js";
 import { getSemLangVersion } from "./version.js";
 
 const allowedEmits = ["ast", "model", "malloy", "json-schema"] as const;
@@ -33,9 +34,14 @@ function createProgram(): Command {
     .addOption(new Option("--emit <type>").choices(allowedEmits).default("malloy"))
     .action((file: string, options: CompileOptions) => compileCommand(file, options));
 
-  addSettingsOptions(app.command("setup").description("Print resolved MCP settings.")).action(
-    (options: SettingsOptions, command: Command) => setupCommand(options, command),
-  );
+  addSettingsOptions(
+    app
+      .command("setup")
+      .description("Create a SemLang project configuration file.")
+      .option("--preview", "Print the generated config without writing it.")
+      .option("--force", "Overwrite an existing SemLang config file.")
+      .option("--path <file>", "SemLang ontology entrypoint to write into .semlang/settings.yml."),
+  ).action((options: SetupOptions, command: Command) => setupCommand(options, command));
 
   addSettingsOptions(app.command("mcp").description("Start SemLang in MCP stdio mode.")).action(
     (options: SettingsOptions, command: Command) => mcpCommand(options, command),
@@ -62,9 +68,17 @@ interface SettingsOptions {
   statsCacheDirectory?: string;
 }
 
+interface SetupOptions extends SettingsOptions {
+  preview?: boolean;
+  force?: boolean;
+  path?: string;
+}
+
 function addSettingsOptions(command: Command): Command {
   return command
-    .addOption(new Option("--project-dir <path>", "Overrides SEMLANG_PROJECT_DIR.").env("SEMLANG_PROJECT_DIR"))
+    .addOption(
+      new Option("--project-dir <path>", "Overrides SEMLANG_PROJECT_DIR.").env("SEMLANG_PROJECT_DIR").hideHelp(),
+    )
     .addOption(
       new Option("--malloy-config-path <path>", "Overrides SEMLANG_MALLOY_CONFIG_PATH.").env(
         "SEMLANG_MALLOY_CONFIG_PATH",
@@ -129,10 +143,20 @@ async function compileCommand(file: string, options: CompileOptions): Promise<vo
   else process.stdout.write(output);
 }
 
-function setupCommand(options: SettingsOptions, command: Command): void {
-  process.stdout.write(
-    `${JSON.stringify(resolveSemLangMcpSettings(settingsFromOptions(options, command)), null, 2)}\n`,
-  );
+async function setupCommand(options: SetupOptions, command: Command): Promise<void> {
+  const settings = settingsFromOptions(options, command);
+  const generated = await generateSemLangConfig({
+    cwd: settings.projectDir,
+    ontologyPath: options.path,
+    malloyConfigPath: settings.malloyConfigPath,
+    exportDirectory: settings.exportDirectory,
+  });
+  if (options.preview) {
+    process.stdout.write(generated.contents);
+    return;
+  }
+  await writeSemLangConfig(generated, { force: options.force });
+  process.stdout.write(`Wrote ${generated.configPath}\n`);
 }
 
 async function mcpCommand(options: SettingsOptions, command: Command): Promise<void> {

@@ -5,6 +5,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { semLangConfigDirectoryName } from "./semlang-config.js";
 
 export interface FieldStatsCacheOptions {
   projectDir: string;
@@ -23,11 +24,11 @@ export async function prepareFieldStatsCacheDirectory(options: FieldStatsCacheOp
 }
 
 function fieldStatsCacheRoot(options: FieldStatsCacheOptions): string {
-  return options.statsCacheDirectory ?? path.join(options.projectDir, ".semlang", "cache");
+  return options.statsCacheDirectory ?? path.join(options.projectDir, semLangConfigDirectoryName, "cache");
 }
 
 async function ensureProjectSemLangGitignore(projectDir: string): Promise<void> {
-  const semlangDir = path.join(projectDir, ".semlang");
+  const semlangDir = path.join(projectDir, semLangConfigDirectoryName);
   const gitignorePath = path.join(semlangDir, ".gitignore");
   await fs.mkdir(semlangDir, { recursive: true });
   let current = "";

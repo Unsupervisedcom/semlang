@@ -36,6 +36,7 @@ const sidebars: SidebarsConfig = {
         id: "mcp-server/index",
       },
       items: [
+        "mcp-server/configuration",
         "mcp-server/tools-overview",
         "mcp-server/source-and-search",
         "mcp-server/ontology-tools",

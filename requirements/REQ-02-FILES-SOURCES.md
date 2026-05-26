@@ -75,7 +75,7 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.012: `run_query` MUST omit the full compiled Malloy model from its default response while still returning the extracted query Malloy.
 - 02.05.013: `load_ontology` MUST return the full compiled Malloy model only when `return_malloy_model` or `returnMalloyModel` is true.
 - 02.05.014: `run_query` MUST support `dry_run_only` / `dryRunOnly` to validate and return query Malloy without executing the query or requiring `query_limit_seconds`.
-- 02.05.015: MCP configuration paths MUST be manageable as settings from `SEMLANG_`-prefixed environment variables or equivalent CLI/tool parameters, including project directory, Malloy config path, and export directory.
+- 02.05.015: MCP runtime override settings MUST remain manageable from `SEMLANG_`-prefixed environment variables or equivalent CLI/tool parameters for Malloy config path and export directory.
 - 02.05.016: Every `run_query` request MUST generate and return a transaction GUID that can be used to trace logs and exported output.
 - 02.05.017: When executed `run_query` row output is larger than 10 lines, MCP MUST write the rows to a JSON file in the configured export directory using the transaction GUID as the file name and MUST return the export path and line count instead of inline rows.
 - 02.05.018: Executed `run_query` MCP responses MUST omit verbose execution internals including generated SQL, execution engine name, query name, query limit, and success-path timeout flags from the `execution` object.
@@ -95,3 +95,11 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.032: `describe` MUST fold concept, action, role, metric, temporal-axis, and lens detail into one request surface, including lens expansion, required lens fields, and lens plan details.
 - 02.05.033: `find_paths` MUST remain a separate public tool because path exploration has a distinct input shape and result contract.
 - 02.05.034: `run_query` and `invoke_action` MUST replace the previous public `query.run` and `action.invoke` names.
+- 02.05.035: SemLang project configuration MUST be discoverable from `.semlang/settings.yml` by walking upward from the project working directory or explicit start directory.
+- 02.05.036: `semlang setup` MUST generate a `.semlang/settings.yml` file from discovered project paths and MUST support `--preview`, `--force`, and `--path`.
+- 02.05.037: `semlang setup` MUST discover ontology entrypoints from explicit `--path`, conventional SemLang filenames, or a single shallow `.semlang` file candidate, and MUST report candidates when ambiguous.
+- 02.05.038: `semlang setup` MUST discover Malloy config using Malloy-compatible filenames from the ontology entrypoint directory up to the SemLang project root and MUST omit `malloy.configPath` when none is found.
+- 02.05.039: Starting SemLang MCP MUST NOT require an existing SemLang project config, but config-dependent tool calls MUST return setup guidance when config is missing.
+- 02.05.040: `load_ontology` with no source arguments MUST load the ontology entrypoint and runtime paths from discovered SemLang project config.
+- 02.05.041: The public `load_ontology` MCP schema MUST NOT advertise deprecated `projectDir` or `paths` arguments.
+- 02.05.042: SemLang project config validation errors MUST identify the `.semlang/settings.yml` file that needs correction.

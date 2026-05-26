@@ -61,7 +61,7 @@ For named queries, returns the resolved query, diagnostics, extracted `queryMall
 }
 ```
 
-Execution uses the Malloy project/config context captured by `load_ontology`. Named queries and temporary root/body queries are both eligible for execution. If no config was explicitly supplied or discovered, `load_ontology` fails before queries are run. If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
+Execution uses the Malloy config context captured by `load_ontology`. Named queries and temporary root/body queries are both eligible for execution. If the loaded SemLang config does not identify a Malloy config, execution fails with a clear setup error. If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
 
 Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config. If a model references an unknown custom connection, `run_query` returns a clear Malloy execution error naming the missing connection. See [Malloy Connections](./malloy-connections.md).
 

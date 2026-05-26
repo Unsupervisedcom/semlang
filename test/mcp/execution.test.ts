@@ -24,6 +24,43 @@ import {
 } from "./helpers.js";
 
 describe("SemLang MCP execution narratives", () => {
+  it("returns setup guidance when executing without configured Malloy config", async () => {
+    const projectDir = await writeTempProject({
+      ".semlang/settings.yml": ["ontology:", "  entrypoint: model.semlang", ""].join("\n"),
+      "model.semlang": `
+package mcp.missing_malloy_config
+
+concept Order is event from duckdb.sql("""
+  select 'O-1' as order_id, timestamp '2026-01-01 00:00:00' as ordered_at
+""") {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+
+  measure:
+    order_count is count()
+}
+`,
+    });
+    const mcp = createSemLangMcp({ projectDir });
+    expectOk(await mcp.tools["load_ontology"]({}));
+
+    // 02.05.039 and 02.05.040: no-arg source loading uses .semlang/settings.yml, but
+    // Malloy-backed execution explains how to configure missing Malloy config.
+    const run = await mcp.tools["run_query"]({
+      root: "Order",
+      body: { aggregate: ["order_count"] },
+      query_limit_seconds: 30,
+    });
+
+    expect(run).toMatchObject({ ok: true });
+    expect(asObject(run.execution)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Run "semlang setup --force"'),
+    });
+  });
+
   it("runs temporary queries through Malloy execution with a configured DuckDB connection", async () => {
     const mcp = createSemLangMcp();
     const projectDir = await writeTempProject({

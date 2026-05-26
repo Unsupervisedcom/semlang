@@ -40,6 +40,7 @@ import {
   type JsonValue,
 } from "./mcp-utils.js";
 import { qualifiedRoleName } from "./roles.js";
+import { loadSemLangConfig, type ResolvedSemLangConfig } from "./semlang-config.js";
 import { getSemLangVersion } from "./version.js";
 import type {
   ActionDecl,
@@ -76,6 +77,8 @@ export interface SemLangMcpContext {
   projectDir?: string;
   malloyConfigPath?: string;
   malloyConfigSource?: "explicit" | "discovered";
+  semlangConfig?: ResolvedSemLangConfig;
+  exportDirectory?: string;
   duckDb?: ExampleDuckDbContext;
   fieldStats?: FieldStatsIndex;
   statsStatus?: StatsRefreshStatus;
@@ -165,6 +168,45 @@ const maxSearchResults = 20;
 const defaultActionQueryLimitSeconds = 30;
 const maxQueryLimitSeconds = Math.floor(2_147_483_647 / 1000);
 
+type SourceRequest =
+  | {
+      ok: true;
+      compileArgs: Record<string, unknown>;
+      requestedProjectDir?: string;
+      malloyConfigPath?: string;
+      semlangConfig?: ResolvedSemLangConfig;
+    }
+  | { ok: false; response: Record<string, JsonValue> };
+
+async function sourceRequestFromArgs(
+  args: Record<string, unknown>,
+  settings: SemLangMcpSettings,
+): Promise<SourceRequest> {
+  let paths = stringList(args.paths ?? args.path ?? args.filePaths ?? args.filePath);
+  const inlineSources = stringList(args.sources ?? args.source);
+  const inlineSource = inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined;
+  const requestedProjectDir = resolveOptionalPath(
+    stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
+  );
+  let semlangConfig: ResolvedSemLangConfig | undefined;
+  if (paths.length === 0 && !inlineSource) {
+    const loadedConfig = await loadSemLangConfig(requestedProjectDir ?? settings.projectDir);
+    if (!loadedConfig.ok) return { ok: false, response: { ok: false, error: loadedConfig.error } };
+    semlangConfig = loadedConfig.resolved;
+    paths = [semlangConfig.ontologyPath];
+  }
+  return {
+    ok: true,
+    compileArgs: paths.length > 0 ? { ...args, path: paths } : args,
+    requestedProjectDir,
+    malloyConfigPath:
+      stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
+      semlangConfig?.malloyConfigPath ??
+      settings.malloyConfigPath,
+    semlangConfig,
+  };
+}
+
 export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpApi {
   const context: SemLangMcpContext = { settings: resolveSemLangMcpSettings(settings) };
 
@@ -176,68 +218,78 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
   async function compileSource(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     context.fieldStats = undefined;
     context.statsStatus = undefined;
-    const requestedProjectDir = resolveOptionalPath(
-      stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
-    );
-    const explicitMalloyConfigPath =
-      stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
-      context.settings.malloyConfigPath;
-
-    const compiledSource = await compileMcpSource(args);
+    const sourceRequest = await sourceRequestFromArgs(args, context.settings);
+    if (!sourceRequest.ok) return sourceRequest.response;
+    const compiledSource = await compileMcpSource(sourceRequest.compileArgs);
     if (!compiledSource.ok) return { ok: false, error: compiledSource.error };
-    const { result, sourceText, filePath, sourcePaths, sourceKind } = compiledSource;
 
     let executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined;
-    if (result.model) {
+    let projectDir = sourceRequest.semlangConfig?.projectDir;
+    if (compiledSource.result.model) {
       const explicitProjectDir = projectDirDiscoveryCeiling(
-        sourcePaths,
-        result.model.files,
-        requestedProjectDir,
+        compiledSource.sourcePaths,
+        compiledSource.result.model.files,
+        sourceRequest.requestedProjectDir ?? sourceRequest.semlangConfig?.projectDir,
         context.settings.projectDir,
       );
-      const resolvedExecutionContext = await resolveMalloyExecutionContext(
-        explicitProjectDir,
-        explicitMalloyConfigPath,
-        sourcePaths,
-        result.model.files,
-      );
-      if (!resolvedExecutionContext.ok) {
-        return {
-          ok: false,
-          diagnostics: jsonSafe(result.diagnostics),
-          error: resolvedExecutionContext.error,
-          context: null,
-        };
+      if (sourceRequest.malloyConfigPath || !sourceRequest.semlangConfig) {
+        const resolvedExecutionContext = await resolveMalloyExecutionContext(
+          explicitProjectDir,
+          sourceRequest.malloyConfigPath,
+          compiledSource.sourcePaths,
+          compiledSource.result.model.files,
+        );
+        if (!resolvedExecutionContext.ok) {
+          if (sourceRequest.malloyConfigPath) {
+            return {
+              ok: false,
+              diagnostics: jsonSafe(compiledSource.result.diagnostics),
+              error: resolvedExecutionContext.error,
+              context: null,
+            };
+          }
+          projectDir =
+            explicitProjectDir ??
+            inferProjectDir(
+              compiledSource.sourcePaths,
+              compiledSource.result.model.files,
+              sourceRequest.malloyConfigPath,
+            );
+        } else {
+          executionContext = resolvedExecutionContext;
+          projectDir = executionContext.projectDir;
+        }
       }
-      executionContext = resolvedExecutionContext;
-      if (result.malloy) {
+      if (compiledSource.result.malloy && executionContext) {
         const malloyDiagnostics = await validateMalloyModel({
-          malloy: result.malloy,
+          malloy: compiledSource.result.malloy,
           context: {
             projectDir: executionContext.projectDir,
             malloyConfigPath: executionContext.malloyConfigPath,
             malloyConfigSource: executionContext.source,
-            modelFilePath: filePath,
+            modelFilePath: compiledSource.filePath,
           },
-          sourceMap: result.malloySourceMap,
+          sourceMap: compiledSource.result.malloySourceMap,
         });
-        result.diagnostics.push(...malloyDiagnostics);
+        compiledSource.result.diagnostics.push(...malloyDiagnostics);
       }
     }
 
-    const ok = Boolean(result.model) && !hasErrors(result.diagnostics);
-    if (ok && result.model && executionContext) {
-      context.compileResult = result;
-      context.model = result.model;
-      context.malloy = result.malloy;
-      context.malloySourceMap = result.malloySourceMap;
-      context.sourceText = sourceText;
-      context.filePath = filePath;
-      context.sourcePaths = sourcePaths;
-      context.sourceKind = sourceKind;
-      context.projectDir = executionContext.projectDir;
-      context.malloyConfigPath = executionContext.malloyConfigPath;
-      context.malloyConfigSource = executionContext.source;
+    const ok = Boolean(compiledSource.result.model) && !hasErrors(compiledSource.result.diagnostics);
+    if (ok && compiledSource.result.model) {
+      context.compileResult = compiledSource.result;
+      context.model = compiledSource.result.model;
+      context.malloy = compiledSource.result.malloy;
+      context.malloySourceMap = compiledSource.result.malloySourceMap;
+      context.sourceText = compiledSource.sourceText;
+      context.filePath = compiledSource.filePath;
+      context.sourcePaths = compiledSource.sourcePaths;
+      context.sourceKind = compiledSource.sourceKind;
+      context.projectDir = projectDir;
+      context.malloyConfigPath = executionContext?.malloyConfigPath;
+      context.malloyConfigSource = executionContext?.source;
+      context.semlangConfig = sourceRequest.semlangConfig;
+      context.exportDirectory = sourceRequest.semlangConfig?.exportDirectory ?? context.settings.exportDirectory;
       const statsResult = await refreshFieldStats(context);
       context.fieldStats = statsResult.stats;
       context.statsStatus = statsResult.status;
@@ -245,11 +297,11 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 
     const response: Record<string, JsonValue> = {
       ok,
-      diagnostics: jsonSafe(result.diagnostics),
-      context: loadOntologyContextSummary(result.model, executionContext, context),
+      diagnostics: jsonSafe(compiledSource.result.diagnostics),
+      context: loadOntologyContextSummary(compiledSource.result.model, executionContext, context),
     };
     if (booleanValue(args.return_malloy_model ?? args.returnMalloyModel)) {
-      response.malloyModel = result.malloy ?? null;
+      response.malloyModel = compiledSource.result.malloy ?? null;
     }
     return response;
   }
@@ -1220,6 +1272,13 @@ async function executeQuery(
       skipped: true,
       reason: "No generated Malloy query was available to execute.",
     };
+  if (!context.malloyConfigPath) {
+    return {
+      transactionId,
+      ok: false,
+      error: missingMalloyConfigMessage(),
+    };
+  }
   const projectDir =
     context.projectDir ??
     inferProjectDir(context.sourcePaths ?? [], context.model?.files ?? [], context.malloyConfigPath);
@@ -1250,7 +1309,9 @@ async function compactExecutionOutput(
   const rowsLineCount = prettyJsonLineCount(rows);
   if (rowsLineCount <= 10) return compact;
   const exportDirectory =
-    resolveOptionalPath(stringValue(args.export_directory ?? args.exportDirectory)) ?? context.settings.exportDirectory;
+    resolveOptionalPath(stringValue(args.export_directory ?? args.exportDirectory)) ??
+    context.exportDirectory ??
+    context.settings.exportDirectory;
   await fs.mkdir(exportDirectory, { recursive: true });
   const outputPath = path.join(exportDirectory, `${transactionId}.json`);
   const exportOutput = `${JSON.stringify(
@@ -1292,13 +1353,13 @@ function loadOntologyContextSummary(
   executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined,
   context: SemLangMcpContext,
 ): JsonValue {
-  if (!model || !executionContext) return null;
+  if (!model) return null;
   return jsonSafe({
     ...modelSummary(model),
     execution: {
-      projectDir: executionContext.projectDir,
-      malloyConfigPath: executionContext.malloyConfigPath,
-      malloyConfigSource: executionContext.source,
+      projectDir: executionContext?.projectDir ?? context.projectDir ?? null,
+      malloyConfigPath: executionContext?.malloyConfigPath ?? null,
+      malloyConfigSource: executionContext?.source ?? null,
     },
     statsStatus: context.statsStatus ?? null,
   });
@@ -1360,8 +1421,7 @@ function actionExecutionContext(context: SemLangMcpContext):
   if (!context.projectDir || !context.malloyConfigPath) {
     return {
       ok: false,
-      error:
-        "No Malloy execution context is available. Call load_ontology first and ensure a Malloy config is provided or discoverable.",
+      error: missingMalloyConfigMessage(),
     };
   }
   return {
@@ -1372,6 +1432,13 @@ function actionExecutionContext(context: SemLangMcpContext):
       malloyConfigSource: context.malloyConfigSource,
     },
   };
+}
+
+function missingMalloyConfigMessage(): string {
+  return [
+    "No Malloy config is configured for this SemLang project.",
+    'Run "semlang setup --force" after adding malloy-config.json, or add malloy.configPath to .semlang/settings.yml.',
+  ].join(" ");
 }
 
 type ActionResolution =

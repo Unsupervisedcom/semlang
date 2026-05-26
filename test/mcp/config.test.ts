@@ -22,6 +22,81 @@ import {
 } from "./helpers.js";
 
 describe("SemLang MCP config narratives", () => {
+  it("keeps MCP startup usable and directs no-arg loading to setup when config is absent", async () => {
+    // 02.05.035 and 02.05.039: constructing the MCP API does not require a
+    // config file, but config-dependent tool calls explain how to create one.
+    const projectDir = await writeTempProject({});
+    const mcp = createSemLangMcp({ projectDir });
+
+    const source = await mcp.tools["load_ontology"]({});
+
+    expect(source.ok).toBe(false);
+    expect(text(source.error)).toContain('Run "semlang setup"');
+  });
+
+  it("loads ontology from discovered SemLang config", async () => {
+    // 02.05.035, 02.05.037, and 02.05.040: load_ontology({}) resolves the
+    // configured entrypoint, Malloy config, and export directory from
+    // .semlang/settings.yml, ahead of managed MCP defaults.
+    const projectDir = await writeTempProject({
+      ".semlang/settings.yml": [
+        "ontology:",
+        "  entrypoint: models/model.semlang",
+        "malloy:",
+        "  configPath: config/malloy-config.json",
+        "exportDirectory: output",
+        "",
+      ].join("\n"),
+      "models/model.semlang": `
+package mcp.semlang_config
+
+concept Order is event from duckdb.sql("""
+  select 'O-1' as order_id, timestamp '2026-01-01 00:00:00' as ordered_at
+""") {
+  identity order_id :: string
+  field:
+    ordered_at :: timestamp
+  occurrence_time: ordered_at
+}
+`,
+    });
+    const configPath = path.join(projectDir, "config", "malloy-config.json");
+    const managedConfigPath = path.join(projectDir, "managed-malloy-config.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+    await fs.writeFile(managedConfigPath, JSON.stringify(duckDbMalloyConfig(projectDir), null, 2));
+    const mcp = createSemLangMcp({ projectDir, malloyConfigPath: managedConfigPath });
+
+    const source = await mcp.tools["load_ontology"]({});
+
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        projectDir,
+        malloyConfigPath: configPath,
+        malloyConfigSource: "explicit",
+      },
+    });
+    expect(mcp.getContext().filePath).toBe(path.join(projectDir, "models", "model.semlang"));
+    expect(mcp.getContext().exportDirectory).toBe(path.join(projectDir, "output"));
+  });
+
+  it("reports the config path when SemLang config contains unknown keys", async () => {
+    // 02.05.042: invalid SemLang config errors identify the settings file
+    // that needs editing.
+    const projectDir = await writeTempProject({
+      ".semlang/settings.yml": ["ontology:", "  entrypoint: model.semlang", "extra: true", ""].join("\n"),
+      "model.semlang": "package mcp.invalid_config\n",
+    });
+    const configPath = path.join(projectDir, ".semlang", "settings.yml");
+    const mcp = createSemLangMcp({ projectDir });
+
+    const source = await mcp.tools["load_ontology"]({});
+
+    expect(source.ok).toBe(false);
+    expect(text(source.error)).toContain(`SemLang config ${configPath} has unknown key extra.`);
+  });
+
   // 02.05.001, 02.05.002, 02.05.003, 02.05.004, 02.05.005,
   // 02.05.006, 02.05.007, and 02.05.008: MCP captures explicit or
   // discovered Malloy config, preserves model connection names, and reports
@@ -181,7 +256,9 @@ concept Order is event from duckdb.table('orders') {
     });
   });
 
-  it("fails clearly when no Malloy config path is supplied and discovery finds no config", async () => {
+  it("loads explicit ontology source without requiring Malloy config", async () => {
+    // 02.05.039: explicit one-off ontology loading remains available for
+    // ontology-only tools even when no Malloy config is available.
     const mcp = createSemLangMcp();
 
     const source = await mcp.tools["load_ontology"]({
@@ -197,10 +274,12 @@ concept Sale is event from duckdb.table('sales') {
 `,
     });
 
-    expect(source.ok).toBe(false);
-    expect(text(source.error)).toMatch(
-      /^No Malloy config file was found for load_ontology\. Pass configPath or malloyConfigPath explicitly, or add malloy-config-local\.json or malloy-config\.json at or above the SemLang model directory\. Searched from .+ up to .+\.$/,
-    );
+    expectOk(source);
+    expect(asObject(source.context)).toMatchObject({
+      execution: {
+        malloyConfigPath: null,
+      },
+    });
   });
 
   it("blocks ontology source loading when emitted Malloy references an unknown source connection", async () => {

@@ -13,7 +13,7 @@ Call `load_ontology` first in each MCP session. All other tools read the compile
 
 | Tool            | Use it for                                                                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `load_ontology` | Compile SemLang files or inline source into MCP session context and capture Malloy project/config settings.                                                        |
+| `load_ontology` | Compile the configured SemLang ontology or inline source into MCP session context and capture Malloy config settings when available.                               |
 | `search`        | Find relevant ontology objects, resolve names or business labels, and suggest lenses.                                                                              |
 | `describe`      | Inspect concepts, actions, roles, metrics, temporal axes, and lenses; expand lens overlays; report required lens fields; and produce lens application plan detail. |
 | `find_paths`    | Explore declared join paths between concepts or role targets.                                                                                                      |
@@ -26,4 +26,4 @@ The public manifest intentionally avoids duplicate aliases and narrowly sliced h
 
 Tools return structured JSON. Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
 
-`load_ontology` captures Malloy project/config context. It uses an explicit `configPath` / `malloyConfigPath` when supplied; otherwise it discovers `malloy-config-local.json` or `malloy-config.json` by walking upward from the SemLang file. If no config is found, the tool fails with a clear setup error. `run_query` executes through the Malloy SDK using that captured config and requires `query_limit_seconds` unless `dry_run_only` is true. `invoke_action` uses the same captured Malloy connection context to execute generated action SQL.
+`load_ontology({})` reads `.semlang/settings.yml` for the ontology entrypoint and runtime paths. If config is missing, it returns setup guidance. `run_query` executes through the Malloy SDK using the captured Malloy config and requires `query_limit_seconds` unless `dry_run_only` is true. `invoke_action` uses the same captured Malloy connection context to execute generated action SQL.

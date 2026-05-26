@@ -31,9 +31,8 @@ export const mcpToolDescriptions = {
 export const mcpToolInputSchemas = {
   load_ontology: z
     .object({
-      paths: stringArrayInputSchema.optional(),
+      path: z.string().optional(),
       source: z.string().optional(),
-      projectDir: z.string().optional(),
       configPath: z.string().optional(),
       malloyConfigPath: z.string().optional(),
       returnMalloyModel: z.boolean().optional(),

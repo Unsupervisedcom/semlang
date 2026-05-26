@@ -48,7 +48,7 @@ describe("SemLang MCP tool manifest", () => {
 
   it("matches the reviewed tool list fixture", async () => {
     // 02.05.025, 02.05.028, 02.05.029, 02.05.030, 02.05.031,
-    // 02.05.032, 02.05.033, and 02.05.034: Tool list changes affect every loaded MCP session's context,
+    // 02.05.032, 02.05.033, 02.05.034, and 02.05.041: Tool list changes affect every loaded MCP session's context,
     // so any changed tool metadata must update this fixture for reviewer visibility.
     const manifest = await loadCurrentManifest();
     const reviewedManifest = await fs.readFile(manifestFixturePath, "utf8");
@@ -69,13 +69,16 @@ describe("SemLang MCP tool manifest", () => {
   });
 
   it("keeps consolidated tool schemas aligned with the public request shapes", async () => {
-    // 02.05.030, 02.05.032, and 02.05.033: consolidated schemas must expose
+    // 02.05.030, 02.05.032, 02.05.033, and 02.05.041: consolidated schemas must expose
     // the argument shapes agents should actually send, without stale detail knobs
     // or old lens-operation names.
     const manifest = await loadCurrentManifest();
     const byName = Object.fromEntries(manifest.tools.map((tool) => [tool.name, tool]));
 
     expect(JSON.stringify(byName.find_paths?.inputSchema)).toContain('"type":"string"');
+    expect(JSON.stringify(byName.load_ontology?.inputSchema)).not.toContain("projectDir");
+    expect(JSON.stringify(byName.load_ontology?.inputSchema)).not.toContain('"paths"');
+    expect(JSON.stringify(byName.load_ontology?.inputSchema)).toContain('"path"');
     expect(JSON.stringify(byName.run_query?.inputSchema)).toContain('"body"');
     expect(JSON.stringify(byName.run_query?.inputSchema)).toContain('"type":"string"');
     expect(JSON.stringify(byName.describe?.inputSchema)).toContain('"operation"');

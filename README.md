@@ -63,8 +63,9 @@ semlang setup
 semlang mcp
 ```
 
-MCP path settings are configured with `SEMLANG_*` environment variables or the
-matching CLI parameters exposed by `semlang setup` and `semlang mcp`.
+`semlang setup` creates `.semlang/settings.yml`, which records the ontology entrypoint,
+optional Malloy config path, and export directory. After setup, MCP agents can
+start with `semlang mcp` and call `load_ontology({})`.
 
 ## Claude Code Plugin
 

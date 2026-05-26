@@ -6,16 +6,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "source": {
+          "path": {
             "type": "string"
           },
-          "projectDir": {
+          "source": {
             "type": "string"
           },
           "configPath": {

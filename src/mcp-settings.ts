@@ -5,8 +5,8 @@
 
 import os from "node:os";
 import path from "node:path";
-import { discoverMalloyConfigPath } from "./malloy-execution.js";
-import { resolveOptionalPath } from "./mcp-utils.js";
+import { pathWithinOrEqual, resolveOptionalPath } from "./mcp-utils.js";
+import { discoverMalloyConfigPath } from "./semlang-config.js";
 
 export interface SemLangMcpSettings {
   projectDir: string;
@@ -134,11 +134,6 @@ export function projectDirDiscoveryCeiling(
   const startDir = inferConfigSearchStartDir(sourcePaths, modelFiles);
   const resolvedManagedProjectDir = path.resolve(managedProjectDir);
   return pathWithinOrEqual(startDir, resolvedManagedProjectDir) ? resolvedManagedProjectDir : undefined;
-}
-
-export function pathWithinOrEqual(child: string, ancestor: string): boolean {
-  const relative = path.relative(path.resolve(ancestor), path.resolve(child));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function commonDirectory(dirs: string[]): string {

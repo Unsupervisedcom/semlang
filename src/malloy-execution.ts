@@ -448,7 +448,7 @@ async function createMalloyRuntime(context: MalloyExecutionContext): Promise<{
 
   if (!context.malloyConfigPath) {
     throw new Error(
-      "No Malloy config path is available. Call load_ontology with malloyConfigPath, or place malloy-config-local.json or malloy-config.json where it can be discovered.",
+      'No Malloy config path is available. Run "semlang setup --force" after adding malloy-config.json, add malloy.configPath to .semlang/settings.yml, or pass malloyConfigPath explicitly.',
     );
   }
   const configSource = context.malloyConfigSource ?? "explicit";
@@ -612,36 +612,6 @@ function malloyContextLines(malloy: string, problemLine: number): GeneratedSourc
     });
   }
   return context;
-}
-
-export async function discoverMalloyConfigPath(startDir: string, ceilingDir?: string): Promise<string | undefined> {
-  let current = path.resolve(startDir);
-  const ceiling = ceilingDir ? path.resolve(ceilingDir) : path.parse(current).root;
-  if (!isWithinOrEqualPath(current, ceiling)) return undefined;
-  for (;;) {
-    const local = path.join(current, "malloy-config-local.json");
-    const shared = path.join(current, "malloy-config.json");
-    if (await fileExists(local)) return local;
-    if (await fileExists(shared)) return shared;
-    if (current === ceiling) return undefined;
-    const parent = path.dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isWithinOrEqualPath(child: string, ancestor: string): boolean {
-  const relative = path.relative(ancestor, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 class NodeFileURLReader implements URLReader {

@@ -104,57 +104,64 @@ describe("CLI", () => {
     ).rejects.toThrow(/unknown option/);
   });
 
-  it("resolves MCP setup settings from env vars and CLI parameters", async () => {
-    // 02.05.015: setup exposes managed path settings sourced from
-    // SEMLANG-prefixed env vars with CLI parameters taking precedence.
-    // 08.02.006: setup exposes max_parallel_queries as a managed MCP setting.
+  it("previews generated SemLang project config", async () => {
+    // 02.05.015, 02.05.035, 02.05.036, and 02.05.037: setup performs
+    // heuristic discovery and can preview the .semlang/settings.yml it would write.
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-project-"));
-    const envExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-env-export-"));
-    const paramExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-param-export-"));
-    const configPath = path.join(projectDir, "malloy-config.json");
-    const paramConfigPath = path.join(projectDir, "param-malloy-config.json");
-    await fs.writeFile(configPath, "{}");
-    await fs.writeFile(paramConfigPath, "{}");
+    await fs.writeFile(path.join(projectDir, "model.semlang"), "package cli.setup_preview\n");
+    await fs.writeFile(path.join(projectDir, "malloy-config.json"), "{}");
 
-    const setup = await execFileAsync(
-      "node",
-      ["dist/src/cli.js", "setup", "--config-path", paramConfigPath, "--export-directory", paramExportDir],
-      {
-        cwd: root,
-        env: {
-          ...process.env,
-          SEMLANG_PROJECT_DIR: projectDir,
-          SEMLANG_MALLOY_CONFIG_PATH: configPath,
-          SEMLANG_EXPORT_DIRECTORY: envExportDir,
-          SEMLANG_MAX_PARALLEL_QUERIES: "7",
-        },
-      },
-    );
-
-    expect(JSON.parse(setup.stdout)).toMatchObject({
-      projectDir,
-      malloyConfigPath: paramConfigPath,
-      exportDirectory: paramExportDir,
-      maxParallelQueries: 7,
+    const setup = await execFileAsync("node", ["dist/src/cli.js", "setup", "--preview", "--project-dir", projectDir], {
+      cwd: root,
     });
+
+    expect(setup.stdout).toBe(
+      [
+        "ontology:",
+        "  entrypoint: model.semlang",
+        "malloy:",
+        "  configPath: malloy-config.json",
+        "exportDirectory: .semlang/exports",
+        "",
+      ].join("\n"),
+    );
+    await expect(fs.access(path.join(projectDir, ".semlang", "settings.yml"))).rejects.toThrow();
   });
 
-  it("defaults MCP setup project and export directories", async () => {
-    // 02.05.015: setup exposes managed path settings with defaults that match
-    // the MCP process cwd and operating system temp directory.
-    const env = { ...process.env };
-    delete env.SEMLANG_PROJECT_DIR;
-    delete env.SEMLANG_MALLOY_CONFIG_PATH;
-    delete env.SEMLANG_EXPORT_DIRECTORY;
+  it("writes SemLang config and requires force to overwrite it", async () => {
+    // 02.05.036 and 02.05.038: setup writes .semlang/settings.yml, omits absent
+    // Malloy config, and protects existing config unless --force is passed.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-project-"));
+    await fs.writeFile(path.join(projectDir, "model.semlang"), "package cli.setup_write\n");
 
-    const setup = await execFileAsync("node", ["dist/src/cli.js", "setup"], {
-      cwd: root,
-      env,
-    });
+    const setup = await execFileAsync("node", [path.join(root, "dist/src/cli.js"), "setup"], { cwd: projectDir });
+    expect(setup.stdout).toMatch(/^Wrote .+\.semlang\/settings\.yml\n$/);
+    await expect(fs.readFile(path.join(projectDir, ".semlang", "settings.yml"), "utf8")).resolves.toBe(
+      ["ontology:", "  entrypoint: model.semlang", "exportDirectory: .semlang/exports", ""].join("\n"),
+    );
 
-    expect(JSON.parse(setup.stdout)).toMatchObject({
-      projectDir: root,
-      exportDirectory: os.tmpdir(),
+    await expect(
+      execFileAsync("node", [path.join(root, "dist/src/cli.js"), "setup"], { cwd: projectDir }),
+    ).rejects.toThrow(/Pass --force to overwrite it/);
+
+    await fs.writeFile(path.join(projectDir, "models.semlang"), "package cli.setup_force\n");
+    await execFileAsync("node", [path.join(root, "dist/src/cli.js"), "setup", "--path", "models.semlang", "--force"], {
+      cwd: projectDir,
     });
+    await expect(fs.readFile(path.join(projectDir, ".semlang", "settings.yml"), "utf8")).resolves.toContain(
+      "entrypoint: models.semlang",
+    );
+  });
+
+  it("reports setup candidates when ontology discovery is ambiguous", async () => {
+    // 02.05.037: setup reports candidate files and asks for --path when
+    // conventional entrypoint discovery cannot choose one safely.
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-project-"));
+    await fs.writeFile(path.join(projectDir, "orders.semlang"), "package cli.orders\n");
+    await fs.writeFile(path.join(projectDir, "customers.semlang"), "package cli.customers\n");
+
+    await expect(
+      execFileAsync("node", [path.join(root, "dist/src/cli.js"), "setup"], { cwd: projectDir }),
+    ).rejects.toThrow(/Candidates: customers\.semlang, orders\.semlang\. Pass --path <file>/);
   });
 });

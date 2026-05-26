@@ -11,3 +11,6 @@ docs-site/.docusaurus/
 # Local DuckDB artifacts from Malloy/MCP validation runs.
 *.duckdb
 *.duckdb.wal
+
+# Local SemLang runtime caches.
+.semlang/cache/

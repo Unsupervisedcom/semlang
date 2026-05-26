@@ -31,6 +31,11 @@ export function resolveOptionalPath(value: string | undefined): string | undefin
   return value ? path.resolve(value) : undefined;
 }
 
+export function pathWithinOrEqual(child: string, ancestor: string): boolean {
+  const relative = path.relative(path.resolve(ancestor), path.resolve(child));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 export function stringList(value: unknown): string[] {
   if (typeof value === "string" && value.trim()) return [value.trim()];
   if (Array.isArray(value))
