@@ -581,49 +581,14 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     }
     const queryLimitSeconds = actionQueryLimitSecondsValue(args);
     if (!queryLimitSeconds.ok) return queryLimitSeconds;
-    let rows: Array<Record<string, unknown>> = [];
-    if (built.rowsQuery) {
-      const selected = await executeMalloySql({
-        context: executionContext.context,
-        connectionName: built.connectionName,
-        sql: built.rowsQuery,
-        queryLimitSeconds: queryLimitSeconds.value,
-      });
-      if (selected.ok !== true) {
-        return {
-          ok: false,
-          engine: "malloy",
-          action: resolvedAction.action.name,
-          concept: resolvedAction.concept.name,
-          operation: built.operation,
-          sql: built.sql,
-          diagnostics: jsonSafe(built.diagnostics),
-          query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
-          timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
-          error: selected.error,
-        };
-      }
-      rows = Array.isArray(selected.rows) ? (selected.rows as Array<Record<string, unknown>>) : [];
-      if (rows.length === 0) {
-        return {
-          ok: false,
-          engine: "malloy",
-          action: resolvedAction.action.name,
-          concept: resolvedAction.concept.name,
-          operation: built.operation,
-          sql: built.sql,
-          changedRowCount: 0,
-          query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds.value,
-          timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
-          rows: [],
-          diagnostics: jsonSafe([
-            ...built.diagnostics,
-            "Action matched no rows; the subject may not exist or a guard may have failed.",
-          ]),
-          verificationQuery: built.verificationQuery ?? null,
-        };
-      }
-    }
+    const selectedRows = await selectRowsForAction(
+      executionContext.context,
+      built,
+      resolvedAction,
+      queryLimitSeconds.value,
+    );
+    if (!selectedRows.ok) return selectedRows.response;
+    let rows = selectedRows.rows;
     const execution = await executeMalloySql({
       context: executionContext.context,
       connectionName: built.connectionName,
@@ -1415,6 +1380,65 @@ type ActionResolution =
   | { ok: true; concept: ResolvedConcept; action: ActionDecl }
   | { ok: false; error: string; candidates?: Array<Record<string, unknown>>; context?: unknown };
 type ActionTargetAssignment = { column: string; expression: string };
+type BuiltActionSql = Extract<ReturnType<typeof buildActionSql>, { ok: true }>;
+type ActionExecutionContext = Extract<ReturnType<typeof actionExecutionContext>, { ok: true }>["context"];
+
+async function selectRowsForAction(
+  executionContext: ActionExecutionContext,
+  built: BuiltActionSql,
+  resolvedAction: Extract<ActionResolution, { ok: true }>,
+  queryLimitSeconds: number,
+): Promise<{ ok: true; rows: Array<Record<string, unknown>> } | { ok: false; response: Record<string, JsonValue> }> {
+  if (!built.rowsQuery) return { ok: true, rows: [] };
+
+  const selected = await executeMalloySql({
+    context: executionContext,
+    connectionName: built.connectionName,
+    sql: built.rowsQuery,
+    queryLimitSeconds,
+  });
+  if (selected.ok !== true) {
+    return {
+      ok: false,
+      response: {
+        ok: false,
+        engine: "malloy",
+        action: resolvedAction.action.name,
+        concept: resolvedAction.concept.name,
+        operation: built.operation,
+        sql: built.sql,
+        diagnostics: jsonSafe(built.diagnostics),
+        query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds,
+        timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
+        error: selected.error,
+      },
+    };
+  }
+
+  const rows = Array.isArray(selected.rows) ? (selected.rows as Array<Record<string, unknown>>) : [];
+  if (rows.length > 0) return { ok: true, rows };
+
+  return {
+    ok: false,
+    response: {
+      ok: false,
+      engine: "malloy",
+      action: resolvedAction.action.name,
+      concept: resolvedAction.concept.name,
+      operation: built.operation,
+      sql: built.sql,
+      changedRowCount: 0,
+      query_limit_seconds: (selected.query_limit_seconds as JsonValue | undefined) ?? queryLimitSeconds,
+      timed_out: (selected.timed_out as JsonValue | undefined) ?? false,
+      rows: [],
+      diagnostics: jsonSafe([
+        ...built.diagnostics,
+        "Action matched no rows; the subject may not exist or a guard may have failed.",
+      ]),
+      verificationQuery: built.verificationQuery ?? null,
+    },
+  };
+}
 
 function resolveAction(
   model: SemanticModel,
