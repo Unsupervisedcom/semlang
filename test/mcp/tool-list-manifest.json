@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "load_ontology",
-      "description": "Compile and store a SemLang ontology.",
+      "description": "Load a SemLang ontology.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -34,7 +34,7 @@
     },
     {
       "name": "search",
-      "description": "Search and resolve ontology objects.",
+      "description": "Search ontology objects.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -55,7 +55,7 @@
     },
     {
       "name": "describe",
-      "description": "Describe ontology objects and lens effects.",
+      "description": "Describe ontology objects.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -88,6 +88,9 @@
                 }
               }
             ]
+          },
+          "include_stats": {
+            "type": "boolean"
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -96,7 +99,7 @@
     },
     {
       "name": "find_paths",
-      "description": "Find join paths between concepts or role targets.",
+      "description": "Find join paths.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -126,7 +129,7 @@
     },
     {
       "name": "run_query",
-      "description": "Validate or execute a Malloy-backed query.",
+      "description": "Validate or run a query.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -172,7 +175,7 @@
     },
     {
       "name": "invoke_action",
-      "description": "Invoke a supported local action.",
+      "description": "Invoke an action.",
       "inputSchema": {
         "type": "object",
         "properties": {

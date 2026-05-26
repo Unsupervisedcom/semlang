@@ -12,6 +12,12 @@ export interface SemLangMcpSettings {
   projectDir: string;
   malloyConfigPath?: string;
   exportDirectory: string;
+  updateStats: boolean;
+  completeValueMaxDistinctCount: number;
+  sampleValueMaxCount: number;
+  statsQueryLimitSeconds: number;
+  maxParallelQueries: number;
+  statsCacheDirectory?: string;
 }
 
 export type ResolvedMalloyExecutionContext =
@@ -25,7 +31,34 @@ export function resolveSemLangMcpSettings(settings: Partial<SemLangMcpSettings> 
     projectDir,
     malloyConfigPath,
     exportDirectory: resolveOptionalPath(settings.exportDirectory ?? envSetting("EXPORT_DIRECTORY")) ?? os.tmpdir(),
+    updateStats: optionalBoolean(settings.updateStats ?? envSetting("UPDATE_STATS")) ?? true,
+    completeValueMaxDistinctCount:
+      optionalPositiveInteger(
+        settings.completeValueMaxDistinctCount ?? envSetting("COMPLETE_VALUE_MAX_DISTINCT_COUNT"),
+      ) ?? 50,
+    sampleValueMaxCount:
+      optionalPositiveInteger(settings.sampleValueMaxCount ?? envSetting("SAMPLE_VALUE_MAX_COUNT")) ?? 20,
+    statsQueryLimitSeconds:
+      optionalPositiveInteger(settings.statsQueryLimitSeconds ?? envSetting("STATS_QUERY_LIMIT_SECONDS")) ?? 30,
+    maxParallelQueries: optionalPositiveInteger(settings.maxParallelQueries ?? envSetting("MAX_PARALLEL_QUERIES")) ?? 4,
+    statsCacheDirectory: resolveOptionalPath(settings.statsCacheDirectory ?? envSetting("STATS_CACHE_DIRECTORY")),
   };
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function optionalPositiveInteger(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return undefined;
+  const parsed = Number(value.trim());
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /**

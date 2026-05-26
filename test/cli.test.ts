@@ -107,6 +107,7 @@ describe("CLI", () => {
   it("resolves MCP setup settings from env vars and CLI parameters", async () => {
     // 02.05.015: setup exposes managed path settings sourced from
     // SEMLANG-prefixed env vars with CLI parameters taking precedence.
+    // 08.02.006: setup exposes max_parallel_queries as a managed MCP setting.
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-project-"));
     const envExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-env-export-"));
     const paramExportDir = await fs.mkdtemp(path.join(os.tmpdir(), "semlang-param-export-"));
@@ -125,6 +126,7 @@ describe("CLI", () => {
           SEMLANG_PROJECT_DIR: projectDir,
           SEMLANG_MALLOY_CONFIG_PATH: configPath,
           SEMLANG_EXPORT_DIRECTORY: envExportDir,
+          SEMLANG_MAX_PARALLEL_QUERIES: "7",
         },
       },
     );
@@ -133,6 +135,7 @@ describe("CLI", () => {
       projectDir,
       malloyConfigPath: paramConfigPath,
       exportDirectory: paramExportDir,
+      maxParallelQueries: 7,
     });
   });
 

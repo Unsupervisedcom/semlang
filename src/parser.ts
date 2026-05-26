@@ -849,7 +849,8 @@ function parseFieldHeader(
     .trim();
   const unique = /\s+unique(?:\s|$)/.test(text);
   const writeable = /\s+writeable(?:\s|$)/.test(text);
-  const withoutModifiers = text.replace(/\s+(?:unique|writeable)\b/g, "").trim();
+  const indexed = /\s+indexed(?:\s|$)/.test(text);
+  const withoutModifiers = text.replace(/\s+(?:unique|writeable|indexed)\b/g, "").trim();
   const parsed = parseTypedName(withoutModifiers, header, file, diagnostics);
   if (!parsed) return undefined;
   const metadata = parseDescribedWriteMappings(body, file, diagnostics);
@@ -862,6 +863,7 @@ function parseFieldHeader(
     description: metadata.description,
     unique,
     writeable,
+    indexed,
     writeMappings,
     location: location(file, header.line, header.text, parsed.name),
   };
@@ -872,7 +874,7 @@ function parseTypedName(
   line: SourceLine,
   file: string | undefined,
   diagnostics: Diagnostic[],
-): Omit<FieldDecl, "unique" | "writeable" | "writeMappings" | "location"> | undefined {
+): Omit<FieldDecl, "unique" | "writeable" | "indexed" | "writeMappings" | "location"> | undefined {
   const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?$/.exec(text.trim());
   if (!match) {
     diagnostics.push(error("INVALID_TYPED_NAME", `Invalid typed declaration: ${text.trim()}`, file, line));
@@ -1050,10 +1052,9 @@ function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnos
     const text = normalizeExpression(headerLines)
       .replace(/\s*\{\s*$/, "")
       .trim();
-    const writeable = /\s+writeable$/.test(text);
-    const withoutWriteable = text.replace(/\s+writeable$/, "").trim();
+    const modifiers = parseDefinitionModifiers(text);
     const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*::\s*([A-Za-z_][A-Za-z0-9_]*)(\?)?)?\s+is\s+(.+)$/.exec(
-      withoutWriteable,
+      modifiers.text,
     );
     if (!match) {
       diagnostics.push(error("INVALID_DEFINITION", `Invalid definition: ${text}`, file, group[0]!));
@@ -1067,12 +1068,27 @@ function parseDefinitions(lines: SourceLine[], file: string | undefined, diagnos
         nullable: Boolean(match[3]),
         expression: match[4]!.trim(),
         description: metadata.description,
-        writeable,
+        writeable: modifiers.writeable,
+        indexed: modifiers.indexed,
         writeMappings: metadata.writeMappings,
         location: location(file, header.line, header.text, match[1]),
       },
     ];
   });
+}
+
+function parseDefinitionModifiers(text: string): { text: string; writeable: boolean; indexed: boolean } {
+  let remaining = text.trim();
+  let writeable = false;
+  let indexed = false;
+  for (;;) {
+    const match = /\s+(writeable|indexed)$/.exec(remaining);
+    if (!match) break;
+    if (match[1] === "writeable") writeable = true;
+    if (match[1] === "indexed") indexed = true;
+    remaining = remaining.slice(0, match.index).trim();
+  }
+  return { text: remaining, writeable, indexed };
 }
 
 function splitDefinitionGroup(group: SourceLine[]): { headerLines: SourceLine[]; bodyLines: SourceLine[] } {

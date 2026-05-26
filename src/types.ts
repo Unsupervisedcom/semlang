@@ -193,6 +193,7 @@ export interface FieldDecl {
   description?: string;
   unique: boolean;
   writeable: boolean;
+  indexed: boolean;
   writeMappings: WriteMappingDecl[];
   location: SourceLocation;
 }
@@ -225,6 +226,7 @@ export interface DefinitionDecl {
   nullable?: boolean;
   description?: string;
   writeable: boolean;
+  indexed: boolean;
   writeMappings: WriteMappingDecl[];
   location: SourceLocation;
 }

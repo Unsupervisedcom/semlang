@@ -273,4 +273,214 @@ query: customer_order_counts is Customer -> {
       expect.arrayContaining([expect.objectContaining({ customer_id: "C-1", order_count: 2 })]),
     );
   });
+
+  it("collects cached statistics for indexed members and exposes compact predicate search matches", async () => {
+    // 08.02.001, 08.02.002, 08.02.003, 08.02.004, 08.02.005, 08.02.006, 08.02.007,
+    // 08.03.001, 08.03.002, 08.03.003, 08.03.004, 08.03.005,
+    // 08.03.006, 08.03.007, 08.04.001, 08.04.002, 08.04.003,
+    // 08.04.004, 08.05.001, 08.05.002, 08.05.003, and 08.05.004:
+    // indexed statistics refresh on ontology load, cache bounded values, feed
+    // compact predicate search, and only expose full values through explicit
+    // concept introspection.
+    const projectDir = await writeTempProject({
+      "model.semlang": `
+package mcp.field_statistics
+
+concept Customer is kind from duckdb.table('customers') {
+  identity customer_id :: string
+  field:
+    customer_status :: string indexed
+    customer_name :: string indexed
+    lifetime_value :: number
+
+  dimension:
+    status_label is case when customer_status = 'active' then 'Active' else 'Inactive' end indexed
+
+  measure:
+    customer_count is count() indexed
+}
+`,
+    });
+    await execFileAsync(
+      "duckdb",
+      [
+        duckDbDatabasePath(projectDir),
+        "-c",
+        `
+create table customers (
+  customer_id varchar primary key,
+  customer_status varchar,
+  customer_name varchar,
+  lifetime_value double
+);
+insert into customers values
+  ('C-1', 'active', 'Customer 1', 10.0),
+  ('C-2', 'inactive', 'Customer 2', 20.0),
+  ('C-3', 'active', 'Customer 3', 30.0),
+  ('C-4', 'inactive', 'Customer 4', 40.0),
+  ('C-5', 'active', 'Customer 5', 50.0);
+`,
+      ],
+      { cwd: projectDir, maxBuffer: 10 * 1024 * 1024 },
+    );
+    await fs.writeFile(
+      path.join(projectDir, "malloy-config.json"),
+      JSON.stringify(duckDbMalloyConfig(projectDir), null, 2),
+    );
+    const modelPath = path.join(projectDir, "model.semlang");
+    const mcp = createSemLangMcp({
+      projectDir,
+      completeValueMaxDistinctCount: 3,
+      sampleValueMaxCount: 2,
+      maxParallelQueries: 1,
+    });
+
+    const source = await mcp.tools["load_ontology"]({ path: modelPath, projectDir });
+    expectOk(source);
+    const context = asObject(source.context);
+    expect(context).not.toHaveProperty("fieldStats");
+    expect(asObject(context.statsStatus)).toMatchObject({
+      enabled: true,
+      updated: 4,
+      failed: 0,
+    });
+    await expect(fs.readFile(path.join(projectDir, ".semlang", ".gitignore"), "utf8")).resolves.toContain("cache/");
+
+    const described = await mcp.tools.describe({ kind: "concept", names: ["Customer"] });
+    expectOk(described);
+    const concept = asObject(described.concept);
+    const status = records(concept.fields).find((field) => field.name === "customer_status");
+    expect(status).toMatchObject({
+      indexed: true,
+      statsAvailable: true,
+      stats: {
+        rowCount: 5,
+        nonNullCount: 5,
+        distinctCount: 2,
+        values: { kind: "complete" },
+      },
+    });
+    const statusValues = records(asObject(asObject(asObject(status).stats).values).values);
+    expect(statusValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "active", count: 3 }),
+        expect.objectContaining({ value: "inactive", count: 2 }),
+      ]),
+    );
+
+    const customerName = records(concept.fields).find((field) => field.name === "customer_name");
+    expect(customerName).toMatchObject({
+      indexed: true,
+      stats: {
+        distinctCount: 5,
+        values: { kind: "sample" },
+      },
+    });
+    expect(records(asObject(asObject(asObject(customerName).stats).values).values)).toHaveLength(2);
+    const statusLabel = records(concept.dimensions).find((dimension) => dimension.name === "status_label");
+    expect(statusLabel).toMatchObject({
+      indexed: true,
+      stats: {
+        values: { kind: "complete" },
+      },
+    });
+    const customerCount = records(concept.measures).find((measure) => measure.name === "customer_count");
+    expect(customerCount).toMatchObject({
+      indexed: true,
+      stats: {
+        measureValue: 5,
+      },
+    });
+    expect(asObject(asObject(customerCount).stats)).not.toHaveProperty("values");
+
+    const compactConcept = await mcp.tools.describe({
+      kind: "concept",
+      names: ["Customer"],
+      include_stats: false,
+    });
+    expectOk(compactConcept);
+    const compactStatus = records(asObject(compactConcept.concept).fields).find(
+      (field) => field.name === "customer_status",
+    );
+    expect(compactStatus).toMatchObject({ indexed: true, statsAvailable: true });
+    expect(compactStatus).not.toHaveProperty("stats");
+
+    const search = await mcp.tools.search({ query: "active", limit: 8 });
+    expectOk(search);
+    expect(search).not.toHaveProperty("fieldStats");
+    const predicate = records(search.predicates).find(
+      (match) => match.member === "customer_status" && match.value === "active",
+    );
+    expect(predicate).toMatchObject({
+      concept: "Customer",
+      member: "customer_status",
+      memberKind: "field",
+      value: "active",
+      predicate: "customer_status = 'active'",
+    });
+    expect(predicate).not.toHaveProperty("stats");
+    expect(predicate).not.toHaveProperty("values");
+
+    const entity = await mcp.tools.search({ kind: "entity", query: "Customer active", concept: "Customer" });
+    expectOk(entity);
+    expect(records(entity.predicates)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          concept: "Customer",
+          member: "customer_status",
+          value: "active",
+          predicate: "customer_status = 'active'",
+        }),
+      ]),
+    );
+
+    const secondLoad = await mcp.tools["load_ontology"]({ path: modelPath, projectDir });
+    expectOk(secondLoad);
+    expect(asObject(asObject(secondLoad.context).statsStatus)).toMatchObject({
+      cached: 4,
+      updated: 0,
+    });
+    await fs.appendFile(modelPath, "\n// stats cache fingerprint change\n");
+    const staleLoad = await mcp.tools["load_ontology"]({ path: modelPath, projectDir });
+    expectOk(staleLoad);
+    expect(asObject(asObject(staleLoad.context).statsStatus)).toMatchObject({
+      cached: 0,
+      updated: 4,
+    });
+
+    const noStatsMcp = createSemLangMcp({ projectDir, updateStats: false });
+    const noStatsSource = await noStatsMcp.tools["load_ontology"]({ path: modelPath, projectDir });
+    expectOk(noStatsSource);
+    expect(asObject(asObject(noStatsSource.context).statsStatus)).toMatchObject({
+      enabled: false,
+      skipped: 4,
+    });
+    const noStatsConcept = await noStatsMcp.tools.describe({ kind: "concept", names: ["Customer"] });
+    expectOk(noStatsConcept);
+    expect(
+      records(asObject(noStatsConcept.concept).fields).find((field) => field.name === "customer_status"),
+    ).toMatchObject({
+      indexed: true,
+      statsAvailable: false,
+    });
+
+    const blockedCachePath = path.join(projectDir, "blocked-cache");
+    await fs.writeFile(blockedCachePath, "not a directory");
+    const setupFailureMcp = createSemLangMcp({ projectDir, statsCacheDirectory: blockedCachePath });
+    const setupFailureSource = await setupFailureMcp.tools["load_ontology"]({ path: modelPath, projectDir });
+    expectOk(setupFailureSource);
+    expect(asObject(asObject(setupFailureSource.context).statsStatus)).toMatchObject({
+      enabled: true,
+      updated: 0,
+      failed: 4,
+    });
+    const setupFailureConcept = await setupFailureMcp.tools.describe({ kind: "concept", names: ["Customer"] });
+    expectOk(setupFailureConcept);
+    expect(
+      records(asObject(setupFailureConcept.concept).fields).find((field) => field.name === "customer_status"),
+    ).toMatchObject({
+      indexed: true,
+      statsAvailable: false,
+    });
+  });
 });

@@ -20,12 +20,12 @@ export const mcpToolOrder = [
 export type McpToolName = (typeof mcpToolOrder)[number];
 
 export const mcpToolDescriptions = {
-  load_ontology: "Compile and store a SemLang ontology.",
-  search: "Search and resolve ontology objects.",
-  describe: "Describe ontology objects and lens effects.",
-  find_paths: "Find join paths between concepts or role targets.",
-  run_query: "Validate or execute a Malloy-backed query.",
-  invoke_action: "Invoke a supported local action.",
+  load_ontology: "Load a SemLang ontology.",
+  search: "Search ontology objects.",
+  describe: "Describe ontology objects.",
+  find_paths: "Find join paths.",
+  run_query: "Validate or run a query.",
+  invoke_action: "Invoke an action.",
 } satisfies Record<McpToolName, string>;
 
 export const mcpToolInputSchemas = {
@@ -53,6 +53,7 @@ export const mcpToolInputSchemas = {
       names: stringArrayInputSchema.optional(),
       question: z.string().optional(),
       fields: stringOrStringArrayInputSchema.optional(),
+      include_stats: z.boolean().optional(),
     })
     .passthrough(),
   find_paths: z

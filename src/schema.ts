@@ -106,7 +106,7 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
     required.push(identity.name);
   }
   for (const field of concept.fields) {
-    properties[field.name] = emitFieldSchema(model, field, { unique: field.unique });
+    properties[field.name] = emitFieldSchema(model, field, { unique: field.unique, indexed: field.indexed });
     required.push(field.name);
   }
 
@@ -166,7 +166,7 @@ function emitConceptSchema(model: SemanticModel, concept: ResolvedConcept): Reco
 function emitFieldSchema(
   model: SemanticModel,
   field: FieldDecl | IdentityField,
-  options: { identity?: boolean; unique?: boolean } = {},
+  options: { identity?: boolean; unique?: boolean; indexed?: boolean } = {},
 ): Record<string, unknown> {
   const schema = typeReferenceOrPrimitive(model, field.typeName);
   const description = field.description ? { description: stripQuoted(field.description) } : {};
@@ -176,11 +176,13 @@ function emitFieldSchema(
       ...description,
       ...(options.identity ? { "x-semlang-identity": true } : {}),
       ...(options.unique ? { "x-semlang-unique": true } : {}),
+      ...(options.indexed ? { "x-semlang-indexed": true } : {}),
     };
   }
   Object.assign(schema, description);
   if (options.identity) schema["x-semlang-identity"] = true;
   if (options.unique) schema["x-semlang-unique"] = true;
+  if (options.indexed) schema["x-semlang-indexed"] = true;
   return schema;
 }
 
@@ -188,6 +190,7 @@ function emitDefinition(model: SemanticModel, definition: DefinitionDecl): Recor
   return {
     name: definition.name,
     expression: definition.expression,
+    indexed: definition.indexed || undefined,
     type: definition.typeName
       ? nullableSchema(typeReferenceOrPrimitive(model, definition.typeName), Boolean(definition.nullable))
       : undefined,

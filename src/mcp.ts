@@ -12,6 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type * as z from "zod/v4";
 import { applyQueryLenses, emitMalloyQuery, parseSemLangQuery, validateQueryAgainstModel } from "./index.js";
+import { prepareFieldStatsCacheDirectory, resolveFieldStatsCacheDirectory } from "./field-stats-cache.js";
 import { executeMalloyQuery, executeMalloySql, validateMalloyModel } from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
 import { compileMcpSource } from "./mcp-compilation.js";
@@ -76,6 +77,8 @@ export interface SemLangMcpContext {
   malloyConfigPath?: string;
   malloyConfigSource?: "explicit" | "discovered";
   duckDb?: ExampleDuckDbContext;
+  fieldStats?: FieldStatsIndex;
+  statsStatus?: StatsRefreshStatus;
   settings: SemLangMcpSettings;
 }
 
@@ -95,6 +98,57 @@ interface ExampleDuckDbContext {
   sourceDir: string;
   dbPath: string;
   schemaPath: string;
+}
+
+type IndexedMemberKind = "field" | "dimension" | "measure";
+
+interface IndexedMemberRef {
+  concept: string;
+  member: string;
+  memberKind: IndexedMemberKind;
+  expression: string;
+  typeName?: string;
+}
+
+interface FieldStatsValue {
+  value: JsonValue;
+  count?: number;
+}
+
+interface FieldStatsEntry {
+  concept: string;
+  member: string;
+  memberKind: IndexedMemberKind;
+  expression: string;
+  typeName?: string | null;
+  updatedAt: string;
+  cacheKey: string;
+  rowCount?: number;
+  nonNullCount?: number;
+  nullCount?: number;
+  distinctCount?: number;
+  min?: JsonValue;
+  max?: JsonValue;
+  values?: {
+    kind: "complete" | "sample";
+    values: FieldStatsValue[];
+    completeValueMaxDistinctCount: number;
+    sampleValueMaxCount: number;
+  };
+  measureValue?: JsonValue;
+  executionTimeMs?: number;
+}
+
+type FieldStatsIndex = Map<string, FieldStatsEntry>;
+
+interface StatsRefreshStatus {
+  enabled: boolean;
+  cacheDirectory: string;
+  updated: number;
+  cached: number;
+  failed: number;
+  skipped: number;
+  warnings: string[];
 }
 
 type LensModelResult =
@@ -118,6 +172,8 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
   }
 
   async function compileSource(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
+    context.fieldStats = undefined;
+    context.statsStatus = undefined;
     const requestedProjectDir = resolveOptionalPath(
       stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
     );
@@ -180,22 +236,15 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       context.projectDir = executionContext.projectDir;
       context.malloyConfigPath = executionContext.malloyConfigPath;
       context.malloyConfigSource = executionContext.source;
+      const statsResult = await refreshFieldStats(context);
+      context.fieldStats = statsResult.stats;
+      context.statsStatus = statsResult.status;
     }
 
     const response: Record<string, JsonValue> = {
       ok,
       diagnostics: jsonSafe(result.diagnostics),
-      context:
-        result.model && executionContext
-          ? jsonSafe({
-              ...modelSummary(result.model),
-              execution: {
-                projectDir: executionContext.projectDir,
-                malloyConfigPath: executionContext.malloyConfigPath,
-                malloyConfigSource: executionContext.source,
-              },
-            })
-          : null,
+      context: loadOntologyContextSummary(result.model, executionContext, context),
     };
     if (booleanValue(args.return_malloy_model ?? args.returnMalloyModel)) {
       response.malloyModel = result.malloy ?? null;
@@ -208,12 +257,16 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     const conceptName = stringValue(args.concept);
     const businessName = stringValue(args.business_name ?? args.businessName);
     if (conceptName || businessName)
-      return jsonSafe(await resolveBusinessEntity(model, context.filePath, conceptName, businessName)) as Record<
-        string,
-        JsonValue
-      >;
+      return jsonSafe(
+        await resolveBusinessEntity(model, context.filePath, conceptName, businessName, context.fieldStats),
+      ) as Record<string, JsonValue>;
     const name = stringValue(args.entity ?? args.name ?? args.term) ?? "";
-    return resolved({ ok: true, entity: name, matches: jsonSafe(resolveEntities(model, name)) });
+    return resolved({
+      ok: true,
+      entity: name,
+      matches: jsonSafe(resolveEntities(model, name)),
+      predicates: jsonSafe(searchPredicateMatches(context.fieldStats, name, maxSearchResults)),
+    });
   }
 
   async function search(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -224,7 +277,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       return resolveEntity({ ...args, ...entityArgs, name: text });
     }
     const limit = numberValue(args.limit) ?? maxSearchResults;
-    const matches = searchModel(requireModel(), text, limit);
+    const matches = searchModel(requireModel(), text, limit, context.fieldStats);
     const response = { ok: true, query: text, ...matches };
     if (!kind || kind === "any") return resolved(response);
     if (kind === "concept") return resolved({ ok: true, query: text, concepts: jsonSafe(matches.concepts) });
@@ -243,7 +296,17 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     if (!modelResult.ok) return resolved(modelResult);
     const concept = conceptByName(modelResult.model, stringValue(args.concept ?? args.name));
     if (!concept) return resolved(notFound("concept", args.concept ?? args.name, modelResult.model));
-    return resolved({ ok: true, lenses, concept: jsonSafe(describeConceptPlain(modelResult.model, concept)) });
+    const includeStats = optionalBoolean(args.include_stats ?? args.includeStats) ?? true;
+    return resolved({
+      ok: true,
+      lenses,
+      concept: jsonSafe(
+        describeConceptPlain(modelResult.model, concept, {
+          includeStats,
+          stats: lenses.length === 0 ? context.fieldStats : undefined,
+        }),
+      ),
+    });
   }
 
   function describeAction(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -787,6 +850,388 @@ export async function runSemLangMcpStdioServerWithSettings(settings: Partial<Sem
   await server.connect(new StdioServerTransport());
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+async function refreshFieldStats(
+  context: SemLangMcpContext,
+): Promise<{ stats: FieldStatsIndex; status: StatsRefreshStatus }> {
+  const stats: FieldStatsIndex = new Map();
+  const model = context.model;
+  const members = model ? indexedMemberRefs(model) : [];
+  const cacheDirectory = fieldStatsCacheDirectory(context);
+  const status: StatsRefreshStatus = {
+    enabled: context.settings.updateStats,
+    cacheDirectory,
+    updated: 0,
+    cached: 0,
+    failed: 0,
+    skipped: 0,
+    warnings: [],
+  };
+  if (!model || !context.settings.updateStats) {
+    status.skipped = members.length;
+    return { stats, status };
+  }
+
+  let preparedCacheDirectory: string;
+  let baseFingerprint: Record<string, unknown>;
+  try {
+    preparedCacheDirectory = await prepareFieldStatsCacheDirectory({
+      projectDir: context.projectDir ?? context.settings.projectDir,
+      statsCacheDirectory: context.settings.statsCacheDirectory,
+    });
+    baseFingerprint = await fieldStatsBaseFingerprint(context);
+  } catch (error) {
+    status.failed = members.length;
+    status.warnings.push(`Field statistics setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { stats, status };
+  }
+
+  await forEachWithConcurrency(members, context.settings.maxParallelQueries, async (member) => {
+    const concept = model.concepts.get(member.concept);
+    if (!concept) return;
+    const cacheKey = fieldStatsCacheKey(baseFingerprint, context, concept, member);
+    const cachePath = path.join(preparedCacheDirectory, `${cacheKey}.json`);
+    try {
+      const cached = await readFieldStatsCache(cachePath, cacheKey);
+      if (cached) {
+        stats.set(fieldStatsKey(member.concept, member.memberKind, member.member), cached);
+        status.cached += 1;
+        return;
+      }
+      const collected = await collectFieldStats(context, concept, member, cacheKey);
+      await fs.writeFile(cachePath, `${JSON.stringify(collected, null, 2)}\n`);
+      stats.set(fieldStatsKey(member.concept, member.memberKind, member.member), collected);
+      status.updated += 1;
+    } catch (error) {
+      status.failed += 1;
+      status.warnings.push(
+        `${member.concept}.${member.member}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  });
+  return { stats, status };
+}
+
+function fieldStatsCacheDirectory(context: SemLangMcpContext): string {
+  return resolveFieldStatsCacheDirectory({
+    projectDir: context.projectDir ?? context.settings.projectDir,
+    statsCacheDirectory: context.settings.statsCacheDirectory,
+  });
+}
+
+async function forEachWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const current = index;
+        index += 1;
+        if (current >= items.length) return;
+        await handler(items[current]!);
+      }
+    }),
+  );
+}
+
+async function fieldStatsBaseFingerprint(context: SemLangMcpContext): Promise<Record<string, unknown>> {
+  return {
+    sourceKind: context.sourceKind ?? null,
+    sourceTextHash: context.sourceText ? hashText(context.sourceText) : null,
+    files: await Promise.all(
+      [...new Set([...(context.sourcePaths ?? []), ...(context.model?.files ?? [])])]
+        .filter((file) => !file.includes("__semlang_mcp_inline__") && !file.includes("__semlang_mcp_context__"))
+        .sort()
+        .map(fileFingerprint),
+    ),
+    malloyConfig: context.malloyConfigPath ? await fileFingerprint(context.malloyConfigPath) : null,
+  };
+}
+
+async function fileFingerprint(filePath: string): Promise<Record<string, unknown>> {
+  try {
+    const [contents, stat] = await Promise.all([fs.readFile(filePath, "utf8"), fs.stat(filePath)]);
+    return { path: filePath, mtimeMs: stat.mtimeMs, size: stat.size, sha256: hashText(contents) };
+  } catch {
+    return { path: filePath, missing: true };
+  }
+}
+
+function fieldStatsCacheKey(
+  baseFingerprint: Record<string, unknown>,
+  context: SemLangMcpContext,
+  concept: ResolvedConcept,
+  member: IndexedMemberRef,
+): string {
+  return hashText(
+    JSON.stringify({
+      baseFingerprint,
+      packageName: context.model?.packageName ?? null,
+      concept: concept.name,
+      source: concept.source.expression,
+      member,
+      completeValueMaxDistinctCount: context.settings.completeValueMaxDistinctCount,
+      sampleValueMaxCount: context.settings.sampleValueMaxCount,
+    }),
+  );
+}
+
+function hashText(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+async function readFieldStatsCache(cachePath: string, cacheKey: string): Promise<FieldStatsEntry | undefined> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(cachePath, "utf8")) as FieldStatsEntry;
+    return parsed.cacheKey === cacheKey ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function indexedMemberRefs(model: SemanticModel): IndexedMemberRef[] {
+  return [...model.concepts.values()].flatMap((concept) => [
+    ...concept.fields
+      .filter((field) => field.indexed)
+      .map((field) => ({
+        concept: concept.name,
+        member: field.name,
+        memberKind: "field" as const,
+        expression: field.name,
+        typeName: field.typeName,
+      })),
+    ...concept.dimensions
+      .filter((dimension) => dimension.indexed)
+      .map((dimension) => ({
+        concept: concept.name,
+        member: dimension.name,
+        memberKind: "dimension" as const,
+        expression: dimension.expression,
+        typeName: dimension.typeName,
+      })),
+    ...concept.measures
+      .filter((measure) => measure.indexed)
+      .map((measure) => ({
+        concept: concept.name,
+        member: measure.name,
+        memberKind: "measure" as const,
+        expression: measure.expression,
+        typeName: measure.typeName,
+      })),
+  ]);
+}
+
+async function collectFieldStats(
+  context: SemLangMcpContext,
+  concept: ResolvedConcept,
+  member: IndexedMemberRef,
+  cacheKey: string,
+): Promise<FieldStatsEntry> {
+  const physicalSource = resolvedPhysicalSource(context.model!, concept.source);
+  if (!physicalSource) throw new Error(`${concept.name} is not backed by a table or SQL source.`);
+  if (!context.projectDir || !context.malloyConfigPath) throw new Error("No Malloy execution context is available.");
+  const ctx: SqlBuildContext = {
+    model: context.model!,
+    root: concept,
+    joins: new Map([["", "root"]]),
+    joinClauses: [],
+  };
+  const diagnostics: string[] = [];
+  const valueSql =
+    member.memberKind === "field"
+      ? `root.${quoteIdent(member.member)}`
+      : member.memberKind === "measure"
+        ? sqlMeasureExpression(ctx, concept, "", member.expression, diagnostics)
+        : sqlExpression(ctx, concept, "", member.expression, diagnostics);
+  const whereSql = conceptWhereSql(ctx, concept, diagnostics);
+  if (diagnostics.length > 0) throw new Error(diagnostics.join(" "));
+  const executionContext = {
+    projectDir: context.projectDir,
+    malloyConfigPath: context.malloyConfigPath,
+    malloyConfigSource: context.malloyConfigSource,
+    modelFilePath: executionModelFilePath(context),
+  };
+  if (member.memberKind === "measure") {
+    const sql = [
+      `SELECT ${valueSql} AS value, COUNT(*) AS row_count`,
+      statsFromSql(physicalSource, ctx),
+      whereSql ? `WHERE ${whereSql}` : "",
+      ";",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const execution = await executeMalloySql({
+      context: executionContext,
+      connectionName: physicalSource.connection,
+      sql,
+      queryLimitSeconds: context.settings.statsQueryLimitSeconds,
+      rowLimit: 1,
+    });
+    if (execution.ok !== true) throw new Error(String(execution.error ?? "Measure statistics query failed."));
+    const row = rowsArray(execution.rows)[0] ?? {};
+    return {
+      concept: concept.name,
+      member: member.member,
+      memberKind: member.memberKind,
+      expression: member.expression,
+      typeName: member.typeName ?? null,
+      updatedAt: new Date().toISOString(),
+      cacheKey,
+      rowCount: numberField(row, "row_count"),
+      measureValue: jsonNumberOrField(row, "value"),
+      executionTimeMs: numberValue(execution.execution_time_ms),
+    };
+  }
+
+  const valueCte = statsValueCte(physicalSource, ctx, valueSql, whereSql);
+  const summarySql = [
+    valueCte,
+    "SELECT",
+    "  COUNT(*) AS row_count,",
+    "  COUNT(value) AS non_null_count,",
+    "  COUNT(*) - COUNT(value) AS null_count,",
+    "  COUNT(DISTINCT value) AS distinct_count,",
+    "  MIN(value) AS min_value,",
+    "  MAX(value) AS max_value",
+    "FROM __semlang_stats_values;",
+  ].join("\n");
+  const summaryExecution = await executeMalloySql({
+    context: executionContext,
+    connectionName: physicalSource.connection,
+    sql: summarySql,
+    queryLimitSeconds: context.settings.statsQueryLimitSeconds,
+    rowLimit: 1,
+  });
+  if (summaryExecution.ok !== true)
+    throw new Error(String(summaryExecution.error ?? "Field statistics summary query failed."));
+  const summary = rowsArray(summaryExecution.rows)[0] ?? {};
+  const distinctCount = numberField(summary, "distinct_count") ?? 0;
+  const complete = distinctCount <= context.settings.completeValueMaxDistinctCount;
+  const valueLimit = complete ? context.settings.completeValueMaxDistinctCount : context.settings.sampleValueMaxCount;
+  const valuesSql = [
+    valueCte,
+    "SELECT value, COUNT(*) AS value_count",
+    "FROM __semlang_stats_values",
+    "WHERE value IS NOT NULL",
+    "GROUP BY value",
+    "ORDER BY value_count DESC, CAST(value AS VARCHAR) ASC",
+    `LIMIT ${valueLimit};`,
+  ].join("\n");
+  const valuesExecution = await executeMalloySql({
+    context: executionContext,
+    connectionName: physicalSource.connection,
+    sql: valuesSql,
+    queryLimitSeconds: context.settings.statsQueryLimitSeconds,
+    rowLimit: valueLimit,
+  });
+  if (valuesExecution.ok !== true) throw new Error(String(valuesExecution.error ?? "Field values query failed."));
+  return {
+    concept: concept.name,
+    member: member.member,
+    memberKind: member.memberKind,
+    expression: member.expression,
+    typeName: member.typeName ?? null,
+    updatedAt: new Date().toISOString(),
+    cacheKey,
+    rowCount: numberField(summary, "row_count"),
+    nonNullCount: numberField(summary, "non_null_count"),
+    nullCount: numberField(summary, "null_count"),
+    distinctCount,
+    min: jsonField(summary, "min_value"),
+    max: jsonField(summary, "max_value"),
+    values: {
+      kind: complete ? "complete" : "sample",
+      values: rowsArray(valuesExecution.rows).map((row) => ({
+        value: jsonField(row, "value"),
+        count: numberField(row, "value_count"),
+      })),
+      completeValueMaxDistinctCount: context.settings.completeValueMaxDistinctCount,
+      sampleValueMaxCount: context.settings.sampleValueMaxCount,
+    },
+    executionTimeMs: numberValue(summaryExecution.execution_time_ms),
+  };
+}
+
+function resolvedPhysicalSource(
+  model: SemanticModel,
+  source: SourceExpression,
+  seen: Set<string> = new Set(),
+): Extract<SourceExpression, { kind: "table" | "sql" }> | undefined {
+  if (source.kind === "table" || source.kind === "sql") return source;
+  if (seen.has(source.name)) return undefined;
+  seen.add(source.name);
+  const namedSource = model.sources.get(source.name);
+  if (namedSource) return resolvedPhysicalSource(model, namedSource.source, seen);
+  const concept = model.concepts.get(source.name);
+  return concept ? resolvedPhysicalSource(model, concept.source, seen) : undefined;
+}
+
+function conceptWhereSql(ctx: SqlBuildContext, concept: ResolvedConcept, diagnostics: string[]): string {
+  return concept.where
+    .map((where) => sqlExpression(ctx, concept, "", where.expression, diagnostics))
+    .filter(Boolean)
+    .map((where) => `(${where})`)
+    .join(" AND ");
+}
+
+function statsValueCte(
+  source: Extract<SourceExpression, { kind: "table" | "sql" }>,
+  ctx: SqlBuildContext,
+  valueSql: string,
+  whereSql: string,
+): string {
+  return [
+    "WITH __semlang_stats_values AS (",
+    `  SELECT ${valueSql} AS value`,
+    `  ${statsFromSql(source, ctx)}`,
+    whereSql ? `  WHERE ${whereSql}` : "",
+    ")",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function statsFromSql(source: Extract<SourceExpression, { kind: "table" | "sql" }>, ctx: SqlBuildContext): string {
+  const from = source.kind === "table" ? quoteTablePath(source.path) : `(${source.sql})`;
+  return [`FROM ${from} AS root`, ...ctx.joinClauses].join("\n");
+}
+
+function rowsArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function numberField(row: Record<string, unknown>, key: string): number | undefined {
+  const value = row[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string" && value.trim() && !Number.isNaN(Number(value))) return Number(value);
+  return undefined;
+}
+
+function jsonField(row: Record<string, unknown>, key: string): JsonValue {
+  return jsonSafe(row[key]);
+}
+
+function jsonNumberOrField(row: Record<string, unknown>, key: string): JsonValue {
+  return numberField(row, key) ?? jsonField(row, key);
+}
+
+function fieldStatsKey(concept: string, memberKind: IndexedMemberKind, member: string): string {
+  return `${concept}.${memberKind}.${member}`;
+}
+
 interface SqlBuildContext {
   model: SemanticModel;
   root: ResolvedConcept;
@@ -877,6 +1322,23 @@ function compactExecutionMetadata(execution: Record<string, unknown>): Record<st
   delete compact.queryName;
   delete compact.timed_out;
   return compact;
+}
+
+function loadOntologyContextSummary(
+  model: SemanticModel | undefined,
+  executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined,
+  context: SemLangMcpContext,
+): JsonValue {
+  if (!model || !executionContext) return null;
+  return jsonSafe({
+    ...modelSummary(model),
+    execution: {
+      projectDir: executionContext.projectDir,
+      malloyConfigPath: executionContext.malloyConfigPath,
+      malloyConfigSource: executionContext.source,
+    },
+    statsStatus: context.statsStatus ?? null,
+  });
 }
 
 function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
@@ -1704,7 +2166,21 @@ function modelSummary(model: SemanticModel) {
   };
 }
 
-function describeConceptPlain(model: SemanticModel, concept: ResolvedConcept) {
+function describeConceptPlain(
+  model: SemanticModel,
+  concept: ResolvedConcept,
+  options: { includeStats?: boolean; stats?: FieldStatsIndex } = {},
+) {
+  const includeStats = options.includeStats ?? true;
+  const memberStats = (kind: IndexedMemberKind, member: string) =>
+    options.stats?.get(fieldStatsKey(concept.name, kind, member));
+  const annotateMember = <T extends { name: string; indexed?: boolean }>(kind: IndexedMemberKind, member: T) => {
+    if (!member.indexed) return member;
+    const stats = memberStats(kind, member.name);
+    return includeStats
+      ? { ...member, statsAvailable: Boolean(stats), stats: stats ?? null }
+      : { ...member, statsAvailable: Boolean(stats) };
+  };
   return {
     name: concept.name,
     description: concept.description ?? null,
@@ -1713,11 +2189,11 @@ function describeConceptPlain(model: SemanticModel, concept: ResolvedConcept) {
     sourceName: concept.sourceName,
     source: sourceDescription(model, concept.source),
     identities: concept.identities,
-    fields: concept.fields,
+    fields: concept.fields.map((field) => annotateMember("field", field)),
     joins: concept.joins,
     roles: concept.roles,
-    dimensions: concept.dimensions,
-    measures: concept.measures,
+    dimensions: concept.dimensions.map((dimension) => annotateMember("dimension", dimension)),
+    measures: concept.measures.map((measure) => annotateMember("measure", measure)),
     views: concept.views.map((view) => ({ name: view.name, body: view.body, location: view.location })),
     validations: concept.validations,
     temporal: concept.temporal,
@@ -1880,6 +2356,7 @@ async function resolveBusinessEntity(
   filePath: string | undefined,
   conceptName: string | undefined,
   businessName: string | undefined,
+  fieldStats?: FieldStatsIndex,
 ) {
   const concepts = conceptName
     ? [...model.concepts.values()].filter((concept) => concept.name === conceptName)
@@ -1938,6 +2415,7 @@ async function resolveBusinessEntity(
     concept: conceptName ?? null,
     business_name: businessName ?? null,
     candidates,
+    predicates: searchPredicateMatches(fieldStats, businessName ?? "", 20, conceptName),
     note: data
       ? "Resolved against local DuckDB example data when matching rows were available."
       : "No local DuckDB example data was available; returned ontology-backed candidates.",
@@ -1987,7 +2465,7 @@ async function lookupBusinessEntityRows(
   }
 }
 
-function searchModel(model: SemanticModel, text: string, limit: number) {
+function searchModel(model: SemanticModel, text: string, limit: number, fieldStats?: FieldStatsIndex) {
   const tokens = tokenize(text);
   const concepts = scored(
     [...model.concepts.values()].map((concept) => ({
@@ -2054,7 +2532,38 @@ function searchModel(model: SemanticModel, text: string, limit: number) {
     limit,
   );
   const lenses = scoreLenses(model, text, limit);
-  return { concepts, metrics, members, queries, lenses, ignored };
+  const predicates = searchPredicateMatches(fieldStats, text, limit);
+  return { concepts, metrics, members, queries, lenses, ignored, predicates };
+}
+
+function searchPredicateMatches(
+  fieldStats: FieldStatsIndex | undefined,
+  text: string,
+  limit: number,
+  conceptName?: string,
+) {
+  const tokens = tokenize(text);
+  if (!fieldStats || tokens.length === 0) return [];
+  return scored(
+    [...fieldStats.values()]
+      .flatMap((entry) =>
+        entry.memberKind === "measure"
+          ? []
+          : (entry.values?.values ?? [])
+              .filter((value): value is FieldStatsValue & { value: string } => typeof value.value === "string")
+              .map((value) => ({
+                concept: entry.concept,
+                member: entry.member,
+                memberKind: entry.memberKind,
+                value: value.value,
+                predicate: `${entry.member} = ${sqlLiteral(value.value)}`,
+                text: `${entry.concept} ${entry.member} ${value.value}`,
+              })),
+      )
+      .filter((item) => !conceptName || item.concept === conceptName),
+    tokens,
+    limit,
+  );
 }
 
 function scoreLenses(model: SemanticModel, text: string, limit: number) {

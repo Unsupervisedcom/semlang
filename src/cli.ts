@@ -54,6 +54,12 @@ interface SettingsOptions {
   malloyConfigPath?: string;
   configPath?: string;
   exportDirectory?: string;
+  updateStats?: boolean;
+  completeValueMaxDistinctCount?: string;
+  sampleValueMaxCount?: string;
+  statsQueryLimitSeconds?: string;
+  maxParallelQueries?: string;
+  statsCacheDirectory?: string;
 }
 
 function addSettingsOptions(command: Command): Command {
@@ -67,6 +73,39 @@ function addSettingsOptions(command: Command): Command {
     .addOption(new Option("--config-path <path>", "Alias for --malloy-config-path.").env("SEMLANG_MALLOY_CONFIG_PATH"))
     .addOption(
       new Option("--export-directory <path>", "Overrides SEMLANG_EXPORT_DIRECTORY.").env("SEMLANG_EXPORT_DIRECTORY"),
+    )
+    .addOption(
+      new Option("--update-stats <boolean>", "Overrides SEMLANG_UPDATE_STATS.")
+        .env("SEMLANG_UPDATE_STATS")
+        .argParser(parseBooleanOption),
+    )
+    .addOption(new Option("--no-update-stats", "Disable field statistics refresh."))
+    .addOption(
+      new Option(
+        "--complete-value-max-distinct-count <count>",
+        "Cache complete value lists for indexed fields at or below this distinct count.",
+      ).env("SEMLANG_COMPLETE_VALUE_MAX_DISTINCT_COUNT"),
+    )
+    .addOption(
+      new Option(
+        "--sample-value-max-count <count>",
+        "Maximum sampled/top values to cache for high-cardinality fields.",
+      ).env("SEMLANG_SAMPLE_VALUE_MAX_COUNT"),
+    )
+    .addOption(
+      new Option("--stats-query-limit-seconds <seconds>", "Execution deadline for field statistics queries.").env(
+        "SEMLANG_STATS_QUERY_LIMIT_SECONDS",
+      ),
+    )
+    .addOption(
+      new Option("--max-parallel-queries <count>", "Maximum concurrent field statistics queries.").env(
+        "SEMLANG_MAX_PARALLEL_QUERIES",
+      ),
+    )
+    .addOption(
+      new Option("--stats-cache-directory <path>", "Overrides SEMLANG_STATS_CACHE_DIRECTORY.").env(
+        "SEMLANG_STATS_CACHE_DIRECTORY",
+      ),
     );
 }
 
@@ -111,7 +150,26 @@ function settingsFromOptions(options: SettingsOptions, command: Command): Partia
     projectDir: options.projectDir,
     malloyConfigPath,
     exportDirectory: options.exportDirectory,
+    updateStats: options.updateStats,
+    completeValueMaxDistinctCount: numericOption(options.completeValueMaxDistinctCount),
+    sampleValueMaxCount: numericOption(options.sampleValueMaxCount),
+    statsQueryLimitSeconds: numericOption(options.statsQueryLimitSeconds),
+    maxParallelQueries: numericOption(options.maxParallelQueries),
+    statsCacheDirectory: options.statsCacheDirectory,
   };
+}
+
+function parseBooleanOption(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  throw new Error(`Expected a boolean value, received ${value}.`);
+}
+
+function numericOption(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }
 
 function artifact(
