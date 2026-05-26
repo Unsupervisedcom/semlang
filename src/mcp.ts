@@ -1445,7 +1445,21 @@ type ActionResolution =
   | { ok: true; concept: ResolvedConcept; action: ActionDecl }
   | { ok: false; error: string; candidates?: Array<Record<string, unknown>>; context?: unknown };
 type ActionTargetAssignment = { column: string; expression: string };
-type BuiltActionSql = Extract<ReturnType<typeof buildActionSql>, { ok: true }>;
+type TableSourceExpression = Extract<SourceExpression, { kind: "table" }>;
+type ActionSqlSubjectMode = "single" | "collection";
+type ActionSqlMode = ActionSqlSubjectMode | "new";
+type ActionSqlBuildResult =
+  | {
+      ok: true;
+      sql: string;
+      diagnostics: string[];
+      verificationQuery?: string;
+      rowsQuery?: string;
+      operation: "update" | "insert" | "delete";
+      connectionName: string;
+    }
+  | { ok: false; diagnostics: string[] };
+type BuiltActionSql = Extract<ActionSqlBuildResult, { ok: true }>;
 type ActionExecutionContext = Extract<ReturnType<typeof actionExecutionContext>, { ok: true }>["context"];
 
 async function selectRowsForAction(
@@ -1591,17 +1605,7 @@ function buildActionSql(
   concept: ResolvedConcept,
   action: ActionDecl,
   args: Record<string, unknown>,
-):
-  | {
-      ok: true;
-      sql: string;
-      diagnostics: string[];
-      verificationQuery?: string;
-      rowsQuery?: string;
-      operation: "update" | "insert" | "delete";
-      connectionName: string;
-    }
-  | { ok: false; diagnostics: string[] } {
+): ActionSqlBuildResult {
   const diagnostics: string[] = [];
   if (concept.source.kind !== "table") {
     return {
@@ -1610,7 +1614,7 @@ function buildActionSql(
     };
   }
   const mode = action.subject?.mode;
-  if (mode !== "single" && mode !== "new" && mode !== "collection") {
+  if (!isActionSqlMode(mode)) {
     return {
       ok: false,
       diagnostics: [
@@ -1629,58 +1633,85 @@ function buildActionSql(
     writeContext: mode === "single" || mode === "collection",
   };
 
-  if (mode === "single" || mode === "collection") {
-    const subjectWhere = subjectWhereSql(concept, args, diagnostics, mode);
-    const guardSql = action.guards.map((guard) =>
-      actionExpressionSql(ctx, concept, guard.predicate, params, diagnostics),
-    );
-    if (diagnostics.length > 0) return { ok: false, diagnostics };
-    const assignments = action.edits.flatMap((edit) =>
-      edit.kind === "set" ? actionSetAssignments(ctx, concept, edit, params, diagnostics) : [],
-    );
-    const deleteEdits = action.edits.filter((edit) => edit.kind === "delete");
-    const unsupported = action.edits
-      .filter((edit) => edit.kind !== "set" && edit.kind !== "delete")
-      .map((edit) => edit.kind);
-    if (unsupported.length > 0)
-      diagnostics.push(`Skipped unsupported edit kinds for subject:${mode}: ${unsupported.join(", ")}.`);
-    if (concept.identities.length === 0)
-      diagnostics.push(`Action ${action.name} cannot run because concept ${concept.name} has no identity fields.`);
-    const hasDelete = deleteEdits.length > 0;
-    if (hasDelete && assignments.length > 0)
-      diagnostics.push(`Action ${action.name} mixes set and delete edits; choose one operation.`);
-    if (!hasDelete && assignments.length === 0)
-      diagnostics.push(`Action ${action.name} has no set edits that can be lowered to SQL.`);
-    if (hasDelete && deleteEdits.length !== action.edits.length)
-      diagnostics.push(`Action ${action.name} includes non-delete edits that cannot be lowered with delete.`);
-    if (diagnostics.length > 0) return { ok: false, diagnostics };
-    const where = [subjectWhere, ...guardSql.map((guard) => `(${guard})`)]
-      .filter((clause) => clause.trim().length > 0)
-      .join(" AND ");
-    if (!where) {
-      return {
-        ok: false,
-        diagnostics: [
-          `Action ${action.name} produced an empty subject predicate; provide a non-empty where/subject filter.`,
-        ],
-      };
-    }
-    const selector = actionTargetSelectorSql(concept, tableSource.path, ctx, assignments, where, hasDelete);
-    const rowsQuery = actionRowsQuerySql(tableSource.path, ctx, where);
-    const sql = hasDelete
-      ? deleteFromTargetSelectorSql(concept, tableSource.path, selector)
-      : updateFromTargetSelectorSql(concept, tableSource.path, assignments, selector);
+  return mode === "new"
+    ? buildNewActionSql(concept, action, args, params, tableSource, ctx, diagnostics)
+    : buildSubjectActionSql(concept, action, args, params, tableSource, ctx, diagnostics, mode);
+}
+
+function isActionSqlMode(mode: string | undefined): mode is ActionSqlMode {
+  return mode === "single" || mode === "new" || mode === "collection";
+}
+
+function buildSubjectActionSql(
+  concept: ResolvedConcept,
+  action: ActionDecl,
+  args: Record<string, unknown>,
+  params: Map<string, unknown>,
+  tableSource: TableSourceExpression,
+  ctx: SqlBuildContext,
+  diagnostics: string[],
+  mode: ActionSqlSubjectMode,
+): ActionSqlBuildResult {
+  const subjectWhere = subjectWhereSql(concept, args, diagnostics, mode);
+  const guardSql = action.guards.map((guard) =>
+    actionExpressionSql(ctx, concept, guard.predicate, params, diagnostics),
+  );
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
+  const assignments = action.edits.flatMap((edit) =>
+    edit.kind === "set" ? actionSetAssignments(ctx, concept, edit, params, diagnostics) : [],
+  );
+  const deleteEdits = action.edits.filter((edit) => edit.kind === "delete");
+  const unsupported = action.edits
+    .filter((edit) => edit.kind !== "set" && edit.kind !== "delete")
+    .map((edit) => edit.kind);
+  if (unsupported.length > 0)
+    diagnostics.push(`Skipped unsupported edit kinds for subject:${mode}: ${unsupported.join(", ")}.`);
+  if (concept.identities.length === 0)
+    diagnostics.push(`Action ${action.name} cannot run because concept ${concept.name} has no identity fields.`);
+  const hasDelete = deleteEdits.length > 0;
+  if (hasDelete && assignments.length > 0)
+    diagnostics.push(`Action ${action.name} mixes set and delete edits; choose one operation.`);
+  if (!hasDelete && assignments.length === 0)
+    diagnostics.push(`Action ${action.name} has no set edits that can be lowered to SQL.`);
+  if (hasDelete && deleteEdits.length !== action.edits.length)
+    diagnostics.push(`Action ${action.name} includes non-delete edits that cannot be lowered with delete.`);
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
+  const where = [subjectWhere, ...guardSql.map((guard) => `(${guard})`)]
+    .filter((clause) => clause.trim().length > 0)
+    .join(" AND ");
+  if (!where) {
     return {
-      ok: true,
-      sql,
-      operation: hasDelete ? "delete" : "update",
-      connectionName: tableSource.connection,
-      diagnostics,
-      verificationQuery: `SELECT * FROM ${quoteTablePath(tableSource.path)} AS root WHERE ${subjectWhere};`,
-      rowsQuery,
+      ok: false,
+      diagnostics: [
+        `Action ${action.name} produced an empty subject predicate; provide a non-empty where/subject filter.`,
+      ],
     };
   }
+  const selector = actionTargetSelectorSql(concept, tableSource.path, ctx, assignments, where, hasDelete);
+  const rowsQuery = actionRowsQuerySql(tableSource.path, ctx, where);
+  const sql = hasDelete
+    ? deleteFromTargetSelectorSql(concept, tableSource.path, selector)
+    : updateFromTargetSelectorSql(concept, tableSource.path, assignments, selector);
+  return {
+    ok: true,
+    sql,
+    operation: hasDelete ? "delete" : "update",
+    connectionName: tableSource.connection,
+    diagnostics,
+    verificationQuery: `SELECT * FROM ${quoteTablePath(tableSource.path)} AS root WHERE ${subjectWhere};`,
+    rowsQuery,
+  };
+}
 
+function buildNewActionSql(
+  concept: ResolvedConcept,
+  action: ActionDecl,
+  args: Record<string, unknown>,
+  params: Map<string, unknown>,
+  tableSource: TableSourceExpression,
+  ctx: SqlBuildContext,
+  diagnostics: string[],
+): ActionSqlBuildResult {
   const insert = action.edits.find(
     (edit): edit is Extract<ActionEditDecl, { kind: "insert" }> => edit.kind === "insert",
   );
