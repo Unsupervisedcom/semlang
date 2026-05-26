@@ -6,12 +6,11 @@
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import * as z from "zod/v4";
+import type * as z from "zod/v4";
 import {
   applyQueryLenses,
   compileFile,
@@ -21,13 +20,18 @@ import {
   parseSemLangQuery,
   validateQueryAgainstModel,
 } from "./index.js";
-import {
-  discoverMalloyConfigPath,
-  executeMalloyQuery,
-  executeMalloySql,
-  validateMalloyModel,
-} from "./malloy-execution.js";
+import { executeMalloyQuery, executeMalloySql, validateMalloyModel } from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
+import {
+  inferProjectDir,
+  isSyntheticMcpPath,
+  projectDirDiscoveryCeiling,
+  resolveMalloyExecutionContext,
+  resolveSemLangMcpSettings,
+  type ResolvedMalloyExecutionContext,
+  type SemLangMcpSettings,
+} from "./mcp-settings.js";
+import { mcpToolDescriptions, mcpToolInputSchemas, mcpToolOrder, type McpToolName } from "./mcp-tool-manifest.js";
 import {
   booleanValue,
   hasErrors,
@@ -60,6 +64,8 @@ import type {
 
 export { prettyJsonLineCount } from "./mcp-utils.js";
 export type { JsonValue } from "./mcp-utils.js";
+export { resolveSemLangMcpSettings } from "./mcp-settings.js";
+export type { ResolvedMalloyExecutionContext, SemLangMcpSettings } from "./mcp-settings.js";
 export type SemLangMcpTool = (args?: Record<string, unknown>) => Promise<Record<string, JsonValue>>;
 
 const execFileAsync = promisify(execFile);
@@ -80,12 +86,6 @@ export interface SemLangMcpContext {
   settings: SemLangMcpSettings;
 }
 
-export interface SemLangMcpSettings {
-  projectDir: string;
-  malloyConfigPath?: string;
-  exportDirectory: string;
-}
-
 export interface SemLangMcpApi {
   tools: Record<string, SemLangMcpTool>;
   toolDescriptions: Record<string, string>;
@@ -94,13 +94,9 @@ export interface SemLangMcpApi {
 }
 
 type QueryLimitSecondsResult = { ok: true; value: number } | { ok: false; error: string };
-
-interface ToolSpec {
-  name: string;
-  description: string;
-  handler: SemLangMcpTool;
-  inputSchema: z.ZodType;
-}
+type QueryLimitSecondsOptions =
+  | { required: true; toolName: string; invalidErrorPrefix?: string }
+  | { required: false; defaultValue: number; toolName: string; invalidErrorPrefix?: string };
 
 interface ExampleDuckDbContext {
   sourceDir: string;
@@ -788,112 +784,21 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     };
   }
 
-  const stringArrayInputSchema = z.array(z.string());
-  const stringOrStringArrayInputSchema = z.union([z.string(), stringArrayInputSchema]);
-  const toolSchemas = {
-    loadOntology: z
-      .object({
-        paths: stringArrayInputSchema.optional(),
-        source: z.string().optional(),
-        projectDir: z.string().optional(),
-        configPath: z.string().optional(),
-        malloyConfigPath: z.string().optional(),
-        returnMalloyModel: z.boolean().optional(),
-      })
-      .passthrough(),
-    search: z
-      .object({
-        query: z.string().optional(),
-        kind: z.enum(["any", "concept", "member", "metric", "lens", "query", "entity"]).optional(),
-        limit: z.number().optional(),
-      })
-      .passthrough(),
-    describe: z
-      .object({
-        kind: z.enum(["concept", "action", "role", "roles", "metric", "temporal_axes", "lens"]).optional(),
-        operation: z.enum(["detail", "expand", "required_fields", "plan"]).optional(),
-        names: stringArrayInputSchema.optional(),
-        question: z.string().optional(),
-        fields: stringOrStringArrayInputSchema.optional(),
-      })
-      .passthrough(),
-    findPaths: z
-      .object({
-        from: z.string().optional(),
-        to: stringOrStringArrayInputSchema.optional(),
-        maxDepth: z.number().optional(),
-      })
-      .passthrough(),
-    runQuery: z
-      .object({
-        query: z.string().optional(),
-        root: z.string().optional(),
-        body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
-        lenses: stringArrayInputSchema.optional(),
-        dry_run_only: z.boolean().optional(),
-        query_limit_seconds: z.number().optional(),
-        rowLimit: z.number().optional(),
-      })
-      .passthrough(),
-    invokeAction: z
-      .object({
-        action: z.string().optional(),
-        concept: z.string().optional(),
-        params: z.record(z.string(), z.unknown()).optional(),
-        target: z.record(z.string(), z.unknown()).optional(),
-        dry_run_only: z.boolean().optional(),
-        query_limit_seconds: z.number().optional(),
-      })
-      .passthrough(),
-  } satisfies Record<string, z.ZodType>;
+  const handlers = {
+    load_ontology: compileSource,
+    search,
+    describe,
+    find_paths: findPaths,
+    run_query: runQuery,
+    invoke_action: invokeActionTool,
+  } satisfies Record<McpToolName, SemLangMcpTool>;
 
-  const specs: ToolSpec[] = [
-    {
-      name: "load_ontology",
-      description: "Compile and store a SemLang ontology.",
-      handler: compileSource,
-      inputSchema: toolSchemas.loadOntology,
-    },
-    {
-      name: "search",
-      description: "Search and resolve ontology objects.",
-      handler: search,
-      inputSchema: toolSchemas.search,
-    },
-    {
-      name: "describe",
-      description: "Describe ontology objects and lens effects.",
-      handler: describe,
-      inputSchema: toolSchemas.describe,
-    },
-    {
-      name: "find_paths",
-      description: "Find join paths between concepts or role targets.",
-      handler: findPaths,
-      inputSchema: toolSchemas.findPaths,
-    },
-    {
-      name: "run_query",
-      description: "Validate or execute a Malloy-backed query.",
-      handler: runQuery,
-      inputSchema: toolSchemas.runQuery,
-    },
-    {
-      name: "invoke_action",
-      description: "Invoke a supported local action.",
-      handler: invokeActionTool,
-      inputSchema: toolSchemas.invokeAction,
-    },
-  ];
-
-  const tools = Object.fromEntries(specs.map((spec) => [spec.name, spec.handler]));
-  const toolDescriptions = Object.fromEntries(specs.map((spec) => [spec.name, spec.description]));
-  const toolInputSchemas = Object.fromEntries(specs.map((spec) => [spec.name, spec.inputSchema]));
+  const tools = Object.fromEntries(mcpToolOrder.map((name) => [name, handlers[name]]));
 
   return {
     tools,
-    toolDescriptions,
-    toolInputSchemas,
+    toolDescriptions: mcpToolDescriptions,
+    toolInputSchemas: mcpToolInputSchemas,
     getContext() {
       return { ...context };
     },
@@ -930,16 +835,6 @@ export async function runSemLangMcpStdioServer(): Promise<void> {
 export async function runSemLangMcpStdioServerWithSettings(settings: Partial<SemLangMcpSettings> = {}): Promise<void> {
   const server = createSemLangMcpServer(createSemLangMcp(settings));
   await server.connect(new StdioServerTransport());
-}
-
-export function resolveSemLangMcpSettings(settings: Partial<SemLangMcpSettings> = {}): SemLangMcpSettings {
-  const projectDir = resolveOptionalPath(settings.projectDir ?? envSetting("PROJECT_DIR")) ?? process.cwd();
-  const malloyConfigPath = resolveOptionalPath(settings.malloyConfigPath ?? envSetting("MALLOY_CONFIG_PATH"));
-  return {
-    projectDir,
-    malloyConfigPath,
-    exportDirectory: resolveOptionalPath(settings.exportDirectory ?? envSetting("EXPORT_DIRECTORY")) ?? os.tmpdir(),
-  };
 }
 
 interface SqlBuildContext {
@@ -1034,14 +929,6 @@ function compactExecutionMetadata(execution: Record<string, unknown>): Record<st
   return compact;
 }
 
-/**
- * Looks up a managed SemLang setting by suffix, supporting conventional
- * uppercase `SEMLANG_*` env vars and lowercase `semlang_*` variants.
- */
-function envSetting(name: string): string | undefined {
-  return process.env[`SEMLANG_${name}`] ?? process.env[`semlang_${name.toLowerCase()}`];
-}
-
 function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
   const query = validation.query;
   return (
@@ -1060,11 +947,7 @@ function cachedMalloyWithQuery(context: SemLangMcpContext, queryMalloy: string):
 }
 
 function executionModelFilePath(context: SemLangMcpContext): string | undefined {
-  if (
-    context.filePath &&
-    !context.filePath.includes("__semlang_mcp_inline__") &&
-    !context.filePath.includes("__semlang_mcp_context__")
-  ) {
+  if (context.filePath && !isSyntheticMcpPath(context.filePath)) {
     return context.filePath;
   }
   return context.sourcePaths?.[0] ?? context.model?.files[0];
@@ -1869,96 +1752,6 @@ function modelSummary(model: SemanticModel) {
     lenses: [...model.lenses.keys()],
     queries: model.queries.map((query) => query.name),
   };
-}
-
-type ResolvedMalloyExecutionContext =
-  | { ok: true; projectDir: string; malloyConfigPath: string; source: "explicit" | "discovered" }
-  | { ok: false; error: string };
-
-async function resolveMalloyExecutionContext(
-  explicitProjectDir: string | undefined,
-  malloyConfigPath: string | undefined,
-  sourcePaths: string[],
-  modelFiles: string[] = [],
-): Promise<ResolvedMalloyExecutionContext> {
-  if (malloyConfigPath) {
-    const resolvedConfigPath = path.resolve(malloyConfigPath);
-    return {
-      ok: true,
-      projectDir: explicitProjectDir ? path.resolve(explicitProjectDir) : path.dirname(resolvedConfigPath),
-      malloyConfigPath: resolvedConfigPath,
-      source: "explicit",
-    };
-  }
-
-  const startDir = inferConfigSearchStartDir(sourcePaths, modelFiles);
-  const ceilingDir = explicitProjectDir ? path.resolve(explicitProjectDir) : path.parse(startDir).root;
-  const discovered = await discoverMalloyConfigPath(startDir, ceilingDir);
-  if (discovered) {
-    return {
-      ok: true,
-      projectDir: explicitProjectDir ? path.resolve(explicitProjectDir) : path.dirname(discovered),
-      malloyConfigPath: discovered,
-      source: "discovered",
-    };
-  }
-
-  return {
-    ok: false,
-    error: [
-      "No Malloy config file was found for load_ontology.",
-      "Pass configPath or malloyConfigPath explicitly, or add malloy-config-local.json or malloy-config.json at or above the SemLang model directory.",
-      `Searched from ${startDir} up to ${ceilingDir}.`,
-    ].join(" "),
-  };
-}
-
-function inferProjectDir(sourcePaths: string[] = [], modelFiles: string[] = [], malloyConfigPath?: string): string {
-  const candidates = [...sourcePaths, ...modelFiles]
-    .filter((item) => item && !item.includes("__semlang_mcp_inline__") && !item.includes("__semlang_mcp_context__"))
-    .map((item) => path.resolve(item));
-  if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
-  if (malloyConfigPath) return path.dirname(path.resolve(malloyConfigPath));
-  return process.cwd();
-}
-
-function inferConfigSearchStartDir(sourcePaths: string[] = [], modelFiles: string[] = []): string {
-  const candidates = [...sourcePaths, ...modelFiles]
-    .filter((item) => item && !item.includes("__semlang_mcp_inline__") && !item.includes("__semlang_mcp_context__"))
-    .map((item) => path.resolve(item));
-  if (candidates.length > 0) return commonDirectory(candidates.map((item) => path.dirname(item)));
-  return process.cwd();
-}
-
-function projectDirDiscoveryCeiling(
-  sourcePaths: string[] = [],
-  modelFiles: string[] = [],
-  requestedProjectDir: string | undefined,
-  managedProjectDir: string,
-): string | undefined {
-  if (requestedProjectDir) return requestedProjectDir;
-  const startDir = inferConfigSearchStartDir(sourcePaths, modelFiles);
-  const resolvedManagedProjectDir = path.resolve(managedProjectDir);
-  return pathWithinOrEqual(startDir, resolvedManagedProjectDir) ? resolvedManagedProjectDir : undefined;
-}
-
-function pathWithinOrEqual(child: string, ancestor: string): boolean {
-  const relative = path.relative(path.resolve(ancestor), path.resolve(child));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function commonDirectory(dirs: string[]): string {
-  if (dirs.length === 0) return process.cwd();
-  const [first, ...rest] = dirs.map((dir) => path.resolve(dir).split(path.sep).filter(Boolean));
-  if (!first) return process.cwd();
-  const common = [...first];
-  for (const dir of rest) {
-    let index = 0;
-    while (index < common.length && common[index] === dir[index]) index += 1;
-    common.length = index;
-  }
-  const root = path.parse(path.resolve(dirs[0]!)).root;
-  return path.join(root, ...common);
 }
 
 function describeConceptPlain(model: SemanticModel, concept: ResolvedConcept) {
@@ -2839,6 +2632,21 @@ function tokenize(text: string): string[] {
 }
 
 function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
+  return readQueryLimitSeconds(args, { required: true, toolName: "run_query", invalidErrorPrefix: "" });
+}
+
+function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
+  return readQueryLimitSeconds(args, {
+    required: false,
+    defaultValue: defaultActionQueryLimitSeconds,
+    toolName: "invoke_action",
+  });
+}
+
+function readQueryLimitSeconds(
+  args: Record<string, unknown>,
+  options: QueryLimitSecondsOptions,
+): QueryLimitSecondsResult {
   const raw =
     args.query_limit_seconds ??
     args.queryLimitSeconds ??
@@ -2847,35 +2655,19 @@ function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecond
     args.query_time_limit ??
     args.queryTimeLimit;
   if (raw === undefined) {
-    return {
-      ok: false,
-      error: "run_query requires query_limit_seconds as a positive integer number of seconds.",
-    };
+    return options.required
+      ? {
+          ok: false,
+          error: `${options.toolName} requires query_limit_seconds as a positive integer number of seconds.`,
+        }
+      : { ok: true, value: options.defaultValue };
   }
   const parsed = positiveIntegerSecondsValue(raw);
   if (parsed === undefined) {
+    const prefix = options.invalidErrorPrefix ?? `${options.toolName} `;
     return {
       ok: false,
-      error: `query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
-    };
-  }
-  return { ok: true, value: parsed };
-}
-
-function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
-  const raw =
-    args.query_limit_seconds ??
-    args.queryLimitSeconds ??
-    args.query_time_limit_seconds ??
-    args.queryTimeLimitSeconds ??
-    args.query_time_limit ??
-    args.queryTimeLimit;
-  if (raw === undefined) return { ok: true, value: defaultActionQueryLimitSeconds };
-  const parsed = positiveIntegerSecondsValue(raw);
-  if (parsed === undefined) {
-    return {
-      ok: false,
-      error: `invoke_action query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
+      error: `${prefix}query_limit_seconds must be a positive integer number of seconds no greater than ${maxQueryLimitSeconds}.`,
     };
   }
   return { ok: true, value: parsed };

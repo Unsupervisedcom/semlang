@@ -9,6 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcpServer } from "../../src/index.js";
+import { mcpToolDescriptions, mcpToolInputSchemas, mcpToolOrder } from "../../src/mcp-tool-manifest.js";
 
 const manifestFixturePath = path.join(import.meta.dirname, "tool-list-manifest.json");
 const toolManifestTokenBudget = 1412;
@@ -53,6 +54,18 @@ describe("SemLang MCP tool manifest", () => {
     const reviewedManifest = await fs.readFile(manifestFixturePath, "utf8");
 
     expect(manifest).toEqual(JSON.parse(reviewedManifest));
+  });
+
+  it("uses the reviewed manifest module order and metadata", async () => {
+    // 02.05.025, 02.05.028, 02.05.030, and 02.05.034: the public manifest
+    // is order-sensitive and should stay reviewed in one dedicated module.
+    const manifest = await loadCurrentManifest();
+
+    expect(manifest.tools.map((tool) => tool.name)).toEqual([...mcpToolOrder]);
+    expect(manifest.tools.map((tool) => tool.description)).toEqual(
+      mcpToolOrder.map((name) => mcpToolDescriptions[name]),
+    );
+    expect(Object.keys(mcpToolInputSchemas)).toEqual([...mcpToolOrder]);
   });
 
   it("keeps consolidated tool schemas aligned with the public request shapes", async () => {
