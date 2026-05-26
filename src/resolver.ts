@@ -463,38 +463,15 @@ function sourceExpressionConcept(model: SemanticModel, source: SourceExpression)
   return source.kind === "reference" ? model.concepts.get(source.name) : undefined;
 }
 
-function validateConceptMembers(
+function validateConceptJoins(
   model: SemanticModel,
   roleIndex: RoleIndex,
   owningConcept: ResolvedConcept,
-  concept: ConceptDecl,
+  joins: JoinDecl[],
+  seenJoins: Set<string>,
   diagnostics: Diagnostic[],
 ) {
-  const seenFields = new Set<string>();
-  const seenJoins = new Set<string>();
-  const seenRoles = new Set<string>();
-  const seenDimensions = new Set<string>();
-  const seenMeasures = new Set<string>();
-  const seenViews = new Set<string>();
-  for (const field of [...concept.identities, ...concept.fields]) {
-    if (!primitiveTypes.has(field.typeName) && !model.types.has(field.typeName)) {
-      diagnostics.push({
-        severity: "error",
-        code: "UNKNOWN_TYPE",
-        message: `Unknown type ${field.typeName}.`,
-        location: field.location,
-      });
-    }
-    checkDuplicate(
-      seenFields,
-      field.name,
-      "DUPLICATE_FIELD",
-      `Duplicate field ${field.name} on ${owningConcept.name}.`,
-      field.location,
-      diagnostics,
-    );
-  }
-  for (const join of concept.joins) {
+  for (const join of joins) {
     checkDuplicate(
       seenJoins,
       join.name,
@@ -552,6 +529,40 @@ function validateConceptMembers(
         allowUnknownBare: true,
       });
   }
+}
+
+function validateConceptMembers(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  owningConcept: ResolvedConcept,
+  concept: ConceptDecl,
+  diagnostics: Diagnostic[],
+) {
+  const seenFields = new Set<string>();
+  const seenJoins = new Set<string>();
+  const seenRoles = new Set<string>();
+  const seenDimensions = new Set<string>();
+  const seenMeasures = new Set<string>();
+  const seenViews = new Set<string>();
+  for (const field of [...concept.identities, ...concept.fields]) {
+    if (!primitiveTypes.has(field.typeName) && !model.types.has(field.typeName)) {
+      diagnostics.push({
+        severity: "error",
+        code: "UNKNOWN_TYPE",
+        message: `Unknown type ${field.typeName}.`,
+        location: field.location,
+      });
+    }
+    checkDuplicate(
+      seenFields,
+      field.name,
+      "DUPLICATE_FIELD",
+      `Duplicate field ${field.name} on ${owningConcept.name}.`,
+      field.location,
+      diagnostics,
+    );
+  }
+  validateConceptJoins(model, roleIndex, owningConcept, concept.joins, seenJoins, diagnostics);
   for (const role of concept.roles) {
     checkDuplicate(
       seenRoles,

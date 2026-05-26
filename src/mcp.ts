@@ -11,17 +11,10 @@ import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type * as z from "zod/v4";
-import {
-  applyQueryLenses,
-  compileFile,
-  compileSemLang,
-  emitMalloyQuery,
-  filePackageLoader,
-  parseSemLangQuery,
-  validateQueryAgainstModel,
-} from "./index.js";
+import { applyQueryLenses, emitMalloyQuery, parseSemLangQuery, validateQueryAgainstModel } from "./index.js";
 import { executeMalloyQuery, executeMalloySql, validateMalloyModel } from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
+import { compileMcpSource } from "./mcp-compilation.js";
 import {
   inferProjectDir,
   isSyntheticMcpPath,
@@ -125,10 +118,6 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
   }
 
   async function compileSource(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
-    const paths = stringList(args.paths ?? args.path ?? args.filePaths ?? args.filePath);
-    const inlineSources = stringList(args.sources ?? args.source);
-    const inlineSource = inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined;
-    const explicitFilePath = stringValue(args.basePath ?? args.filePath);
     const requestedProjectDir = resolveOptionalPath(
       stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
     );
@@ -136,48 +125,9 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
       stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
       context.settings.malloyConfigPath;
 
-    let result: CompileResult;
-    let sourceText: string | undefined;
-    let filePath: string | undefined;
-    let sourcePaths: string[];
-    let sourceKind: SemLangMcpContext["sourceKind"];
-
-    if (paths.length > 0) {
-      const absolutePaths = paths.map((item) => path.resolve(item));
-      sourcePaths = absolutePaths;
-      if (absolutePaths.length === 1 && inlineSource) {
-        filePath = absolutePaths[0];
-        sourceText = inlineSource;
-        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
-        sourceKind = "inline";
-      } else if (absolutePaths.length === 1) {
-        filePath = absolutePaths[0];
-        sourceText = await fs.readFile(filePath, "utf8");
-        result = await compileFile(filePath, { lintWarnings: true });
-        sourceKind = "file";
-      } else {
-        filePath = path.join(process.cwd(), "__semlang_mcp_context__.semlang");
-        sourceText = [
-          "package semlang.mcp.context",
-          ...absolutePaths.map((item) => `include ${JSON.stringify(item)}`),
-          inlineSource ?? "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-        result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
-        sourceKind = absolutePaths.length > 0 ? "files" : "inline";
-      }
-    } else if (inlineSource) {
-      filePath = explicitFilePath
-        ? path.resolve(explicitFilePath)
-        : path.join(process.cwd(), "__semlang_mcp_inline__.semlang");
-      sourcePaths = explicitFilePath ? [filePath] : [];
-      sourceText = inlineSource;
-      result = await compileSemLang(sourceText, { filePath, packageLoader: filePackageLoader(), lintWarnings: true });
-      sourceKind = "inline";
-    } else {
-      return { ok: false, error: "Provide path/paths or source/sources." };
-    }
+    const compiledSource = await compileMcpSource(args);
+    if (!compiledSource.ok) return { ok: false, error: compiledSource.error };
+    const { result, sourceText, filePath, sourcePaths, sourceKind } = compiledSource;
 
     let executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined;
     if (result.model) {
