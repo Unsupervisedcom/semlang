@@ -237,7 +237,7 @@ async function executeMalloyQueryInWorker(options: MalloyExecutionOptions): Prom
     });
 
     worker.once("error", (error) => {
-      finish(workerErrorResult(options, startedAt, error.message));
+      finish(workerErrorResult(options, startedAt, error instanceof Error ? error.message : String(error)));
     });
 
     worker.once("exit", (code) => {
@@ -294,7 +294,7 @@ async function executeMalloySqlInWorker(
     });
 
     worker.once("error", (error) => {
-      finish(sqlWorkerErrorResult(options, startedAt, error.message));
+      finish(sqlWorkerErrorResult(options, startedAt, error instanceof Error ? error.message : String(error)));
     });
 
     worker.once("exit", (code) => {
