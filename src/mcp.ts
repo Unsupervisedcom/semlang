@@ -11,9 +11,9 @@ import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type * as z from "zod/v4";
-import { applyQueryLenses, emitMalloyQuery, parseSemLangQuery, validateQueryAgainstModel } from "./index.js";
+import { expressionIdentifiers } from "./expression-utils.js";
 import { prepareFieldStatsCacheDirectory, resolveFieldStatsCacheDirectory } from "./field-stats-cache.js";
-import { executeMalloyQuery, executeMalloySql, validateMalloyModel } from "./malloy-execution.js";
+import { executeMalloySql, validateMalloyModel } from "./malloy-execution.js";
 import { logTransaction } from "./logging.js";
 import { compileMcpSource } from "./mcp-compilation.js";
 import {
@@ -32,13 +32,22 @@ import {
   isRecord,
   jsonSafe,
   numberValue,
-  prettyJsonLineCount,
   resolved,
   resolveOptionalPath,
   stringList,
   stringValue,
   type JsonValue,
 } from "./mcp-utils.js";
+import {
+  conceptMembersSearchText,
+  conceptSearchItems,
+  memberSearchItems,
+  queryBodySearchText,
+  scored,
+  tokenize,
+} from "./model-search.js";
+import { QueryExecution } from "./query-execution.js";
+import { applyQueryLenses } from "./resolver.js";
 import { qualifiedRoleName } from "./roles.js";
 import { loadSemLangConfig, type ResolvedSemLangConfig } from "./semlang-config.js";
 import { getSemLangVersion } from "./version.js";
@@ -96,8 +105,6 @@ type QueryLimitSecondsResult = { ok: true; value: number } | { ok: false; error:
 type QueryLimitSecondsOptions =
   | { required: true; toolName: string; invalidErrorPrefix?: string }
   | { required: false; defaultValue: number; toolName: string; invalidErrorPrefix?: string };
-
-const namedQueryOverrideKeys = ["body", "queryBody", "root", "concept", "source", "lens", "lenses", "with"] as const;
 
 interface ExampleDuckDbContext {
   sourceDir: string;
@@ -159,10 +166,6 @@ interface StatsRefreshStatus {
 type LensModelResult =
   | { ok: true; model: SemanticModel; diagnostics: Diagnostic[] }
   | { ok: false; diagnostics: JsonValue; error: string };
-
-type TemporaryQueryResult =
-  | { ok: true; queryName: string; queryText: string; root: string; lenses: string[] }
-  | { ok: false; error: string; candidates?: JsonValue; note?: string };
 
 const maxSearchResults = 20;
 const defaultActionQueryLimitSeconds = 30;
@@ -560,34 +563,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const transactionId = crypto.randomUUID();
     logTransaction("info", transactionId, "run_query requested", { tool: "run_query" });
-    const validation = await validateOrRunQuery(args);
-    if (booleanValue(args.dry_run_only ?? args.dryRunOnly)) {
-      logTransaction("debug", transactionId, "run_query skipped for dry_run_only", { tool: "run_query" });
-      return {
-        ...publicQueryResult(validation),
-        execution: {
-          transactionId,
-          skipped: true,
-          reason: "dry_run_only requested; query was validated but not executed.",
-        },
-      };
-    }
-    const queryLimitSeconds = queryLimitSecondsValue(args);
-    if (!queryLimitSeconds.ok) {
-      logTransaction("info", transactionId, "run_query rejected before execution", { tool: "run_query" });
-      return {
-        ...queryLimitSeconds,
-        execution: {
-          transactionId,
-          skipped: true,
-          reason: "query_limit_seconds validation failed.",
-        },
-      };
-    }
-    const execution = await executeQuery(context, args, validation, queryLimitSeconds.value, transactionId);
-    const compactExecution = await compactExecutionOutput(context, args, execution, transactionId);
-    logTransaction("info", transactionId, "run_query completed", { tool: "run_query" });
-    return { ...publicQueryResult(validation), execution: jsonSafe(compactExecution) };
+    return new QueryExecution(context, requireModel(), args, transactionId).execute();
   }
 
   async function invokeActionTool(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
@@ -706,110 +682,6 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
         error: "Action execution returned rows in an unexpected format.",
       };
     }
-  }
-
-  async function validateOrRunQuery(args: Record<string, unknown>): Promise<Record<string, JsonValue>> {
-    const model = requireModel();
-    const name = stringValue(args.query ?? args.name);
-    const query = name ? model.queries.find((candidate) => candidate.name === name) : undefined;
-    if (isNamedQueryValidationRequest(args, query)) {
-      const diagnostics: Diagnostic[] = [];
-      const queryModel = query.lenses.length > 0 ? applyQueryLenses(model, query, diagnostics) : model;
-      const malloy = queryModel ? (context.malloy ?? "") : "";
-      return {
-        ok: Boolean(queryModel) && !hasErrors(diagnostics),
-        query: jsonSafe(query),
-        diagnostics: jsonSafe(diagnostics),
-        malloy,
-        queryMalloy: extractMalloyQuery(malloy, query.name),
-      };
-    }
-
-    const queryDecl = buildTemporaryQuery(model, args);
-    if (queryDecl.ok !== true) return jsonSafe(queryDecl) as Record<string, JsonValue>;
-    const parsed = parseSemLangQuery(queryDecl.queryText, { filePath: context.filePath });
-    const duplicateDiagnostics: Diagnostic[] =
-      parsed.query && model.queries.some((candidate) => candidate.name === parsed.query?.name)
-        ? [
-            {
-              severity: "error",
-              code: "DUPLICATE_QUERY",
-              message: `Duplicate query ${parsed.query.name}.`,
-              location: parsed.query.location,
-            },
-          ]
-        : [];
-    const validationDiagnostics = parsed.query ? validateQueryAgainstModel(model, parsed.query) : [];
-    const emitted = parsed.query ? emitMalloyQuery(model, parsed.query) : { malloy: "", diagnostics: [] };
-    const diagnostics = [
-      ...parsed.diagnostics,
-      ...duplicateDiagnostics,
-      ...validationDiagnostics,
-      ...emitted.diagnostics,
-    ];
-    const ok = Boolean(parsed.query) && !hasErrors(diagnostics);
-    const malloy = ok ? cachedMalloyWithQuery(context, emitted.malloy) : null;
-    return {
-      ok,
-      queryName: parsed.query?.name ?? queryDecl.queryName,
-      root: parsed.query?.root ?? queryDecl.root,
-      lenses: jsonSafe(parsed.query?.lenses ?? queryDecl.lenses),
-      diagnostics: jsonSafe(diagnostics),
-      malloy,
-      queryMalloy: malloy ? extractMalloyQuery(malloy, parsed.query?.name ?? queryDecl.queryName) : null,
-    };
-  }
-
-  function isNamedQueryValidationRequest(
-    args: Record<string, unknown>,
-    query: QueryDecl | undefined,
-  ): query is QueryDecl {
-    return query !== undefined && namedQueryOverrideKeys.every((key) => !args[key]) && !hasQueryBodyKeys(args);
-  }
-
-  function buildTemporaryQuery(model: SemanticModel, args: Record<string, unknown>): TemporaryQueryResult {
-    const fullQuery = stringValue(args.query);
-    if (fullQuery && /^query\s*:/.test(fullQuery.trim())) {
-      const nameMatch = /^query\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\b/.exec(fullQuery.trim());
-      const rootMatch = /^query\s*:\s*[A-Za-z_][A-Za-z0-9_]*\s+is\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(fullQuery.trim());
-      return {
-        ok: true,
-        queryName: nameMatch?.[1] ?? "__mcp_query",
-        queryText: fullQuery,
-        root: rootMatch?.[1] ?? "",
-        lenses: [],
-      };
-    }
-    const namedQueryName = stringValue(args.query ?? args.name);
-    const namedQuery = namedQueryName
-      ? model.queries.find((candidate) => candidate.name === namedQueryName)
-      : undefined;
-    const body =
-      queryBodyText(args.body ?? args.queryBody) ??
-      (hasQueryBodyKeys(args) ? queryBodyText(args) : undefined) ??
-      (namedQuery ? queryBodyToText(namedQuery.body) : undefined) ??
-      (!namedQuery ? queryBodyText(args.query) : undefined);
-    if (!body)
-      return {
-        ok: false,
-        error: "Provide a named query, a full query declaration, or query body fields such as group_by and aggregate.",
-      };
-    const explicitRoot = stringValue(args.root ?? args.concept ?? args.source);
-    const rootResult = explicitRoot
-      ? { ok: true as const, root: explicitRoot }
-      : inferQueryRoot(model, args, body, namedQuery);
-    if (!rootResult.ok) return rootResult;
-    const queryName = stringValue(args.queryName ?? args.name) ?? "__mcp_query";
-    const explicitLenses = stringList(args.lenses ?? args.lens ?? args.with);
-    const lenses = explicitLenses.length > 0 ? explicitLenses : (namedQuery?.lenses ?? []);
-    const withClause = lenses.length > 0 ? ` with ${lenses.join(", ")}` : "";
-    return {
-      ok: true,
-      queryName,
-      queryText: `query: ${queryName} is ${rootResult.root}${withClause} -> {\n${indentBody(body)}\n}`,
-      root: rootResult.root,
-      lenses,
-    };
   }
 
   const handlers = {
@@ -1255,99 +1127,6 @@ interface SqlBuildContext {
   writeContext?: boolean;
 }
 
-async function executeQuery(
-  context: SemLangMcpContext,
-  args: Record<string, unknown>,
-  validation: Record<string, JsonValue>,
-  queryLimitSeconds: number,
-  transactionId: string,
-): Promise<Record<string, unknown>> {
-  if (validation.ok !== true) return { transactionId, ok: false, skipped: true, reason: "Query validation failed." };
-  const malloy = stringValue(validation.malloy);
-  const queryName = executionQueryName(args, validation);
-  if (!malloy || !queryName)
-    return {
-      transactionId,
-      ok: false,
-      skipped: true,
-      reason: "No generated Malloy query was available to execute.",
-    };
-  if (!context.malloyConfigPath) {
-    return {
-      transactionId,
-      ok: false,
-      error: missingMalloyConfigMessage(),
-    };
-  }
-  const projectDir =
-    context.projectDir ??
-    inferProjectDir(context.sourcePaths ?? [], context.model?.files ?? [], context.malloyConfigPath);
-  const execution = await executeMalloyQuery({
-    malloy,
-    queryName,
-    queryLimitSeconds,
-    rowLimit: numberValue(args.rowLimit ?? args.row_limit ?? args.maxRows ?? args.max_rows),
-    context: {
-      projectDir,
-      malloyConfigPath: context.malloyConfigPath,
-      malloyConfigSource: context.malloyConfigSource,
-      modelFilePath: executionModelFilePath(context),
-    },
-  });
-  return { transactionId, ...execution };
-}
-
-async function compactExecutionOutput(
-  context: SemLangMcpContext,
-  args: Record<string, unknown>,
-  execution: Record<string, unknown>,
-  transactionId: string,
-): Promise<Record<string, unknown>> {
-  const compact = compactExecutionMetadata(execution);
-  const rows = execution.rows;
-  if (rows === undefined) return compact;
-  const rowsLineCount = prettyJsonLineCount(rows);
-  if (rowsLineCount <= 10) return compact;
-  const exportDirectory =
-    resolveOptionalPath(stringValue(args.export_directory ?? args.exportDirectory)) ??
-    context.exportDirectory ??
-    context.settings.exportDirectory;
-  await fs.mkdir(exportDirectory, { recursive: true });
-  const outputPath = path.join(exportDirectory, `${transactionId}.json`);
-  const exportOutput = `${JSON.stringify(
-    {
-      transactionId,
-      queryName: execution.queryName ?? null,
-      totalRows: execution.totalRows ?? null,
-      rows,
-    },
-    null,
-    2,
-  )}\n`;
-  await fs.writeFile(outputPath, exportOutput);
-  logTransaction("info", transactionId, "run_query rows exported", { outputPath, tool: "run_query" });
-  const exportedCompact = { ...compact };
-  delete exportedCompact.rows;
-  return {
-    ...exportedCompact,
-    output: {
-      exported: true,
-      path: outputPath,
-      lineCount: rowsLineCount,
-    },
-  };
-}
-
-function compactExecutionMetadata(execution: Record<string, unknown>): Record<string, unknown> {
-  const compact = { ...execution };
-  delete compact.sql;
-  delete compact.query_limit_seconds;
-  delete compact.engine;
-  delete compact.queryName;
-  delete compact.timed_out;
-  return compact;
-}
-
 function loadOntologyContextSummary(
   model: SemanticModel | undefined,
   executionContext: Extract<ResolvedMalloyExecutionContext, { ok: true }> | undefined,
@@ -1365,34 +1144,11 @@ function loadOntologyContextSummary(
   });
 }
 
-function executionQueryName(args: Record<string, unknown>, validation: Record<string, JsonValue>): string | undefined {
-  const query = validation.query;
-  return (
-    stringValue(validation.queryName) ??
-    (isRecord(query) ? stringValue(query.name) : undefined) ??
-    stringValue(args.queryName ?? args.query_name) ??
-    stringValue(args.name)
-  );
-}
-
-function cachedMalloyWithQuery(context: SemLangMcpContext, queryMalloy: string): string {
-  const baseMalloy = context.malloy?.trimEnd();
-  if (!baseMalloy) return queryMalloy;
-  if (!queryMalloy) return baseMalloy;
-  return `${baseMalloy}\n\n${queryMalloy}`;
-}
-
 function executionModelFilePath(context: SemLangMcpContext): string | undefined {
   if (context.filePath && !isSyntheticMcpPath(context.filePath)) {
     return context.filePath;
   }
   return context.sourcePaths?.[0] ?? context.model?.files[0];
-}
-
-function publicQueryResult(validation: Record<string, JsonValue>): Record<string, JsonValue> {
-  const result = { ...validation };
-  delete result.malloy;
-  return result;
 }
 
 async function exampleDuckDbScripts(
@@ -2587,25 +2343,7 @@ async function lookupBusinessEntityRows(
 
 function searchModel(model: SemanticModel, text: string, limit: number, fieldStats?: FieldStatsIndex) {
   const tokens = tokenize(text);
-  const concepts = scored(
-    [...model.concepts.values()].map((concept) => ({
-      name: concept.name,
-      description: concept.description ?? null,
-      stereotype: concept.stereotype,
-      text: [
-        concept.name,
-        concept.description ?? "",
-        concept.stereotype,
-        concept.source.expression,
-        concept.where.map((item) => item.expression).join(" "),
-        memberSearchItems(concept)
-          .map((item) => `${item.name} ${item.text}`)
-          .join(" "),
-      ].join(" "),
-    })),
-    tokens,
-    limit,
-  );
+  const concepts = scored(conceptSearchItems(model), tokens, limit);
   const metrics = scored(
     [...model.concepts.values()].flatMap((concept) =>
       concept.measures.map((measure) => ({
@@ -2709,138 +2447,6 @@ function scoreLenses(model: SemanticModel, text: string, limit: number) {
     tokens,
     limit,
   );
-}
-
-function scored<T extends { text: string }>(
-  items: T[],
-  tokens: string[],
-  limit: number,
-): Array<Omit<T, "text"> & { score: number; matchedTerms: string[] }> {
-  return items
-    .map((item) => {
-      const haystack = item.text.toLowerCase();
-      const matchedTerms = tokens.filter((token) => haystack.includes(token));
-      const name = "name" in item && typeof item.name === "string" ? item.name.toLowerCase() : "";
-      const score = matchedTerms.reduce((sum, token) => sum + (name.includes(token) ? 3 : 1), 0);
-      const { text: _text, ...rest } = item;
-      return { ...rest, score, matchedTerms };
-    })
-    .filter((item) => item.score > 0 || tokens.length === 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-}
-
-function memberSearchItems(concept: ResolvedConcept) {
-  return [
-    ...concept.identities.map((value) => ({
-      kind: "identity",
-      name: value.name,
-      text: `${value.description ?? ""} ${value.typeName}`,
-      value,
-    })),
-    ...concept.fields.map((value) => ({
-      kind: "field",
-      name: value.name,
-      text: `${value.description ?? ""} ${value.typeName}`,
-      value,
-    })),
-    ...concept.joins.map((value) => ({
-      kind: "join",
-      name: value.name,
-      text: `${value.target} ${value.on} ${value.at ?? ""}`,
-      value,
-    })),
-    ...concept.roles.map((value) => ({
-      kind: "role",
-      name: value.name,
-      text: `${qualifiedRoleName(concept.name, value.name)} ${value.label ?? ""} ${value.aliases.join(" ")} ${value.predicate}`,
-      value: {
-        ...value,
-        qualifiedName: qualifiedRoleName(concept.name, value.name),
-        label: value.label ?? null,
-        aliases: value.aliases,
-      },
-    })),
-    ...concept.dimensions.map((value) => ({
-      kind: "dimension",
-      name: value.name,
-      text: `${value.description ?? ""} ${value.expression}`,
-      value,
-    })),
-    ...concept.measures.map((value) => ({
-      kind: "measure",
-      name: value.name,
-      text: `${value.description ?? ""} ${value.expression}`,
-      value,
-    })),
-    ...concept.validations.map((value) => ({
-      kind: "validation",
-      name: value.name,
-      text: `${value.description ?? ""} ${value.predicate ?? ""}`,
-      value,
-    })),
-    ...concept.temporal.map((value) => ({ kind: "temporal_axis", name: value.axis, text: value.expression, value })),
-    ...concept.views.map((value) => ({ kind: "view", name: value.name, text: queryBodySearchText(value.body), value })),
-    ...concept.actions.map((value) => ({ kind: "action", name: value.name, text: actionSearchText(value), value })),
-  ];
-}
-
-function conceptMembersSearchText(members: ResolvedConcept | LensDecl["refinements"][number]["members"]) {
-  return [
-    members.identities.map((item) => `${item.name} ${item.description ?? ""} ${item.typeName}`).join(" "),
-    members.fields.map((item) => `${item.name} ${item.description ?? ""} ${item.typeName}`).join(" "),
-    members.joins.map((item) => `${item.name} ${item.target} ${item.on} ${item.at ?? ""}`).join(" "),
-    members.roles
-      .map(
-        (item) =>
-          `${item.name} ${"sourceName" in members ? qualifiedRoleName(members.name, item.name) : ""} ${item.label ?? ""} ${item.aliases.join(" ")} ${item.predicate}`,
-      )
-      .join(" "),
-    members.dimensions.map((item) => `${item.name} ${item.description ?? ""} ${item.expression}`).join(" "),
-    members.measures.map((item) => `${item.name} ${item.description ?? ""} ${item.expression}`).join(" "),
-    members.validations.map((item) => `${item.name} ${item.description ?? ""} ${item.predicate ?? ""}`).join(" "),
-    members.temporal.map((item) => `${item.axis} ${item.expression}`).join(" "),
-    members.where.map((item) => item.expression).join(" "),
-    members.views.map((item) => `${item.name} ${queryBodySearchText(item.body)}`).join(" "),
-    members.actions.map(actionSearchText).join(" "),
-  ].join(" ");
-}
-
-function actionSearchText(action: ActionDecl): string {
-  return [
-    action.name,
-    action.description ?? "",
-    action.subject?.mode ?? "",
-    action.params.map((param) => `${param.name} ${param.typeName} ${param.defaultExpression ?? ""}`).join(" "),
-    action.guards.map((guard) => `${guard.predicate} ${guard.elseMessage ?? ""}`).join(" "),
-    action.edits
-      .map((edit) =>
-        edit.kind === "set"
-          ? `${edit.target} ${edit.expression}`
-          : edit.kind === "insert"
-            ? edit.assignments.map((assignment) => `${assignment.target} ${assignment.expression}`).join(" ")
-            : "delete",
-      )
-      .join(" "),
-    action.logBlocks.flatMap((block) => block.lines).join(" "),
-    action.effectBlocks.flatMap((block) => block.lines).join(" "),
-    action.agentMetadata.map((entry) => `${entry.key} ${entry.value}`).join(" "),
-  ].join(" ");
-}
-
-function queryBodySearchText(body: QueryBodyDecl): string {
-  return [
-    body.where?.expression ?? "",
-    body.select.map(queryItemText).join(" "),
-    body.groupBy.map(queryItemText).join(" "),
-    body.aggregate.map(queryItemText).join(" "),
-    body.calculate.map(queryItemText).join(" "),
-    body.orderBy.map(queryItemText).join(" "),
-  ].join(" ");
-}
-
-function queryItemText(item: { expression: string; alias?: string }) {
-  return `${item.alias ?? ""} ${item.expression}`;
 }
 
 function lensRequiredFields(lens: LensDecl, requestedFields: string[] = []) {
@@ -3012,206 +2618,9 @@ function emptyQueryBody(): QueryBodyDecl {
   return { select: [], groupBy: [], aggregate: [], calculate: [], orderBy: [] };
 }
 
-function hasQueryBodyKeys(value: Record<string, unknown>): boolean {
-  return ["where", "select", "groupBy", "group_by", "aggregate", "calculate", "orderBy", "order_by", "limit"].some(
-    (key) => value[key] !== undefined,
-  );
-}
-
-function queryBodyText(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  if (!isRecord(value)) return undefined;
-  const lines: string[] = [];
-  const appendItems = (keys: string[], header: string) => {
-    const items = keys.flatMap((key) => stringList(value[key]));
-    if (items.length > 0) lines.push(`${header}:`, ...items.map((item) => `  ${item}`));
-  };
-  const where = stringValue(value.where);
-  if (where) lines.push("where:", `  ${where}`);
-  appendItems(["select"], "select");
-  appendItems(["groupBy", "group_by"], "group_by");
-  appendItems(["aggregate"], "aggregate");
-  appendItems(["calculate"], "calculate");
-  appendItems(["orderBy", "order_by"], "order_by");
-  const limit = numberValue(value.limit);
-  if (limit !== undefined) lines.push(`limit: ${limit}`);
-  return lines.length > 0 ? lines.join("\n") : undefined;
-}
-
-function queryBodyToText(body: QueryBodyDecl): string {
-  return [
-    body.where ? ["where:", `  ${body.where.expression}`] : [],
-    body.select.length > 0 ? ["select:", ...body.select.map((item) => `  ${formatQueryItem(item)}`)] : [],
-    body.groupBy.length > 0 ? ["group_by:", ...body.groupBy.map((item) => `  ${formatQueryItem(item)}`)] : [],
-    body.aggregate.length > 0 ? ["aggregate:", ...body.aggregate.map((item) => `  ${formatQueryItem(item)}`)] : [],
-    body.calculate.length > 0 ? ["calculate:", ...body.calculate.map((item) => `  ${formatQueryItem(item)}`)] : [],
-    body.orderBy.length > 0 ? ["order_by:", ...body.orderBy.map((item) => `  ${formatQueryItem(item)}`)] : [],
-    body.limit ? [`limit: ${body.limit.value}`] : [],
-  ]
-    .flat()
-    .join("\n");
-}
-
-function formatQueryItem(item: { expression: string; alias?: string }) {
-  return item.alias ? `${item.alias} is ${item.expression}` : item.expression;
-}
-
-function inferQueryRoot(
-  model: SemanticModel,
-  args: Record<string, unknown>,
-  body: string,
-  namedQuery?: QueryDecl,
-): { ok: true; root: string } | TemporaryQueryResult {
-  if (namedQuery) return { ok: true, root: namedQuery.root };
-  const bodyCandidates = scoreRootCandidates(model, body);
-  if (bodyCandidates.length > 0 && bodyCandidates[0]!.score > 0) {
-    const best = bodyCandidates[0]!;
-    const tied = bodyCandidates.filter((candidate) => candidate.score === best.score);
-    if (tied.length === 1) return { ok: true, root: best.root };
-    return {
-      ok: false,
-      error: "Unable to infer an unambiguous query root from the provided fields. Provide root or concept.",
-      candidates: jsonSafe(tied.slice(0, 8)),
-    };
-  }
-  const text = stringValue(
-    args.question ?? args.goal ?? args.phrase ?? args.text ?? args.business_name ?? args.businessName,
-  );
-  if (text) {
-    const semantic = searchModel(model, text, 8).concepts;
-    if (semantic.length === 1 || (semantic[0] && semantic[0].score > (semantic[1]?.score ?? -1)))
-      return { ok: true, root: semantic[0]!.name };
-    return {
-      ok: false,
-      error: "Unable to infer an unambiguous query root from semantic text. Provide root or concept.",
-      candidates: jsonSafe(semantic),
-    };
-  }
-  return {
-    ok: false,
-    error: "No root/concept was provided and no unambiguous root could be inferred.",
-    candidates: jsonSafe([...model.concepts.keys()].slice(0, 20)),
-    note: "Pass root or concept, or provide query fields that clearly belong to one concept.",
-  };
-}
-
-function scoreRootCandidates(model: SemanticModel, body: string) {
-  const references = [
-    ...new Set(expressionIdentifiers(body).filter((identifier) => !ignoredExpressionIdentifier(identifier))),
-  ];
-  return [...model.concepts.values()]
-    .map((concept) => {
-      const matched = references.filter((reference) => resolveMemberPath(model, concept, reference));
-      return { root: concept.name, score: matched.length, matchedReferences: matched };
-    })
-    .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score || a.root.localeCompare(b.root));
-}
-
-function resolveMemberPath(model: SemanticModel, root: ResolvedConcept, pathText: string): boolean {
-  const segments = pathText.split(".");
-  let current: ResolvedConcept | undefined = root;
-  for (let i = 0; i < segments.length; i += 1) {
-    if (!current) return false;
-    const segment = segments[i]!;
-    if (i > 0 && scalarPathProperties.has(segment)) return true;
-    const join: JoinDecl | undefined = current.joins.find((candidate) => candidate.name === segment);
-    if (join) {
-      current = model.concepts.get(join.target) ?? roleTarget(model, join.target);
-      continue;
-    }
-    if (!conceptHasMember(current, segment)) return false;
-    if (i < segments.length - 1 && !scalarPathProperties.has(segments[i + 1]!)) return false;
-  }
-  return true;
-}
-
-function conceptHasMember(concept: ResolvedConcept, name: string): boolean {
-  return (
-    concept.identities.some((item) => item.name === name) ||
-    concept.fields.some((item) => item.name === name) ||
-    concept.dimensions.some((item) => item.name === name) ||
-    concept.measures.some((item) => item.name === name) ||
-    concept.roles.some((item) => item.name === name)
-  );
-}
-
-const ignoredExpressionIdentifiers = new Set([
-  "sum",
-  "avg",
-  "count",
-  "max",
-  "min",
-  "median",
-  "concat",
-  "nullif",
-  "now",
-  "period",
-  "currency",
-  "rank",
-  "row_number",
-  "dense_rank",
-  "percent_rank",
-]);
-const scalarPathProperties = new Set(["date", "month", "week", "quarter", "year", "day"]);
-
-function ignoredExpressionIdentifier(identifier: string): boolean {
-  return ignoredExpressionIdentifiers.has(identifier.toLowerCase());
-}
-
-function indentBody(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((line) => (line.trim() ? `  ${line}` : line))
-    .join("\n");
-}
-
-function extractMalloyQuery(malloy: string, queryName: string): string | null {
-  const start = malloy.indexOf(`query: ${queryName} `);
-  if (start < 0) return null;
-  const next = malloy.indexOf("\n\n", start);
-  return malloy.slice(start, next < 0 ? undefined : next).trim();
-}
-
-function expressionIdentifiers(expression: string): string[] {
-  const stripped = expression.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, " ");
-  const keywords = new Set([
-    "and",
-    "or",
-    "not",
-    "is",
-    "null",
-    "in",
-    "case",
-    "when",
-    "then",
-    "else",
-    "end",
-    "distinct",
-    "true",
-    "false",
-    "this",
-  ]);
-  return [
-    ...new Set(
-      (stripped.match(/[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g) ?? []).filter(
-        (item) => !keywords.has(item.toLowerCase()) && !/^[A-Z]/.test(item),
-      ),
-    ),
-  ];
-}
-
 function fieldMatches(requestedLower: string, candidate: string): boolean {
   const lower = candidate.toLowerCase();
   return lower === requestedLower || lower.endsWith(`.${requestedLower}`) || lower.split(".").at(-1) === requestedLower;
-}
-
-function tokenize(text: string): string[] {
-  return [...new Set(text.toLowerCase().match(/[a-z0-9_]+/g) ?? [])].filter((token) => token.length > 1);
-}
-
-function queryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
-  return readQueryLimitSeconds(args, { required: true, toolName: "run_query", invalidErrorPrefix: "" });
 }
 
 function actionQueryLimitSecondsValue(args: Record<string, unknown>): QueryLimitSecondsResult {
