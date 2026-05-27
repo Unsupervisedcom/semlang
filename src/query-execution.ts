@@ -32,6 +32,7 @@ type QueryLimitSecondsResult = { ok: true; value: number } | { ok: false; error:
 type TemporaryQueryResult =
   | { ok: true; queryName: string; queryText: string; root: string; lenses: string[] }
   | { ok: false; error: string; candidates?: JsonValue; note?: string };
+type BuiltTemporaryQuery = Extract<TemporaryQueryResult, { ok: true }>;
 
 const namedQueryOverrideKeys = ["body", "queryBody", "root", "concept", "source", "lens", "lenses", "with"] as const;
 const maxQueryLimitSeconds = Math.floor(2_147_483_647 / 1000);
@@ -78,35 +79,29 @@ export class QueryExecution {
   }
 
   private validateOrBuildQuery(): Record<string, JsonValue> {
-    const name = stringValue(this.args.query ?? this.args.name);
-    const query = name ? this.model.queries.find((candidate) => candidate.name === name) : undefined;
-    if (this.isNamedQueryValidationRequest(query)) {
-      const diagnostics: Diagnostic[] = [];
-      const queryModel = query.lenses.length > 0 ? applyQueryLenses(this.model, query, diagnostics) : this.model;
-      const malloy = queryModel ? (this.context.malloy ?? "") : "";
-      return {
-        ok: Boolean(queryModel) && !hasErrors(diagnostics),
-        query: jsonSafe(query),
-        diagnostics: jsonSafe(diagnostics),
-        malloy,
-        queryMalloy: extractMalloyQuery(malloy, query.name),
-      };
-    }
-
+    const query = this.namedQuery();
+    if (this.isNamedQueryValidationRequest(query)) return this.validateNamedQuery(query);
     const queryDecl = this.buildTemporaryQuery();
     if (queryDecl.ok !== true) return jsonSafe(queryDecl) as Record<string, JsonValue>;
+    return this.validateTemporaryQuery(queryDecl);
+  }
+
+  private validateNamedQuery(query: QueryDecl): Record<string, JsonValue> {
+    const diagnostics: Diagnostic[] = [];
+    const queryModel = query.lenses.length > 0 ? applyQueryLenses(this.model, query, diagnostics) : this.model;
+    const malloy = queryModel ? (this.context.malloy ?? "") : "";
+    return {
+      ok: Boolean(queryModel) && !hasErrors(diagnostics),
+      query: jsonSafe(query),
+      diagnostics: jsonSafe(diagnostics),
+      malloy,
+      queryMalloy: extractMalloyQuery(malloy, query.name),
+    };
+  }
+
+  private validateTemporaryQuery(queryDecl: BuiltTemporaryQuery): Record<string, JsonValue> {
     const parsed = parseSemLangQuery(queryDecl.queryText, { filePath: this.context.filePath });
-    const duplicateDiagnostics: Diagnostic[] =
-      parsed.query && this.model.queries.some((candidate) => candidate.name === parsed.query?.name)
-        ? [
-            {
-              severity: "error",
-              code: "DUPLICATE_QUERY",
-              message: `Duplicate query ${parsed.query.name}.`,
-              location: parsed.query.location,
-            },
-          ]
-        : [];
+    const duplicateDiagnostics = this.duplicateQueryDiagnostics(parsed.query);
     const validationDiagnostics = parsed.query ? validateQueryAgainstModel(this.model, parsed.query) : [];
     const emitted = parsed.query ? emitMalloyQuery(this.model, parsed.query) : { malloy: "", diagnostics: [] };
     const diagnostics = [
@@ -126,6 +121,18 @@ export class QueryExecution {
       malloy,
       queryMalloy: malloy ? extractMalloyQuery(malloy, parsed.query?.name ?? queryDecl.queryName) : null,
     };
+  }
+
+  private duplicateQueryDiagnostics(query: QueryDecl | undefined): Diagnostic[] {
+    if (!query || !this.model.queries.some((candidate) => candidate.name === query.name)) return [];
+    return [
+      {
+        severity: "error",
+        code: "DUPLICATE_QUERY",
+        message: `Duplicate query ${query.name}.`,
+        location: query.location,
+      },
+    ];
   }
 
   private isNamedQueryValidationRequest(query: QueryDecl | undefined): query is QueryDecl {
