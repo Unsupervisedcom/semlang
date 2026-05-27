@@ -29,7 +29,7 @@ export default tseslint.config(
     },
     rules: {
       // Passes the current codebase; keep ratcheting down as complex compiler and MCP flows are split up.
-      complexity: ["error", { max: 17 }],
+      complexity: ["error", { max: 16 }],
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

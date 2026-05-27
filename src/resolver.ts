@@ -514,22 +514,33 @@ function validateConceptJoins(
         location: join.location,
       });
     }
-    if (join.on)
-      validateExpression(model, roleIndex, owningConcept, join.on, join.location, diagnostics, {
-        allowUnknownBare: true,
-      });
-    if (join.with) {
-      if (target) validateJoinWith(model, roleIndex, owningConcept, target, join, diagnostics);
-      else
-        validateExpression(model, roleIndex, owningConcept, join.with, join.location, diagnostics, {
-          allowUnknownBare: false,
-        });
-    }
-    if (join.at)
-      validateExpression(model, roleIndex, owningConcept, join.at, join.location, diagnostics, {
-        allowUnknownBare: true,
+    validateJoinExpressions(model, roleIndex, owningConcept, target, join, diagnostics);
+  }
+}
+
+function validateJoinExpressions(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  owningConcept: ResolvedConcept,
+  target: ResolvedConcept | undefined,
+  join: JoinDecl,
+  diagnostics: Diagnostic[],
+) {
+  if (join.on)
+    validateExpression(model, roleIndex, owningConcept, join.on, join.location, diagnostics, {
+      allowUnknownBare: true,
+    });
+  if (join.with) {
+    if (target) validateJoinWith(model, roleIndex, owningConcept, target, join, diagnostics);
+    else
+      validateExpression(model, roleIndex, owningConcept, join.with, join.location, diagnostics, {
+        allowUnknownBare: false,
       });
   }
+  if (join.at)
+    validateExpression(model, roleIndex, owningConcept, join.at, join.location, diagnostics, {
+      allowUnknownBare: true,
+    });
 }
 
 function validateConceptMembers(
@@ -540,25 +551,12 @@ function validateConceptMembers(
   diagnostics: Diagnostic[],
 ) {
   const seenJoins = new Set<string>();
-  const seenRoles = new Set<string>();
   const seenDimensions = new Set<string>();
   const seenMeasures = new Set<string>();
   const seenViews = new Set<string>();
   validateConceptFieldMembers(model, owningConcept, concept, diagnostics);
   validateConceptJoins(model, roleIndex, owningConcept, concept.joins, seenJoins, diagnostics);
-  for (const role of concept.roles) {
-    checkDuplicate(
-      seenRoles,
-      role.name,
-      "DUPLICATE_ROLE",
-      `Duplicate role ${role.name} on ${owningConcept.name}.`,
-      role.location,
-      diagnostics,
-    );
-    validateExpression(model, roleIndex, owningConcept, role.predicate, role.location, diagnostics, {
-      allowUnknownBare: false,
-    });
-  }
+  validateConceptRoles(model, roleIndex, owningConcept, concept.roles, diagnostics);
   for (const def of concept.dimensions) {
     checkDuplicate(
       seenDimensions,
@@ -640,6 +638,29 @@ function validateConceptMembers(
     );
   }
   validateActions(model, owningConcept, concept, diagnostics);
+}
+
+function validateConceptRoles(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  owningConcept: ResolvedConcept,
+  roles: ConceptDecl["roles"],
+  diagnostics: Diagnostic[],
+) {
+  const seenRoles = new Set<string>();
+  for (const role of roles) {
+    checkDuplicate(
+      seenRoles,
+      role.name,
+      "DUPLICATE_ROLE",
+      `Duplicate role ${role.name} on ${owningConcept.name}.`,
+      role.location,
+      diagnostics,
+    );
+    validateExpression(model, roleIndex, owningConcept, role.predicate, role.location, diagnostics, {
+      allowUnknownBare: false,
+    });
+  }
 }
 
 function validateConceptFieldMembers(

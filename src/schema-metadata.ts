@@ -191,7 +191,7 @@ function splitTopLevelComma(text: string): string[] {
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i]!;
     const prev = text[i - 1];
-    if ((char === "'" || char === '"' || char === "`") && prev !== "\\") {
+    if (isUnescapedQuoteDelimiter(char, prev)) {
       quote = quote === char ? undefined : (quote ?? char);
       continue;
     }
@@ -205,6 +205,10 @@ function splitTopLevelComma(text: string): string[] {
   }
   parts.push(text.slice(start).trim());
   return parts.filter(Boolean);
+}
+
+function isUnescapedQuoteDelimiter(char: string, prev: string | undefined): char is "'" | '"' | "`" {
+  return (char === "'" || char === '"' || char === "`") && prev !== "\\";
 }
 
 const numericMetadataKeywords = new Set(["multipleOf", "maximum", "exclusiveMaximum", "minimum", "exclusiveMinimum"]);

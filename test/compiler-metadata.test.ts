@@ -309,7 +309,7 @@ query: q is Sale -> {
     ]);
   });
 
-  // 03.03.007, 03.04.007, and 04.02.007: identities, fields,
+  // 01.01.008, 03.03.007, 03.04.007, and 04.02.007: identities, fields,
   // dimensions, and measures accept block-level descriptions.
   it("01.02.001 exports semantic types and concepts as JSON Schema", async () => {
     const result = await compileSemLang(`
@@ -321,7 +321,7 @@ type: CustomerId is string {
 }
 
 type: CustomerStatus is string {
-  enum: "active", "paused", "closed"
+  enum: "active, current", "paused", 'closed, final'
   scale_type: nominal
 }
 
@@ -358,7 +358,7 @@ concept Customer is kind from duckdb.table('customers') {
     const defs = schema.$defs as Record<string, JsonSchemaObject>;
     expect(defs["type.CustomerStatus"]).toMatchObject({
       type: "string",
-      enum: ["active", "paused", "closed"],
+      enum: ["active, current", "paused", "closed, final"],
       "x-semlang-scale-type": "nominal",
     });
     expect(defs["type.Dollars"]).toMatchObject({
