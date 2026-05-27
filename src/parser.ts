@@ -741,20 +741,7 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     }
 
     if (trimmed === "validation:") {
-      i += 1;
-      while (i < lines.length) {
-        const validationLine = lines[i]!;
-        if (validationLine.stripped.trim() === "") {
-          i += 1;
-          continue;
-        }
-        if (startsConceptMemberDeclaration(validationLine.stripped.trim())) break;
-        const block = collectBraceBlock(lines, i);
-        diagnoseUnclosedBlock(block, file, diagnostics);
-        const parsed = parseValidation(block.header, block.body, file, diagnostics);
-        if (parsed) members.validations.push(parsed);
-        i = block.end;
-      }
+      i = parseValidationSection(lines, i + 1, file, diagnostics, members);
       continue;
     }
 
@@ -787,6 +774,27 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
     i += 1;
   }
   return members;
+}
+
+function parseValidationSection(
+  lines: SourceLine[],
+  start: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number {
+  for (let i = start; i < lines.length; i += 1) {
+    const validationLine = lines[i]!;
+    const trimmed = validationLine.stripped.trim();
+    if (trimmed === "") continue;
+    if (startsConceptMemberDeclaration(trimmed)) return i;
+    const block = collectBraceBlock(lines, i);
+    diagnoseUnclosedBlock(block, file, diagnostics);
+    const parsed = parseValidation(block.header, block.body, file, diagnostics);
+    if (parsed) members.validations.push(parsed);
+    i = block.end - 1;
+  }
+  return lines.length;
 }
 
 function parseDescription(text: string): string {

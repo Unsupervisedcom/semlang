@@ -45,6 +45,6 @@ describe("local ESLint rules", () => {
     // 00.02.001: repository lint must enforce a maximum function complexity.
     const eslintConfig = fs.readFileSync(path.join(root, "eslint.config.js"), "utf8");
 
-    expect(eslintConfig).toContain('complexity: ["error", { max: 31 }]');
+    expect(eslintConfig).toContain('complexity: ["error", { max: 29 }]');
   });
 });
