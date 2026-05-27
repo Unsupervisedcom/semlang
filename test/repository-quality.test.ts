@@ -76,3 +76,35 @@ describe("repository worktree hooks", () => {
     expect(npmCalls).toEqual(["install", "--prefix docs-site install"]);
   });
 });
+
+describe("repo-local Codex skills", () => {
+  it("keeps maintainer workflow skills out of the distributed plugin skill set", async () => {
+    // 00.04.001: maintainer workflows must be project-local Codex skills, not
+    // skills shipped to downstream SemLang plugin consumers.
+    const pluginSkillDirs = (await fs.readdir(path.join(root, "skills"), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const projectSkillDirs = (await fs.readdir(path.join(root, ".agents", "skills"), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    expect(projectSkillDirs).toEqual(expect.arrayContaining(["pull-and-review", "semlang-suggestion-review"]));
+
+    for (const skillName of ["pull-and-review", "semlang-suggestion-review"]) {
+      expect(pluginSkillDirs).not.toContain(skillName);
+
+      const skillText = await fs.readFile(path.join(root, ".agents", "skills", skillName, "SKILL.md"), "utf8");
+      expect(skillText).toContain(`name: ${skillName}`);
+    }
+  });
+
+  it("documents the pull request review iteration loop", async () => {
+    // 00.04.002: the pull-and-review skill must preserve the review loop that
+    // resolves addressed threads, re-requests Copilot review, and waits again.
+    const skillText = await fs.readFile(path.join(root, ".agents", "skills", "pull-and-review", "SKILL.md"), "utf8");
+
+    expect(skillText).toContain("Resolve a Copilot thread only after the pushed code actually addresses");
+    expect(skillText).toContain("re-request Copilot review");
+    expect(skillText).toContain("wait/read/fix/push/resolve/re-request loop");
+  });
+});

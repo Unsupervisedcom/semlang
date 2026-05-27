@@ -16,8 +16,16 @@ Use this skill when the user asks for `/pull-and-review` or asks to run the Copi
 5. Read each Copilot comment in context. Address comments that are correct, useful, or low-risk improvements aligned with the PR's intent. Do not churn unrelated code.
 6. For each addressed comment, make the fix, add or update tests when behavior changes, run the repo's validation command, commit, and push.
 7. Mark only the addressed Copilot review threads as resolved after the fixing commit is pushed.
-8. Request another review from `@copilot` and repeat the wait/read/fix/push/resolve loop until there are no remaining actionable Copilot issues.
-9. If a remaining Copilot comment is wrong or not worth changing, reply on that thread with a concise technical explanation and leave the thread open. In the local conversation, provide links to those open threads so the user can review them.
+8. Request another review from `@copilot` after pushing fixes and resolving the addressed threads. Wait again, then re-check review summaries and unresolved review threads.
+9. Repeat the wait/read/fix/push/resolve/re-request loop until there are no remaining actionable Copilot issues.
+10. If a remaining Copilot comment is wrong or not worth changing, reply on that thread with a concise technical explanation and leave the thread open. In the local conversation, provide links to those open threads so the user can review them.
+
+## Re-Review And Resolution Rules
+
+- Resolve a Copilot thread only after the pushed code actually addresses that specific comment.
+- Do not resolve threads that are disputed, unclear, or intentionally left unchanged; reply on those threads with a concise technical explanation instead.
+- After pushing any follow-up commit that addresses Copilot feedback, re-request Copilot review and wait before deciding the PR is clean.
+- Before merging, confirm CI is green, every addressed thread is resolved, and there are no new unresolved actionable Copilot comments.
 
 ## Review Judgement
 

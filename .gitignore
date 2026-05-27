@@ -14,3 +14,6 @@ docs-site/.docusaurus/
 
 # Local SemLang runtime caches.
 .semlang/cache/
+
+# Local maintainer skill inputs. These may be symlinks to private notes.
+.agents/local/

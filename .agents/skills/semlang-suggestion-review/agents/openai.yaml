@@ -1,0 +1,4 @@
+interface:
+  display_name: "SemLang Suggestion Review"
+  short_description: "Review and implement SemLang workflow suggestions"
+  default_prompt: "Use $semlang-suggestion-review to review the next configured SemLang workflow suggestion with me."

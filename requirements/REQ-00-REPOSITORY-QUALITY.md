@@ -23,3 +23,10 @@ Source functions should stay small enough to review, test, and refactor without 
 Repository hooks should keep local npm dependencies present in linked worktrees without requiring a manual install after ordinary Git operations.
 
 - 00.03.001: Checkout and merge hooks MUST run an idempotent npm dependency setup check so worktrees with missing or stale dependencies are repaired even when lockfiles did not change between refs.
+
+## 00.04 Repo-Local Codex Skills
+
+Maintainer workflow skills for working on this repository should be separate from the skills distributed to SemLang plugin consumers.
+
+- 00.04.001: Repo-local maintainer workflow skills MUST live under `.agents/skills` so Codex discovers them as project skills and MUST NOT be shipped from the root plugin `skills` directory.
+- 00.04.002: The repo-local `pull-and-review` skill MUST document the Copilot review iteration loop, including resolving only addressed threads, re-requesting review after fixes are pushed, and waiting before deciding the pull request is clean.

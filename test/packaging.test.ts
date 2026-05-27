@@ -49,7 +49,7 @@ describe("package publishing metadata", () => {
   it("publishes a Claude Code plugin backed by npm-installed SemLang", async () => {
     // 07.04.001, 07.04.002, 07.04.003, 07.04.004, 07.04.005, 07.04.007: the
     // npm artifact must double as a Claude Code plugin with auto-discovered
-    // skills and MCP server, including the PR review loop skill.
+    // skills and MCP server, including initial ontology creation guidance.
     const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
     const pluginJson = JSON.parse(await fs.readFile(path.join(root, ".claude-plugin", "plugin.json"), "utf8"));
     const mcpJson = JSON.parse(await fs.readFile(path.join(root, ".mcp.json"), "utf8"));
@@ -73,7 +73,8 @@ describe("package publishing metadata", () => {
 
     const skillDirs = (await fs.readdir(path.join(root, "skills"), { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+      .map((entry) => entry.name)
+      .sort();
     const skillTexts = await Promise.all(
       skillDirs.map(async (skillDir) => ({
         name: skillDir,
@@ -84,22 +85,15 @@ describe("package publishing metadata", () => {
     const initialOntologySkillPath = path.join(root, "skills", "initial-ontology-creation", "SKILL.md");
     const initialOntologySkill = await fs.stat(initialOntologySkillPath);
     const initialOntologySkillText = await fs.readFile(initialOntologySkillPath, "utf8");
-    const pullAndReviewSkillPath = path.join(root, "skills", "pull-and-review", "SKILL.md");
-    const pullAndReviewSkill = await fs.stat(pullAndReviewSkillPath);
-    const pullAndReviewSkillText = await fs.readFile(pullAndReviewSkillPath, "utf8");
 
     expect(semlangSkill.isFile()).toBe(true);
     expect(initialOntologySkill.isFile()).toBe(true);
-    expect(pullAndReviewSkill.isFile()).toBe(true);
-    expect(skillDirs).toEqual(expect.arrayContaining(["semlang", "initial-ontology-creation", "pull-and-review"]));
+    expect(skillDirs).toEqual(["initial-ontology-creation", "semlang"]);
     expect(skillDirs.every((name) => /^[a-z0-9-]+$/.test(name))).toBe(true);
     for (const skill of skillTexts) {
       expect(skill.text).toContain(`name: ${skill.name}`);
     }
     expect(initialOntologySkillText).toContain("name: initial-ontology-creation");
-    expect(pullAndReviewSkillText).toContain("name: pull-and-review");
-    expect(pullAndReviewSkillText).toContain("@copilot");
-    expect(pullAndReviewSkillText).toContain("Wait about 4 minutes");
   });
 
   it("synchronizes release versions across npm and Claude plugin metadata", async () => {
