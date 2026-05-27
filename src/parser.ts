@@ -1390,93 +1390,103 @@ function parseAction(
 
   let i = 0;
   while (i < body.length) {
-    const line = body[i]!;
-    const trimmed = line.stripped.trim();
-    if (!trimmed) {
-      i += 1;
-      continue;
-    }
-
-    if (/^description:\s*/.test(trimmed)) {
-      action.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
-      i += 1;
-      continue;
-    }
-
-    if (/^subject:/.test(trimmed)) {
-      if (trimmed.includes("{")) {
-        const block = collectBraceBlock(body, i);
-        diagnoseUnclosedBlock(block, file, diagnostics);
-        const subject = parseActionSubject(block.header, block.body, file);
-        if (subject) action.subject = subject;
-        i = block.end;
-      } else {
-        const subject = parseActionSubject(line, [], file);
-        if (subject) action.subject = subject;
-        i += 1;
-      }
-      continue;
-    }
-
-    if (trimmed === "param:") {
-      const collected = collectActionSection(body, i + 1);
-      action.params.push(...parseActionParams(collected.lines, file, diagnostics));
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "guard:" || trimmed.startsWith("guard: ")) {
-      const first = trimmed === "guard:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)guard:\s*/, "$1") }];
-      const collected = collectActionSection(body, i + 1);
-      action.guards.push(...parseActionGuards([...first, ...collected.lines], file));
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "edit:" || trimmed.startsWith("edit: ")) {
-      const first = trimmed === "edit:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)edit:\s*/, "$1") }];
-      const collected = collectActionSection(body, i + 1);
-      action.edits.push(...parseActionEdits([...first, ...collected.lines], file, diagnostics));
-      i = collected.end;
-      continue;
-    }
-
-    if (/^log\b/.test(trimmed)) {
-      const block = collectBraceBlock(body, i);
-      diagnoseUnclosedBlock(block, file, diagnostics);
-      action.logBlocks.push(parseActionMetadataBlock("log", block.header, block.body, file));
-      i = block.end;
-      continue;
-    }
-
-    if (/^effect\b/.test(trimmed)) {
-      const collected = collectActionSection(body, i + 1);
-      action.effectBlocks.push(parseActionMetadataBlock("effect", line, collected.lines, file));
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "agent:" || trimmed.startsWith("agent: ")) {
-      const first = trimmed === "agent:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)agent:\s*/, "$1") }];
-      const collected = collectActionSection(body, i + 1);
-      const entries = parseMetadataEntries([...first, ...collected.lines], file);
-      action.agentMetadata.push(...entries);
-      action.agentBlock = {
-        kind: "agent",
-        header: "agent:",
-        entries,
-        lines: [...first, ...collected.lines].map((entry) => entry.stripped.trim()).filter(Boolean),
-        location: location(file, line.line, line.text, "agent"),
-      };
-      i = collected.end;
-      continue;
-    }
-
-    diagnostics.push(error("UNEXPECTED_ACTION_MEMBER", `Unexpected action member: ${trimmed}`, file, line));
-    i += 1;
+    i = parseActionMember(action, body, i, file, diagnostics);
   }
 
   return action;
+}
+
+function parseActionMember(
+  action: ActionDecl,
+  body: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): number {
+  const line = body[index]!;
+  const trimmed = line.stripped.trim();
+  if (!trimmed) return index + 1;
+
+  if (/^description:\s*/.test(trimmed)) {
+    action.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
+    return index + 1;
+  }
+
+  if (/^subject:/.test(trimmed)) {
+    return parseActionSubjectMember(action, body, index, line, trimmed, file, diagnostics);
+  }
+
+  if (trimmed === "param:") {
+    const collected = collectActionSection(body, index + 1);
+    action.params.push(...parseActionParams(collected.lines, file, diagnostics));
+    return collected.end;
+  }
+
+  if (trimmed === "guard:" || trimmed.startsWith("guard: ")) {
+    const first = trimmed === "guard:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)guard:\s*/, "$1") }];
+    const collected = collectActionSection(body, index + 1);
+    action.guards.push(...parseActionGuards([...first, ...collected.lines], file));
+    return collected.end;
+  }
+
+  if (trimmed === "edit:" || trimmed.startsWith("edit: ")) {
+    const first = trimmed === "edit:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)edit:\s*/, "$1") }];
+    const collected = collectActionSection(body, index + 1);
+    action.edits.push(...parseActionEdits([...first, ...collected.lines], file, diagnostics));
+    return collected.end;
+  }
+
+  if (/^log\b/.test(trimmed)) {
+    const block = collectBraceBlock(body, index);
+    diagnoseUnclosedBlock(block, file, diagnostics);
+    action.logBlocks.push(parseActionMetadataBlock("log", block.header, block.body, file));
+    return block.end;
+  }
+
+  if (/^effect\b/.test(trimmed)) {
+    const collected = collectActionSection(body, index + 1);
+    action.effectBlocks.push(parseActionMetadataBlock("effect", line, collected.lines, file));
+    return collected.end;
+  }
+
+  if (trimmed === "agent:" || trimmed.startsWith("agent: ")) {
+    const first = trimmed === "agent:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)agent:\s*/, "$1") }];
+    const collected = collectActionSection(body, index + 1);
+    const entries = parseMetadataEntries([...first, ...collected.lines], file);
+    action.agentMetadata.push(...entries);
+    action.agentBlock = {
+      kind: "agent",
+      header: "agent:",
+      entries,
+      lines: [...first, ...collected.lines].map((entry) => entry.stripped.trim()).filter(Boolean),
+      location: location(file, line.line, line.text, "agent"),
+    };
+    return collected.end;
+  }
+
+  diagnostics.push(error("UNEXPECTED_ACTION_MEMBER", `Unexpected action member: ${trimmed}`, file, line));
+  return index + 1;
+}
+
+function parseActionSubjectMember(
+  action: ActionDecl,
+  body: SourceLine[],
+  index: number,
+  line: SourceLine,
+  trimmed: string,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): number {
+  if (trimmed.includes("{")) {
+    const block = collectBraceBlock(body, index);
+    diagnoseUnclosedBlock(block, file, diagnostics);
+    const subject = parseActionSubject(block.header, block.body, file);
+    if (subject) action.subject = subject;
+    return block.end;
+  }
+  const subject = parseActionSubject(line, [], file);
+  if (subject) action.subject = subject;
+  return index + 1;
 }
 
 function parseActionSubject(header: SourceLine, body: SourceLine[], file: string | undefined) {
