@@ -5,6 +5,7 @@
 
 import os from "node:os";
 import path from "node:path";
+import { resolveSemLangLogLevel, type SemLangLogLevel } from "./logging.js";
 import { pathWithinOrEqual, resolveOptionalPath } from "./mcp-utils.js";
 import { discoverMalloyConfigPath } from "./semlang-config.js";
 
@@ -18,6 +19,7 @@ export interface SemLangMcpSettings {
   statsQueryLimitSeconds: number;
   maxParallelQueries: number;
   statsCacheDirectory?: string;
+  logLevel: SemLangLogLevel;
 }
 
 export type ResolvedMalloyExecutionContext =
@@ -42,6 +44,7 @@ export function resolveSemLangMcpSettings(settings: Partial<SemLangMcpSettings> 
       optionalPositiveInteger(settings.statsQueryLimitSeconds ?? envSetting("STATS_QUERY_LIMIT_SECONDS")) ?? 30,
     maxParallelQueries: optionalPositiveInteger(settings.maxParallelQueries ?? envSetting("MAX_PARALLEL_QUERIES")) ?? 4,
     statsCacheDirectory: resolveOptionalPath(settings.statsCacheDirectory ?? envSetting("STATS_CACHE_DIRECTORY")),
+    logLevel: resolveSemLangLogLevel(settings.logLevel ?? envSetting("LOG_LEVEL")) ?? "info",
   };
 }
 

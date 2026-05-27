@@ -48,7 +48,13 @@ export class QueryExecution {
   async execute(): Promise<Record<string, JsonValue>> {
     const validation = this.validateOrBuildQuery();
     if (booleanValue(this.args.dry_run_only ?? this.args.dryRunOnly)) {
-      logTransaction("debug", this.transactionId, "run_query skipped for dry_run_only", { tool: "run_query" });
+      logTransaction(
+        "debug",
+        this.transactionId,
+        "run_query skipped for dry_run_only",
+        { tool: "run_query" },
+        this.context.settings,
+      );
       return {
         ...this.publicQueryResult(validation),
         execution: {
@@ -61,7 +67,13 @@ export class QueryExecution {
 
     const queryLimitSeconds = this.queryLimitSecondsValue();
     if (!queryLimitSeconds.ok) {
-      logTransaction("info", this.transactionId, "run_query rejected before execution", { tool: "run_query" });
+      logTransaction(
+        "info",
+        this.transactionId,
+        "run_query rejected before execution",
+        { tool: "run_query" },
+        this.context.settings,
+      );
       return {
         ...queryLimitSeconds,
         execution: {
@@ -74,7 +86,7 @@ export class QueryExecution {
 
     const execution = await this.executeQuery(validation, queryLimitSeconds.value);
     const compactExecution = await this.compactExecutionOutput(execution);
-    logTransaction("info", this.transactionId, "run_query completed", { tool: "run_query" });
+    logTransaction("info", this.transactionId, "run_query completed", { tool: "run_query" }, this.context.settings);
     return { ...this.publicQueryResult(validation), execution: jsonSafe(compactExecution) };
   }
 
@@ -275,7 +287,13 @@ export class QueryExecution {
       2,
     )}\n`;
     await fs.writeFile(outputPath, exportOutput);
-    logTransaction("info", this.transactionId, "run_query rows exported", { outputPath, tool: "run_query" });
+    logTransaction(
+      "info",
+      this.transactionId,
+      "run_query rows exported",
+      { outputPath, tool: "run_query" },
+      this.context.settings,
+    );
     const exportedCompact = { ...compact };
     delete exportedCompact.rows;
     return {

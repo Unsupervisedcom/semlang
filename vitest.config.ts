@@ -12,6 +12,7 @@ export default defineConfig({
       SEMLANG_TEST_DUCKDB_ENABLE_EXTERNAL_ACCESS: process.env.SEMLANG_TEST_DUCKDB_ENABLE_EXTERNAL_ACCESS ?? "false",
     },
     globals: false,
+    setupFiles: ["test/setup.ts"],
     testTimeout: 30000,
   },
 });

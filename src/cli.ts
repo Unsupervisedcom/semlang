@@ -6,6 +6,7 @@
 import fs from "node:fs/promises";
 import { Command, Option } from "commander";
 import { compileFile, runSemLangMcpStdioServerWithSettings } from "./index.js";
+import { semLangLogLevels } from "./logging.js";
 import type { SemLangMcpSettings } from "./mcp-settings.js";
 import { generateSemLangConfig, writeSemLangConfig } from "./semlang-config.js";
 import { getSemLangVersion } from "./version.js";
@@ -66,6 +67,7 @@ interface SettingsOptions {
   statsQueryLimitSeconds?: string;
   maxParallelQueries?: string;
   statsCacheDirectory?: string;
+  logLevel?: SemLangMcpSettings["logLevel"];
 }
 
 interface SetupOptions extends SettingsOptions {
@@ -120,6 +122,11 @@ function addSettingsOptions(command: Command): Command {
       new Option("--stats-cache-directory <path>", "Overrides SEMLANG_STATS_CACHE_DIRECTORY.").env(
         "SEMLANG_STATS_CACHE_DIRECTORY",
       ),
+    )
+    .addOption(
+      new Option("--log-level <level>", "Overrides SEMLANG_LOG_LEVEL.")
+        .choices([...semLangLogLevels])
+        .env("SEMLANG_LOG_LEVEL"),
     );
 }
 
@@ -180,6 +187,7 @@ function settingsFromOptions(options: SettingsOptions, command: Command): Partia
     statsQueryLimitSeconds: numericOption(options.statsQueryLimitSeconds),
     maxParallelQueries: numericOption(options.maxParallelQueries),
     statsCacheDirectory: options.statsCacheDirectory,
+    logLevel: options.logLevel,
   };
 }
 

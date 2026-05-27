@@ -615,7 +615,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 
   async function runQuery(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const transactionId = crypto.randomUUID();
-    logTransaction("info", transactionId, "run_query requested", { tool: "run_query" });
+    logTransaction("info", transactionId, "run_query requested", { tool: "run_query" }, context.settings);
     return new QueryExecution(context, requireModel(), args, transactionId).execute();
   }
 

@@ -164,4 +164,13 @@ describe("CLI", () => {
       execFileAsync("node", [path.join(root, "dist/src/cli.js"), "setup"], { cwd: projectDir }),
     ).rejects.toThrow(/Candidates: customers\.semlang, orders\.semlang\. Pass --path <file>/);
   });
+
+  it("advertises the MCP log level setting", async () => {
+    // 02.05.043: MCP runtime log level is configurable through the matching
+    // CLI/env settings surface.
+    const help = await execFileAsync("node", [path.join(root, "dist/src/cli.js"), "mcp", "--help"], { cwd: root });
+
+    expect(help.stdout).toContain("--log-level <level>");
+    expect(help.stdout).toContain("SEMLANG_LOG_LEVEL");
+  });
 });

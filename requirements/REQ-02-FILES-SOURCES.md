@@ -103,3 +103,4 @@ MCP query execution uses Malloy connection configuration captured when an ontolo
 - 02.05.040: `load_ontology` with no source arguments MUST load the ontology entrypoint and runtime paths from discovered SemLang project config.
 - 02.05.041: The public `load_ontology` MCP schema MUST NOT advertise deprecated `projectDir` or `paths` arguments.
 - 02.05.042: SemLang project config validation errors MUST identify the `.semlang/settings.yml` file that needs correction.
+- 02.05.043: SemLang runtime transaction logging MUST support a managed log level through `SEMLANG_LOG_LEVEL` and the matching MCP CLI/settings surface; automated tests MUST capture SemLang runtime logs and fail on unexpected warnings or errors while allowing expected warning/error logs only through explicit test opt-in.
