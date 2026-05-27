@@ -404,7 +404,7 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
 
   async function search(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {
     const kind = stringValue(args.kind)?.toLowerCase();
-    const text = stringValue(args.query ?? args.question ?? args.phrase ?? args.text ?? args.name ?? args.entity) ?? "";
+    const text = searchTextFromArgs(args);
     if (kind === "entity") {
       const entityArgs = entityArgsFromSearchText(requireModel(), text);
       return resolveEntity({ ...args, ...entityArgs, name: text });
@@ -420,6 +420,10 @@ export function createSemLangMcp(settings: Partial<SemLangMcpSettings> = {}): Se
     if (kind === "lens") return resolved({ ok: true, query: text, lenses: jsonSafe(matches.lenses) });
     if (kind === "query") return resolved({ ok: true, query: text, queries: jsonSafe(matches.queries) });
     return resolved(response);
+  }
+
+  function searchTextFromArgs(args: Record<string, unknown>): string {
+    return stringValue(args.query ?? args.question ?? args.phrase ?? args.text ?? args.name ?? args.entity) ?? "";
   }
 
   function describeConcept(args: Record<string, unknown> = {}): Promise<Record<string, JsonValue>> {

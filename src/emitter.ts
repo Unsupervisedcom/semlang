@@ -162,29 +162,9 @@ function emitConcept(
       conceptOrigin,
     ),
   );
-  const compositePrimaryKeyName =
-    concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
-  if (concept.identities.length === 1) {
-    const identity = concept.identities[0]!;
-    lines.push(
-      line(
-        `  primary_key: ${identity.name}`,
-        origin(identity.location, "identity", `${concept.name}.${identity.name}`),
-      ),
-    );
-  }
-  if (compositePrimaryKeyName) {
-    lines.push(
-      line(
-        `  primary_key: ${compositePrimaryKeyName}`,
-        origin(
-          concept.identities[0]?.location ?? concept.location,
-          "identity",
-          `${concept.name}.${compositePrimaryKeyName}`,
-        ),
-      ),
-    );
-  }
+  const emittedPrimaryKey = emitConceptPrimaryKey(concept);
+  const compositePrimaryKeyName = emittedPrimaryKey.compositePrimaryKeyName;
+  lines.push(...emittedPrimaryKey.lines);
   for (const join of concept.joins) {
     lines.push(line(""));
     lines.push(...indent(emitJoin(model, concept, join, sourceNames, declaredSources, baseSourceNames), 2));
@@ -254,6 +234,36 @@ function emitConcept(
   }
   lines.push(line("}", conceptOrigin));
   return lines;
+}
+
+function emitConceptPrimaryKey(concept: ResolvedConcept) {
+  const compositePrimaryKeyName =
+    concept.identities.length > 1 ? uniqueGeneratedFieldName(concept, "__semlang_primary_key") : undefined;
+  if (concept.identities.length === 1) {
+    const identity = concept.identities[0]!;
+    return {
+      lines: [
+        line(
+          `  primary_key: ${identity.name}`,
+          origin(identity.location, "identity", `${concept.name}.${identity.name}`),
+        ),
+      ],
+    };
+  }
+  if (!compositePrimaryKeyName) return { lines: [] };
+  return {
+    compositePrimaryKeyName,
+    lines: [
+      line(
+        `  primary_key: ${compositePrimaryKeyName}`,
+        origin(
+          concept.identities[0]?.location ?? concept.location,
+          "identity",
+          `${concept.name}.${compositePrimaryKeyName}`,
+        ),
+      ),
+    ],
+  };
 }
 
 function conceptBaseSourceNames(
@@ -331,16 +341,13 @@ function emitJoin(
   declaredSources: Set<string>,
   baseSourceNames: Map<string, string>,
 ): EmittedBlock {
-  const roleIndex = buildRoleIndex(model);
-  const targetRole = join.targetSource
-    ? undefined
-    : (roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target));
-  const targetConcept = join.targetSource ? undefined : (model.concepts.get(join.target) ?? targetRole?.concept);
-  const targetSource = join.targetSource
-    ? sourceExpr(model, join.targetSource, sourceNames)
-    : targetConcept
-      ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
-      : join.target;
+  const { targetRole, targetConcept, targetSource } = resolveJoinTarget(
+    model,
+    join,
+    sourceNames,
+    declaredSources,
+    baseSourceNames,
+  );
   const joinOrigin = origin(join.location, "join", `${source.name}.${join.name}`);
   const lines = [line(`${join.kind}: ${join.name} is ${targetSource}`, joinOrigin)];
   if (join.with) {
@@ -367,6 +374,26 @@ function emitJoin(
     );
   }
   return lines;
+}
+
+function resolveJoinTarget(
+  model: SemanticModel,
+  join: JoinDecl,
+  sourceNames: Map<string, string>,
+  declaredSources: Set<string>,
+  baseSourceNames: Map<string, string>,
+) {
+  const roleIndex = buildRoleIndex(model);
+  const targetRole = join.targetSource
+    ? undefined
+    : (roleIndex.byQualifiedName.get(join.target) ?? roleIndex.byName.get(join.target));
+  const targetConcept = join.targetSource ? undefined : (model.concepts.get(join.target) ?? targetRole?.concept);
+  const targetSource = join.targetSource
+    ? sourceExpr(model, join.targetSource, sourceNames)
+    : targetConcept
+      ? joinTargetSource(targetConcept, sourceNames, declaredSources, baseSourceNames)
+      : join.target;
+  return { targetRole, targetConcept, targetSource };
 }
 
 function joinTargetSource(
