@@ -34,18 +34,21 @@ export function resolveSemLangMcpSettings(settings: Partial<SemLangMcpSettings> 
     malloyConfigPath,
     exportDirectory: resolveOptionalPath(settings.exportDirectory ?? envSetting("EXPORT_DIRECTORY")) ?? os.tmpdir(),
     updateStats: optionalBoolean(settings.updateStats ?? envSetting("UPDATE_STATS")) ?? true,
-    completeValueMaxDistinctCount:
-      optionalPositiveInteger(
-        settings.completeValueMaxDistinctCount ?? envSetting("COMPLETE_VALUE_MAX_DISTINCT_COUNT"),
-      ) ?? 50,
-    sampleValueMaxCount:
-      optionalPositiveInteger(settings.sampleValueMaxCount ?? envSetting("SAMPLE_VALUE_MAX_COUNT")) ?? 20,
-    statsQueryLimitSeconds:
-      optionalPositiveInteger(settings.statsQueryLimitSeconds ?? envSetting("STATS_QUERY_LIMIT_SECONDS")) ?? 30,
-    maxParallelQueries: optionalPositiveInteger(settings.maxParallelQueries ?? envSetting("MAX_PARALLEL_QUERIES")) ?? 4,
+    completeValueMaxDistinctCount: positiveIntegerSetting(
+      settings.completeValueMaxDistinctCount,
+      "COMPLETE_VALUE_MAX_DISTINCT_COUNT",
+      50,
+    ),
+    sampleValueMaxCount: positiveIntegerSetting(settings.sampleValueMaxCount, "SAMPLE_VALUE_MAX_COUNT", 20),
+    statsQueryLimitSeconds: positiveIntegerSetting(settings.statsQueryLimitSeconds, "STATS_QUERY_LIMIT_SECONDS", 30),
+    maxParallelQueries: positiveIntegerSetting(settings.maxParallelQueries, "MAX_PARALLEL_QUERIES", 4),
     statsCacheDirectory: resolveOptionalPath(settings.statsCacheDirectory ?? envSetting("STATS_CACHE_DIRECTORY")),
     logLevel: resolveSemLangLogLevel(settings.logLevel ?? envSetting("LOG_LEVEL")) ?? "info",
   };
+}
+
+function positiveIntegerSetting(value: unknown, envName: string, defaultValue: number): number {
+  return optionalPositiveInteger(value ?? envSetting(envName)) ?? defaultValue;
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {

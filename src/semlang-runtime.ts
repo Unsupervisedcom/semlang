@@ -203,16 +203,19 @@ type LoadedSourceContext =
     }
   | { ok: false; response: Record<string, JsonValue> };
 
+interface SourceRequestInputs {
+  paths: string[];
+  inlineSource?: string;
+  requestedProjectDir?: string;
+}
+
 async function sourceRequestFromArgs(
   args: Record<string, unknown>,
   settings: SemLangMcpSettings,
 ): Promise<SourceRequest> {
-  let paths = stringList(args.paths ?? args.path ?? args.filePaths ?? args.filePath);
-  const inlineSources = stringList(args.sources ?? args.source);
-  const inlineSource = inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined;
-  const requestedProjectDir = resolveOptionalPath(
-    stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
-  );
+  const inputs = sourceRequestInputs(args);
+  let paths = inputs.paths;
+  const { inlineSource, requestedProjectDir } = inputs;
   let semlangConfig: ResolvedSemLangConfig | undefined;
   if (paths.length === 0 && !inlineSource) {
     const loadedConfig = await loadSemLangConfig(requestedProjectDir ?? settings.projectDir);
@@ -222,14 +225,41 @@ async function sourceRequestFromArgs(
   }
   return {
     ok: true,
-    compileArgs: paths.length > 0 ? { ...args, path: paths } : args,
+    compileArgs: compileArgsForSourceRequest(args, paths),
     requestedProjectDir,
-    malloyConfigPath:
-      stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
-      semlangConfig?.malloyConfigPath ??
-      settings.malloyConfigPath,
+    malloyConfigPath: sourceRequestMalloyConfigPath(args, semlangConfig, settings),
     semlangConfig,
   };
+}
+
+function sourceRequestInputs(args: Record<string, unknown>): SourceRequestInputs {
+  const paths = stringList(args.paths ?? args.path ?? args.filePaths ?? args.filePath);
+  const inlineSources = stringList(args.sources ?? args.source);
+  return {
+    paths,
+    inlineSource: inlineSources.length > 0 ? inlineSources.join("\n\n") : undefined,
+    requestedProjectDir: resolveOptionalPath(
+      stringValue(args.projectDir ?? args.project_dir ?? args.projectPath ?? args.project_path),
+    ),
+  };
+}
+
+function compileArgsForSourceRequest(args: Record<string, unknown>, paths: string[]): Record<string, unknown> {
+  if (paths.length === 0) return args;
+  const { paths: _paths, path: _path, filePaths: _filePaths, filePath: _filePath, ...compileArgs } = args;
+  return { ...compileArgs, path: paths };
+}
+
+function sourceRequestMalloyConfigPath(
+  args: Record<string, unknown>,
+  semlangConfig: ResolvedSemLangConfig | undefined,
+  settings: SemLangMcpSettings,
+): string | undefined {
+  return (
+    stringValue(args.malloyConfigPath ?? args.malloy_config_path ?? args.configPath ?? args.config_path) ??
+    semlangConfig?.malloyConfigPath ??
+    settings.malloyConfigPath
+  );
 }
 
 async function resolveLoadedSourceContext(

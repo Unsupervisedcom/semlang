@@ -538,30 +538,12 @@ function validateConceptMembers(
   concept: ConceptDecl,
   diagnostics: Diagnostic[],
 ) {
-  const seenFields = new Set<string>();
   const seenJoins = new Set<string>();
   const seenRoles = new Set<string>();
   const seenDimensions = new Set<string>();
   const seenMeasures = new Set<string>();
   const seenViews = new Set<string>();
-  for (const field of [...concept.identities, ...concept.fields]) {
-    if (!primitiveTypes.has(field.typeName) && !model.types.has(field.typeName)) {
-      diagnostics.push({
-        severity: "error",
-        code: "UNKNOWN_TYPE",
-        message: `Unknown type ${field.typeName}.`,
-        location: field.location,
-      });
-    }
-    checkDuplicate(
-      seenFields,
-      field.name,
-      "DUPLICATE_FIELD",
-      `Duplicate field ${field.name} on ${owningConcept.name}.`,
-      field.location,
-      diagnostics,
-    );
-  }
+  validateConceptFieldMembers(model, owningConcept, concept, diagnostics);
   validateConceptJoins(model, roleIndex, owningConcept, concept.joins, seenJoins, diagnostics);
   for (const role of concept.roles) {
     checkDuplicate(
@@ -657,6 +639,33 @@ function validateConceptMembers(
     );
   }
   validateActions(model, owningConcept, concept, diagnostics);
+}
+
+function validateConceptFieldMembers(
+  model: SemanticModel,
+  owningConcept: ResolvedConcept,
+  concept: ConceptDecl,
+  diagnostics: Diagnostic[],
+) {
+  const seenFields = new Set<string>();
+  for (const field of [...concept.identities, ...concept.fields]) {
+    if (!primitiveTypes.has(field.typeName) && !model.types.has(field.typeName)) {
+      diagnostics.push({
+        severity: "error",
+        code: "UNKNOWN_TYPE",
+        message: `Unknown type ${field.typeName}.`,
+        location: field.location,
+      });
+    }
+    checkDuplicate(
+      seenFields,
+      field.name,
+      "DUPLICATE_FIELD",
+      `Duplicate field ${field.name} on ${owningConcept.name}.`,
+      field.location,
+      diagnostics,
+    );
+  }
 }
 
 function validateActions(
