@@ -46,7 +46,6 @@ import {
   type SemLangAst,
   type SourceDecl,
   type SourceExpression,
-  type SourceLocation,
   type TemporalAxisDecl,
   type TypeDecl,
   type ValidationDecl,
@@ -67,112 +66,14 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
   }
 
   const lines = toLines(source);
-  let packageName = "";
-  let packageLoc: SourceLocation | undefined;
-  const ast: SemLangAst = {
-    kind: "SemLangAst",
-    packageName,
-    filePath: options.filePath,
-    includes: [],
-    ignored: [],
-    sources: [],
-    types: [],
-    concepts: [],
-    lenses: [],
-    queries: [],
-  };
+  const state = parseSemLangState(options.filePath, diagnostics);
 
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i]!;
-    const trimmed = line.stripped.trim();
-    if (trimmed === "") {
-      i += 1;
-      continue;
-    }
-
-    let match = /^package\s+([A-Za-z_][A-Za-z0-9_.]*)$/.exec(trimmed);
-    if (match) {
-      if (packageName) {
-        diagnostics.push(
-          error("DUPLICATE_PACKAGE", "Only one package declaration is allowed.", options.filePath, line),
-        );
-      }
-      packageName = match[1]!;
-      packageLoc = location(options.filePath, line.line, line.text, "package");
-      ast.packageName = packageName;
-      ast.location = packageLoc;
-      i += 1;
-      continue;
-    }
-
-    match = /^include\s+["']([^"']+)["']$/.exec(trimmed);
-    if (match) {
-      ast.includes.push({ path: match[1]!, location: location(options.filePath, line.line, line.text, "include") });
-      i += 1;
-      continue;
-    }
-
-    if (/^type:/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
-      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
-      const parsed = parseType(block.header, block.body, options.filePath, diagnostics);
-      if (parsed) ast.types.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    if (/^ignored\b/.test(trimmed)) {
-      const block = collectDeclarationBlock(lines, i);
-      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
-      const parsed = parseIgnored(block.header, block.body, options.filePath, diagnostics);
-      if (parsed) ast.ignored.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    if (/^source:/.test(trimmed)) {
-      const header = collectSourceHeader(lines, i);
-      const parsed = header.header.stripped.includes("->")
-        ? parseSourceBlock(lines, i, options.filePath, diagnostics)
-        : { source: parseSource(header.header, [], options.filePath, diagnostics), end: header.end };
-      if (parsed.source) ast.sources.push(parsed.source);
-      i = parsed.end;
-      continue;
-    }
-
-    if (/^concept\b/.test(trimmed)) {
-      const block = collectDeclarationBlock(lines, i);
-      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
-      const parsed = parseConcept(block.header, block.body, options.filePath, diagnostics);
-      if (parsed) ast.concepts.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    if (/^lens:/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
-      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
-      const parsed = parseLens(block.header, block.body, options.filePath, diagnostics);
-      if (parsed) ast.lenses.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    if (/^query:/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
-      diagnoseUnclosedBlock(block, options.filePath, diagnostics);
-      const parsed = parseQuery(block.header, block.body, options.filePath, diagnostics);
-      if (parsed) ast.queries.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    diagnostics.push(error("UNEXPECTED_TOP_LEVEL", `Unexpected top-level syntax: ${trimmed}`, options.filePath, line));
-    i += 1;
+    i = parseTopLevelMember(state, lines, i);
   }
 
-  if (!packageName) {
+  if (!state.packageName) {
     diagnostics.push({
       severity: "error",
       code: "MISSING_PACKAGE",
@@ -181,7 +82,132 @@ export function parseSemLang(source: string, options: CompileOptions = {}): Pars
     });
   }
 
-  return { ast: diagnostics.some((diagnostic) => diagnostic.severity === "error") ? undefined : ast, diagnostics };
+  return {
+    ast: diagnostics.some((diagnostic) => diagnostic.severity === "error") ? undefined : state.ast,
+    diagnostics,
+  };
+}
+
+interface ParseSemLangState {
+  ast: SemLangAst;
+  diagnostics: Diagnostic[];
+  file: string | undefined;
+  packageName: string;
+}
+
+function parseSemLangState(file: string | undefined, diagnostics: Diagnostic[]): ParseSemLangState {
+  return {
+    ast: {
+      kind: "SemLangAst",
+      packageName: "",
+      filePath: file,
+      includes: [],
+      ignored: [],
+      sources: [],
+      types: [],
+      concepts: [],
+      lenses: [],
+      queries: [],
+    },
+    diagnostics,
+    file,
+    packageName: "",
+  };
+}
+
+function parseTopLevelMember(state: ParseSemLangState, lines: SourceLine[], index: number): number {
+  const line = lines[index]!;
+  const trimmed = line.stripped.trim();
+  if (trimmed === "") return index + 1;
+
+  const packageMatch = /^package\s+([A-Za-z_][A-Za-z0-9_.]*)$/.exec(trimmed);
+  if (packageMatch) return parsePackageDecl(state, line, packageMatch, index);
+  const includeMatch = /^include\s+["']([^"']+)["']$/.exec(trimmed);
+  if (includeMatch) return parseIncludeDecl(state, line, includeMatch, index);
+  const parsed = parseTopLevelBlock(state, lines, index, trimmed);
+  if (parsed !== undefined) return parsed;
+
+  state.diagnostics.push(error("UNEXPECTED_TOP_LEVEL", `Unexpected top-level syntax: ${trimmed}`, state.file, line));
+  return index + 1;
+}
+
+function parsePackageDecl(state: ParseSemLangState, line: SourceLine, match: RegExpExecArray, index: number): number {
+  if (state.packageName) {
+    state.diagnostics.push(error("DUPLICATE_PACKAGE", "Only one package declaration is allowed.", state.file, line));
+  }
+  state.packageName = match[1]!;
+  state.ast.packageName = state.packageName;
+  state.ast.location = location(state.file, line.line, line.text, "package");
+  return index + 1;
+}
+
+function parseIncludeDecl(state: ParseSemLangState, line: SourceLine, match: RegExpExecArray, index: number): number {
+  state.ast.includes.push({ path: match[1]!, location: location(state.file, line.line, line.text, "include") });
+  return index + 1;
+}
+
+function parseTopLevelBlock(
+  state: ParseSemLangState,
+  lines: SourceLine[],
+  index: number,
+  trimmed: string,
+): number | undefined {
+  if (/^type:/.test(trimmed)) return parseBraceTopLevelBlock(state, lines, index, parseType, state.ast.types);
+  if (/^ignored\b/.test(trimmed))
+    return parseDeclarationTopLevelBlock(state, lines, index, parseIgnored, state.ast.ignored);
+  if (/^source:/.test(trimmed)) return parseSourceTopLevelBlock(state, lines, index);
+  if (/^concept\b/.test(trimmed))
+    return parseDeclarationTopLevelBlock(state, lines, index, parseConcept, state.ast.concepts);
+  if (/^lens:/.test(trimmed)) return parseBraceTopLevelBlock(state, lines, index, parseLens, state.ast.lenses);
+  if (/^query:/.test(trimmed)) return parseBraceTopLevelBlock(state, lines, index, parseQuery, state.ast.queries);
+  return undefined;
+}
+
+function parseBraceTopLevelBlock<T>(
+  state: ParseSemLangState,
+  lines: SourceLine[],
+  index: number,
+  parser: (
+    header: SourceLine,
+    body: SourceLine[],
+    file: string | undefined,
+    diagnostics: Diagnostic[],
+  ) => T | undefined,
+  target: T[],
+): number {
+  const block = collectBraceBlock(lines, index);
+  diagnoseUnclosedBlock(block, state.file, state.diagnostics);
+  const parsed = parser(block.header, block.body, state.file, state.diagnostics);
+  if (parsed) target.push(parsed);
+  return block.end;
+}
+
+function parseDeclarationTopLevelBlock<T>(
+  state: ParseSemLangState,
+  lines: SourceLine[],
+  index: number,
+  parser: (
+    header: SourceLine,
+    body: SourceLine[],
+    file: string | undefined,
+    diagnostics: Diagnostic[],
+  ) => T | undefined,
+  target: T[],
+): number {
+  const block = collectDeclarationBlock(lines, index);
+  diagnoseUnclosedBlock(block, state.file, state.diagnostics);
+  const parsed = parser(block.header, block.body, state.file, state.diagnostics);
+  if (parsed) target.push(parsed);
+  return block.end;
+}
+
+function parseSourceTopLevelBlock(state: ParseSemLangState, lines: SourceLine[], index: number): number {
+  const header = collectSourceHeader(lines, index);
+  const parsed = header.header.stripped.includes("->")
+    ? parseSourceBlock(lines, index, state.file, state.diagnostics)
+    : { source: parseSource(header.header, [], state.file, state.diagnostics), end: header.end };
+  if (parsed.source) state.ast.sources.push(parsed.source);
+  return parsed.end;
 }
 
 export function parseSemLangQuery(source: string, options: CompileOptions = {}): ParseQueryResult {
@@ -654,126 +680,251 @@ function parseConceptMembers(lines: SourceLine[], file: string | undefined, diag
   const members = emptyMembers();
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i]!;
-    const trimmed = line.stripped.trim();
-    if (trimmed === "") {
-      i += 1;
-      continue;
-    }
-
-    if (/^identity\b/.test(trimmed)) {
-      if (trimmed.includes("{")) {
-        const block = collectBraceBlock(lines, i);
-        diagnoseUnclosedBlock(block, file, diagnostics);
-        members.identities.push(...parseIdentityLine(block.header, block.body, file, diagnostics));
-        i = block.end;
-      } else {
-        members.identities.push(...parseIdentityLine(line, [], file, diagnostics));
-        i += 1;
-      }
-      continue;
-    }
-
-    const temporal = /^(valid_time|occurrence_time|observation_time|recorded_time):\s*(.+)$/.exec(trimmed);
-    if (temporal) {
-      members.temporal.push({
-        axis: temporal[1] as TemporalAxisDecl["axis"],
-        expression: temporal[2]!.trim(),
-        location: location(file, line.line, line.text, temporal[1]),
-      });
-      i += 1;
-      continue;
-    }
-
-    if (/^join_(one|many|cross)\b/.test(trimmed)) {
-      const collected = collectContinuation(lines, i, (next) => {
-        const text = next.stripped.trim();
-        return /^(on\b|with\b|and\b|at\b)/.test(text);
-      });
-      const parsed = parseJoin(collected.lines, file, diagnostics);
-      if (parsed) members.joins.push(parsed);
-      i = collected.end;
-      continue;
-    }
-
-    if (/^role\b/.test(trimmed)) {
-      if (trimmed.includes("{")) {
-        const block = collectBraceBlock(lines, i);
-        diagnoseUnclosedBlock(block, file, diagnostics);
-        const parsed = parseRole([block.header], block.body, file, diagnostics);
-        if (parsed) members.roles.push(parsed);
-        i = block.end;
-      } else {
-        const collected = collectContinuation(lines, i, (next) => next.stripped.trim().startsWith("when "));
-        const parsed = parseRole(collected.lines, [], file, diagnostics);
-        if (parsed) members.roles.push(parsed);
-        i = collected.end;
-      }
-      continue;
-    }
-
-    if (trimmed === "field:") {
-      const collected = collectSection(lines, i + 1);
-      members.fields.push(...parseFields(collected.lines, file, diagnostics));
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "dimension:" || trimmed === "measure:") {
-      const collected = collectSection(lines, i + 1);
-      const defs = parseDefinitions(collected.lines, file, diagnostics);
-      if (trimmed === "dimension:") members.dimensions.push(...defs);
-      else members.measures.push(...defs);
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "where:" || trimmed.startsWith("where: ")) {
-      const first =
-        trimmed === "where:" ? undefined : { ...line, stripped: line.stripped.replace(/^(\s*)where:\s*/, "$1") };
-      const collected = collectSection(lines, i + 1);
-      members.where.push({
-        expression: normalizeExpression(first ? [first, ...collected.lines] : collected.lines),
-        location: location(file, line.line, line.text, "where"),
-      });
-      i = collected.end;
-      continue;
-    }
-
-    if (trimmed === "validation:") {
-      i = parseValidationSection(lines, i + 1, file, diagnostics, members);
-      continue;
-    }
-
-    if (/^view:/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
-      diagnoseUnclosedBlock(block, file, diagnostics);
-      const parsed = parseView(block.header, block.body, file, diagnostics);
-      if (parsed) members.views.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    if (/^action\b/.test(trimmed)) {
-      const block = collectBraceBlock(lines, i);
-      diagnoseUnclosedBlock(block, file, diagnostics);
-      const parsed = parseAction(block.header, block.body, file, diagnostics);
-      if (parsed) members.actions.push(parsed);
-      i = block.end;
-      continue;
-    }
-
-    const description = /^description:\s*/.exec(trimmed);
-    if (description) {
-      members.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
-      i += 1;
-      continue;
-    }
-
-    diagnostics.push(error("UNEXPECTED_CONCEPT_MEMBER", `Unexpected concept member: ${trimmed}`, file, line));
-    i += 1;
+    i = parseConceptMember(lines, i, file, diagnostics, members);
   }
   return members;
+}
+
+type ConceptMemberParser = (
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+) => number | undefined;
+
+const conceptMemberParsers: ConceptMemberParser[] = [
+  parseBlankConceptMember,
+  parseIdentityConceptMember,
+  parseTemporalConceptMember,
+  parseJoinConceptMember,
+  parseRoleConceptMember,
+  parseFieldConceptMember,
+  parseDefinitionConceptMember,
+  parseWhereConceptMember,
+  parseValidationConceptMember,
+  parseViewConceptMember,
+  parseActionConceptMember,
+  parseDescriptionConceptMember,
+];
+
+function parseConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number {
+  for (const parser of conceptMemberParsers) {
+    const next = parser(lines, index, file, diagnostics, members);
+    if (next !== undefined) return next;
+  }
+  const line = lines[index]!;
+  const trimmed = line.stripped.trim();
+  diagnostics.push(error("UNEXPECTED_CONCEPT_MEMBER", `Unexpected concept member: ${trimmed}`, file, line));
+  return index + 1;
+}
+
+function parseBlankConceptMember(lines: SourceLine[], index: number): number | undefined {
+  return lines[index]!.stripped.trim() === "" ? index + 1 : undefined;
+}
+
+function parseIdentityConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const line = lines[index]!;
+  const trimmed = line.stripped.trim();
+  if (!/^identity\b/.test(trimmed)) return undefined;
+  if (!trimmed.includes("{")) {
+    members.identities.push(...parseIdentityLine(line, [], file, diagnostics));
+    return index + 1;
+  }
+  const block = collectBraceBlock(lines, index);
+  diagnoseUnclosedBlock(block, file, diagnostics);
+  members.identities.push(...parseIdentityLine(block.header, block.body, file, diagnostics));
+  return block.end;
+}
+
+function parseTemporalConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  _diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const line = lines[index]!;
+  const temporal = /^(valid_time|occurrence_time|observation_time|recorded_time):\s*(.+)$/.exec(line.stripped.trim());
+  if (!temporal) return undefined;
+  members.temporal.push({
+    axis: temporal[1] as TemporalAxisDecl["axis"],
+    expression: temporal[2]!.trim(),
+    location: location(file, line.line, line.text, temporal[1]),
+  });
+  return index + 1;
+}
+
+function parseJoinConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  if (!/^join_(one|many|cross)\b/.test(lines[index]!.stripped.trim())) return undefined;
+  const collected = collectContinuation(lines, index, (next) => /^(on\b|with\b|and\b|at\b)/.test(next.stripped.trim()));
+  const parsed = parseJoin(collected.lines, file, diagnostics);
+  if (parsed) members.joins.push(parsed);
+  return collected.end;
+}
+
+function parseRoleConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const trimmed = lines[index]!.stripped.trim();
+  if (!/^role\b/.test(trimmed)) return undefined;
+  if (trimmed.includes("{")) return parseBraceRoleConceptMember(lines, index, file, diagnostics, members);
+  const collected = collectContinuation(lines, index, (next) => next.stripped.trim().startsWith("when "));
+  const parsed = parseRole(collected.lines, [], file, diagnostics);
+  if (parsed) members.roles.push(parsed);
+  return collected.end;
+}
+
+function parseBraceRoleConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number {
+  const block = collectBraceBlock(lines, index);
+  diagnoseUnclosedBlock(block, file, diagnostics);
+  const parsed = parseRole([block.header], block.body, file, diagnostics);
+  if (parsed) members.roles.push(parsed);
+  return block.end;
+}
+
+function parseFieldConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  if (lines[index]!.stripped.trim() !== "field:") return undefined;
+  const collected = collectSection(lines, index + 1);
+  members.fields.push(...parseFields(collected.lines, file, diagnostics));
+  return collected.end;
+}
+
+function parseDefinitionConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const trimmed = lines[index]!.stripped.trim();
+  if (trimmed !== "dimension:" && trimmed !== "measure:") return undefined;
+  const collected = collectSection(lines, index + 1);
+  const defs = parseDefinitions(collected.lines, file, diagnostics);
+  if (trimmed === "dimension:") members.dimensions.push(...defs);
+  else members.measures.push(...defs);
+  return collected.end;
+}
+
+function parseWhereConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  _diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const line = lines[index]!;
+  const trimmed = line.stripped.trim();
+  if (trimmed !== "where:" && !trimmed.startsWith("where: ")) return undefined;
+  const first =
+    trimmed === "where:" ? undefined : { ...line, stripped: line.stripped.replace(/^(\s*)where:\s*/, "$1") };
+  const collected = collectSection(lines, index + 1);
+  members.where.push({
+    expression: normalizeExpression(first ? [first, ...collected.lines] : collected.lines),
+    location: location(file, line.line, line.text, "where"),
+  });
+  return collected.end;
+}
+
+function parseValidationConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  return lines[index]!.stripped.trim() === "validation:"
+    ? parseValidationSection(lines, index + 1, file, diagnostics, members)
+    : undefined;
+}
+
+function parseViewConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  if (!/^view:/.test(lines[index]!.stripped.trim())) return undefined;
+  return parseBraceConceptMember(lines, index, file, diagnostics, members.views, parseView);
+}
+
+function parseActionConceptMember(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  if (!/^action\b/.test(lines[index]!.stripped.trim())) return undefined;
+  return parseBraceConceptMember(lines, index, file, diagnostics, members.actions, parseAction);
+}
+
+function parseBraceConceptMember<T>(
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+  target: T[],
+  parser: (
+    header: SourceLine,
+    body: SourceLine[],
+    file: string | undefined,
+    diagnostics: Diagnostic[],
+  ) => T | undefined,
+): number {
+  const block = collectBraceBlock(lines, index);
+  diagnoseUnclosedBlock(block, file, diagnostics);
+  const parsed = parser(block.header, block.body, file, diagnostics);
+  if (parsed) target.push(parsed);
+  return block.end;
+}
+
+function parseDescriptionConceptMember(
+  lines: SourceLine[],
+  index: number,
+  _file: string | undefined,
+  _diagnostics: Diagnostic[],
+  members: ConceptMembers,
+): number | undefined {
+  const trimmed = lines[index]!.stripped.trim();
+  if (!/^description:\s*/.test(trimmed)) return undefined;
+  members.description = parseDescription(trimmed.replace(/^description:\s*/, ""));
+  return index + 1;
 }
 
 function parseValidationSection(
