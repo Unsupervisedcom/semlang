@@ -17,6 +17,7 @@ import {
   type ConceptMembers,
   type Diagnostic,
   type JoinDecl,
+  type LensDecl,
   type SemLangAst,
   type PackageLoader,
   type QueryDecl,
@@ -24,6 +25,7 @@ import {
   type ResolvedConcept,
   type SemanticModel,
   type SourceExpression,
+  type TypeDecl,
 } from "./types.js";
 
 const expressionKeywords = new Set([
@@ -305,18 +307,7 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
   validateIgnoredDecls(model, diagnostics);
 
   for (const type of model.types.values()) {
-    if (!primitiveTypes.has(type.base)) {
-      diagnostics.push({
-        severity: "error",
-        code: "UNKNOWN_BASE_TYPE",
-        message: `Unknown primitive type ${type.base}.`,
-        location: type.location,
-      });
-    }
-    for (const entry of type.metadata) {
-      const diagnostic = validateTypeMetadataEntry(entry);
-      if (diagnostic) diagnostics.push(diagnostic);
-    }
+    validateTypeDecl(type, diagnostics);
   }
 
   for (const concept of model.concepts.values()) {
@@ -340,39 +331,7 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
   }
 
   for (const lens of model.lenses.values()) {
-    for (const parent of lens.parents) {
-      if (!model.lenses.has(parent))
-        diagnostics.push({
-          severity: "error",
-          code: "UNKNOWN_LENS",
-          message: `Unknown parent lens ${parent}.`,
-          location: lens.location,
-        });
-    }
-    for (const type of lens.types) {
-      if (!primitiveTypes.has(type.base))
-        diagnostics.push({
-          severity: "error",
-          code: "UNKNOWN_BASE_TYPE",
-          message: `Unknown primitive type ${type.base}.`,
-          location: type.location,
-        });
-      for (const entry of type.metadata) {
-        const diagnostic = validateTypeMetadataEntry(entry);
-        if (diagnostic) diagnostics.push(diagnostic);
-      }
-    }
-    for (const refinement of lens.refinements) {
-      const target = model.concepts.get(refinement.conceptName);
-      if (!target) {
-        diagnostics.push({
-          severity: "error",
-          code: "UNKNOWN_REFINEMENT_TARGET",
-          message: `Lens ${lens.name} refines unknown concept ${refinement.conceptName}.`,
-          location: refinement.location,
-        });
-      }
-    }
+    validateLens(model, lens, diagnostics);
   }
 
   for (const query of model.queries) {
@@ -402,6 +361,47 @@ function validateModel(model: SemanticModel, diagnostics: Diagnostic[]) {
       continue;
     }
     validateQueryBody(queryModel, queryRoleIndex, root, query, diagnostics);
+  }
+}
+
+function validateTypeDecl(type: TypeDecl, diagnostics: Diagnostic[]) {
+  if (!primitiveTypes.has(type.base)) {
+    diagnostics.push({
+      severity: "error",
+      code: "UNKNOWN_BASE_TYPE",
+      message: `Unknown primitive type ${type.base}.`,
+      location: type.location,
+    });
+  }
+  for (const entry of type.metadata) {
+    const diagnostic = validateTypeMetadataEntry(entry);
+    if (diagnostic) diagnostics.push(diagnostic);
+  }
+}
+
+function validateLens(model: SemanticModel, lens: LensDecl, diagnostics: Diagnostic[]) {
+  for (const parent of lens.parents) {
+    if (!model.lenses.has(parent))
+      diagnostics.push({
+        severity: "error",
+        code: "UNKNOWN_LENS",
+        message: `Unknown parent lens ${parent}.`,
+        location: lens.location,
+      });
+  }
+  for (const type of lens.types) {
+    validateTypeDecl(type, diagnostics);
+  }
+  for (const refinement of lens.refinements) {
+    const target = model.concepts.get(refinement.conceptName);
+    if (!target) {
+      diagnostics.push({
+        severity: "error",
+        code: "UNKNOWN_REFINEMENT_TARGET",
+        message: `Lens ${lens.name} refines unknown concept ${refinement.conceptName}.`,
+        location: refinement.location,
+      });
+    }
   }
 }
 
