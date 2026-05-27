@@ -10,7 +10,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcp } from "../../src/index.js";
-import { prettyJsonLineCount } from "../../src/mcp.js";
+import { prettyJsonLineCount } from "../../src/semlang-runtime.js";
 import {
   asObject,
   duckDbDatabasePath,

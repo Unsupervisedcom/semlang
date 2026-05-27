@@ -6,7 +6,7 @@
 import fs from "node:fs/promises";
 import { Command, Option } from "commander";
 import { compileFile, runSemLangMcpStdioServerWithSettings } from "./index.js";
-import type { SemLangMcpSettings } from "./mcp.js";
+import type { SemLangMcpSettings } from "./mcp-settings.js";
 import { generateSemLangConfig, writeSemLangConfig } from "./semlang-config.js";
 import { getSemLangVersion } from "./version.js";
 

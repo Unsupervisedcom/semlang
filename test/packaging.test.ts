@@ -160,13 +160,13 @@ describe("package publishing metadata", () => {
     const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
     const version = await execFileAsync("node", ["dist/src/cli.js", "--version"], { cwd: root });
     const cliSource = await fs.readFile(path.join(root, "src", "cli.ts"), "utf8");
-    const mcpSource = await fs.readFile(path.join(root, "src", "mcp.ts"), "utf8");
+    const semlangRuntimeSource = await fs.readFile(path.join(root, "src", "semlang-runtime.ts"), "utf8");
 
     expect(version.stdout.trim()).toBe(packageJson.version);
     expect(cliSource).toContain("getSemLangVersion()");
-    expect(mcpSource).toContain("getSemLangVersion()");
+    expect(semlangRuntimeSource).toContain("getSemLangVersion()");
     expect(cliSource).not.toMatch(/\.version\("[0-9]+\.[0-9]+\.[0-9]+"\)/);
-    expect(mcpSource).not.toMatch(/version: "[0-9]+\.[0-9]+\.[0-9]+"/);
+    expect(semlangRuntimeSource).not.toMatch(/version: "[0-9]+\.[0-9]+\.[0-9]+"/);
   });
 
   it("publishes to npm only after GitHub releases are published", async () => {

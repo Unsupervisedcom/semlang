@@ -10,8 +10,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { createSemLangMcpServer } from "../../src/index.js";
 import { mcpToolDescriptions, mcpToolInputSchemas, mcpToolOrder } from "../../src/mcp-tool-manifest.js";
+import { toolsFromCommands, type SemLangCommandRegistry } from "../../src/semlang-runtime.js";
 
 const manifestFixturePath = path.join(import.meta.dirname, "tool-list-manifest.json");
+const root = path.resolve(import.meta.dirname, "../..");
 const toolManifestTokenBudget = 1412;
 
 describe("SemLang MCP tool manifest", () => {
@@ -66,6 +68,39 @@ describe("SemLang MCP tool manifest", () => {
       mcpToolOrder.map((name) => mcpToolDescriptions[name]),
     );
     expect(Object.keys(mcpToolInputSchemas)).toEqual([...mcpToolOrder]);
+  });
+
+  it("builds public tools from neutral operation command objects", async () => {
+    // 00.02.002: SemLang operation wiring should keep command behavior separate
+    // from MCP transport names so the same operation objects can back other surfaces.
+    const calls: string[] = [];
+    const commands = mcpToolOrder.reduce<Partial<SemLangCommandRegistry>>((registry, name) => {
+      registry[name] = {
+        execute: async (args = {}) => {
+          calls.push(name);
+          return { ok: true, name, argCount: Object.keys(args).length };
+        },
+      };
+      return registry;
+    }, {}) as SemLangCommandRegistry;
+
+    const tools = toolsFromCommands(commands);
+    const search = await tools["search"]({ query: "margin" });
+
+    expect(Object.keys(tools)).toEqual([...mcpToolOrder]);
+    expect(search).toEqual({ ok: true, name: "search", argCount: 1 });
+    expect(calls).toEqual(["search"]);
+  });
+
+  it("keeps shared operation runtime behind a neutral module name", async () => {
+    // 00.02.003: shared SemLang operation implementation should live behind a
+    // neutral module name while legacy MCP module paths remain thin facades.
+    const legacyMcpModule = await fs.readFile(path.join(root, "src", "mcp.ts"), "utf8");
+    const semlangRuntimeModule = await fs.readFile(path.join(root, "src", "semlang-runtime.ts"), "utf8");
+
+    expect(legacyMcpModule).toContain('export * from "./semlang-runtime.js"');
+    expect(semlangRuntimeModule).toContain("toolsFromCommands");
+    expect(semlangRuntimeModule).toContain("createSemLangMcpServer");
   });
 
   it("keeps consolidated tool schemas aligned with the public request shapes", async () => {

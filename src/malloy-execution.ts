@@ -1,6 +1,6 @@
 /*
  * Purpose: Validates and executes generated Malloy models, queries, and SQL using Malloy runtimes and worker timeouts.
- * Encapsulation: Keep Malloy SDK integration, connection discovery, and execution diagnostics here; SemLang MCP tool orchestration belongs in src/mcp.ts.
+ * Encapsulation: Keep Malloy SDK integration, connection discovery, and execution diagnostics here; SemLang operation orchestration belongs in src/semlang-runtime.ts.
  */
 
 import fs from "node:fs/promises";

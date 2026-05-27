@@ -10,7 +10,7 @@ import type {
   MalloyExecutionWorkerData,
   MalloySqlExecutionOptions,
 } from "./malloy-execution.js";
-import type { JsonValue } from "./mcp.js";
+import type { JsonValue } from "./mcp-utils.js";
 
 try {
   const payload = workerData as MalloyExecutionWorkerData;

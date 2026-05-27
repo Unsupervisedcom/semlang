@@ -1,6 +1,6 @@
 /*
  * Purpose: Compiles SemLang sources supplied through MCP tool arguments into normalized compile inputs.
- * Encapsulation: Keep MCP source argument normalization here; MCP tool registration belongs in mcp.ts and core compilation belongs in index.ts.
+ * Encapsulation: Keep MCP source argument normalization here; command wiring belongs in semlang-runtime.ts and core compilation belongs in index.ts.
  */
 
 import fs from "node:fs/promises";

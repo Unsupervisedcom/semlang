@@ -19,7 +19,7 @@ export {
   resolveSemLangMcpSettings,
   runSemLangMcpStdioServer,
   runSemLangMcpStdioServerWithSettings,
-} from "./mcp.js";
+} from "./semlang-runtime.js";
 export { lintSemanticModel } from "./lint.js";
 export { parseSemLang, parseSemLangQuery } from "./parser.js";
 export { applyQueryLenses, resolveSemLang, validateQueryAgainstModel } from "./resolver.js";

@@ -1,6 +1,6 @@
 /*
  * Purpose: Resolves SemLang MCP settings, project paths, and Malloy execution context discovery.
- * Encapsulation: Keep MCP configuration and path discovery here; tool orchestration belongs in src/mcp.ts.
+ * Encapsulation: Keep MCP configuration and path discovery here; operation orchestration belongs in src/semlang-runtime.ts.
  */
 
 import os from "node:os";

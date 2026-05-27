@@ -1539,67 +1539,96 @@ function parseQueryBody(lines: SourceLine[], file: string | undefined, diagnosti
       i += 1;
       continue;
     }
-    if (trimmed === "where:" || trimmed.startsWith("where: ")) {
-      const first = trimmed === "where:" ? undefined : line.stripped.replace(/^(\s*)where:\s*/, "$1");
-      const startLines = first ? [{ ...line, stripped: first }] : [];
-      const collected = collectQuerySection(lines, i + 1);
-      body.where = {
-        expression: normalizeExpression([...startLines, ...collected.lines]),
-        location: location(file, line.line, line.text, "where"),
-      };
-      i = collected.end;
-      continue;
-    }
-    if (trimmed === "having:" || trimmed.startsWith("having: ")) {
-      const first = trimmed === "having:" ? undefined : line.stripped.replace(/^(\s*)having:\s*/, "$1");
-      const startLines = first ? [{ ...line, stripped: first }] : [];
-      const collected = collectQuerySection(lines, i + 1);
-      body.having = {
-        expression: normalizeExpression([...startLines, ...collected.lines]),
-        location: location(file, line.line, line.text, "having"),
-      };
-      i = collected.end;
-      continue;
-    }
-    const limit = /^(limit|top):\s*(\d+)$/.exec(trimmed);
-    if (limit) {
-      body.limit = {
-        value: Number(limit[2]),
-        location: location(file, line.line, line.text, limit[1]),
-      };
-      i += 1;
-      continue;
-    }
-    if (
-      trimmed === "select:" ||
-      trimmed === "project:" ||
-      trimmed === "group_by:" ||
-      trimmed === "aggregate:" ||
-      trimmed === "calculate:" ||
-      trimmed === "order_by:" ||
-      trimmed === "index:"
-    ) {
-      const collected = collectQuerySection(lines, i + 1);
-      const items = parseQueryItems(collected.lines, file);
-      if (trimmed === "select:" || trimmed === "project:") body.select.push(...items);
-      else if (trimmed === "group_by:") body.groupBy.push(...items);
-      else if (trimmed === "aggregate:") body.aggregate.push(...items);
-      else if (trimmed === "calculate:") body.calculate.push(...items);
-      else if (trimmed === "order_by:") body.orderBy.push(...items);
-      else body.index?.push(...items);
-      i = collected.end;
-      continue;
-    }
-    if (trimmed === "nest:") {
-      const collected = collectQuerySection(lines, i + 1);
-      body.nest?.push(...parseNestItems(collected.lines, file, diagnostics));
-      i = collected.end;
+    const next = parseQueryBodyMember(body, lines, i, file, diagnostics);
+    if (next !== undefined) {
+      i = next;
       continue;
     }
     diagnostics.push(error("UNEXPECTED_QUERY_MEMBER", `Unexpected query member: ${trimmed}`, file, line));
     i += 1;
   }
   return body;
+}
+
+function parseQueryBodyMember(
+  body: QueryBodyDecl,
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+  diagnostics: Diagnostic[],
+): number | undefined {
+  const line = lines[index]!;
+  const trimmed = line.stripped.trim();
+  if (trimmed === "where:" || trimmed.startsWith("where: "))
+    return parseQueryPredicate(body, "where", lines, index, file);
+  if (trimmed === "having:" || trimmed.startsWith("having: "))
+    return parseQueryPredicate(body, "having", lines, index, file);
+  const limit = /^(limit|top):\s*(\d+)$/.exec(trimmed);
+  if (limit) return parseQueryLimit(body, line, limit, index, file);
+  if (queryItemSectionTargets.has(trimmed)) return parseQueryItemSection(body, trimmed, lines, index, file);
+  if (trimmed !== "nest:") return undefined;
+  const collected = collectQuerySection(lines, index + 1);
+  body.nest?.push(...parseNestItems(collected.lines, file, diagnostics));
+  return collected.end;
+}
+
+function parseQueryPredicate(
+  body: QueryBodyDecl,
+  key: "where" | "having",
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+): number {
+  const line = lines[index]!;
+  const first =
+    line.stripped.trim() === `${key}:` ? undefined : line.stripped.replace(new RegExp(`^(\\s*)${key}:\\s*`), "$1");
+  const startLines = first ? [{ ...line, stripped: first }] : [];
+  const collected = collectQuerySection(lines, index + 1);
+  body[key] = {
+    expression: normalizeExpression([...startLines, ...collected.lines]),
+    location: location(file, line.line, line.text, key),
+  };
+  return collected.end;
+}
+
+function parseQueryLimit(
+  body: QueryBodyDecl,
+  line: SourceLine,
+  limit: RegExpExecArray,
+  index: number,
+  file: string | undefined,
+): number {
+  body.limit = {
+    value: Number(limit[2]),
+    location: location(file, line.line, line.text, limit[1]),
+  };
+  return index + 1;
+}
+
+const queryItemSectionTargets = new Map<
+  string,
+  keyof Pick<QueryBodyDecl, "select" | "groupBy" | "aggregate" | "calculate" | "orderBy" | "index">
+>([
+  ["select:", "select"],
+  ["project:", "select"],
+  ["group_by:", "groupBy"],
+  ["aggregate:", "aggregate"],
+  ["calculate:", "calculate"],
+  ["order_by:", "orderBy"],
+  ["index:", "index"],
+] as const);
+
+function parseQueryItemSection(
+  body: QueryBodyDecl,
+  section: string,
+  lines: SourceLine[],
+  index: number,
+  file: string | undefined,
+): number {
+  const collected = collectQuerySection(lines, index + 1);
+  const target = queryItemSectionTargets.get(section);
+  body[target ?? "index"]?.push(...parseQueryItems(collected.lines, file));
+  return collected.end;
 }
 
 function emptyQueryBody(): QueryBodyDecl {

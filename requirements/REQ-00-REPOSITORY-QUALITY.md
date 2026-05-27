@@ -17,6 +17,8 @@ Test files should stay small enough for the test runner to distribute work acros
 Source functions should stay small enough to review, test, and refactor without hiding decision-heavy control flow.
 
 - 00.02.001: Lint validation MUST enforce a maximum cyclomatic complexity for TypeScript and JavaScript functions.
+- 00.02.002: Shared SemLang operations that are exposed through more than one transport SHOULD be wired through command objects so operation behavior remains separate from CLI or MCP transport names.
+- 00.02.003: Shared SemLang operation modules SHOULD use neutral SemLang naming; MCP-specific module names SHOULD be reserved for protocol adapters, process entry points, manifests, or compatibility facades.
 
 ## 00.03 Worktree Dependency Setup
 

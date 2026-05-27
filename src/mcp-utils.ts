@@ -1,6 +1,6 @@
 /*
  * Purpose: Provides MCP-safe JSON typing and small coercion helpers for tool argument handling.
- * Encapsulation: Keep generic serialization, primitive argument parsing, and diagnostic predicates here; tool orchestration and domain-specific SemLang logic belong in src/mcp.ts.
+ * Encapsulation: Keep generic serialization, primitive argument parsing, and diagnostic predicates here; command orchestration and domain-specific SemLang logic belong in src/semlang-runtime.ts.
  */
 
 import path from "node:path";

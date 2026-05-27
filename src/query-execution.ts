@@ -1,6 +1,6 @@
 /*
  * Purpose: Encapsulates one MCP run_query request from validation through Malloy execution and response shaping.
- * Encapsulation: Keep query execution orchestration here; MCP tool registration stays in src/mcp.ts.
+ * Encapsulation: Keep query execution orchestration here; command and MCP tool registration stays in src/semlang-runtime.ts.
  */
 
 import fs from "node:fs/promises";
@@ -25,7 +25,7 @@ import {
 } from "./mcp-utils.js";
 import { parseSemLangQuery } from "./parser.js";
 import { applyQueryLenses, validateQueryAgainstModel } from "./resolver.js";
-import type { SemLangMcpContext } from "./mcp.js";
+import type { SemLangMcpContext } from "./semlang-runtime.js";
 import type { Diagnostic, JoinDecl, QueryBodyDecl, QueryDecl, ResolvedConcept, SemanticModel } from "./types.js";
 
 type QueryLimitSecondsResult = { ok: true; value: number } | { ok: false; error: string };

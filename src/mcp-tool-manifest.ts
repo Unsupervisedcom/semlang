@@ -1,6 +1,6 @@
 /*
  * Purpose: Defines the ordered public MCP tool manifest metadata exposed to agents.
- * Encapsulation: Keep Zod schemas, tool descriptions, and manifest order here; handler wiring belongs in src/mcp.ts.
+ * Encapsulation: Keep Zod schemas, tool descriptions, and manifest order here; command wiring belongs in src/semlang-runtime.ts.
  */
 
 import * as z from "zod/v4";
