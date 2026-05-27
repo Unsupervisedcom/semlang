@@ -20,6 +20,7 @@ import {
   type LensDecl,
   type SemLangAst,
   type PackageLoader,
+  type QueryBodyDecl,
   type QueryDecl,
   type ResolveResult,
   type ResolvedConcept,
@@ -856,28 +857,7 @@ function validateQueryBody(
       allowUnknownBare: false,
     });
 
-  const visibleAggregates = new Set(root.measures.map((measure) => measure.name));
-  for (const aggregate of query.body.aggregate) {
-    if (!aggregate.alias) {
-      validatePathOrKnownAggregate(model, roleIndex, root, aggregate.expression, aggregate.location, diagnostics);
-      visibleAggregates.add(lastSegment(aggregate.expression));
-      continue;
-    }
-    validateExpression(model, roleIndex, root, aggregate.expression, aggregate.location, diagnostics, {
-      allowUnknownBare: true,
-      visibleAggregates,
-    });
-    const raw = findRawFieldReference(model, root, aggregate.expression, visibleAggregates);
-    if (raw) {
-      diagnostics.push({
-        severity: "error",
-        code: "RAW_FIELD_IN_AGGREGATE_ALIAS",
-        message: `Aggregate alias ${aggregate.alias} references raw row field ${raw} outside an aggregate function.`,
-        location: aggregate.location,
-      });
-    }
-    visibleAggregates.add(aggregate.alias);
-  }
+  const visibleAggregates = validateQueryAggregates(model, roleIndex, root, query.body.aggregate, diagnostics);
   if (query.body.having)
     validateExpression(model, roleIndex, root, query.body.having.expression, query.body.having.location, diagnostics, {
       allowUnknownBare: true,
@@ -912,6 +892,38 @@ function validateQueryBody(
     });
   for (const order of query.body.orderBy)
     validateOrderBy(model, roleIndex, root, order, visibleAggregates, diagnostics);
+}
+
+function validateQueryAggregates(
+  model: SemanticModel,
+  roleIndex: RoleIndex,
+  root: ResolvedConcept,
+  aggregates: QueryBodyDecl["aggregate"],
+  diagnostics: Diagnostic[],
+): Set<string> {
+  const visibleAggregates = new Set(root.measures.map((measure) => measure.name));
+  for (const aggregate of aggregates) {
+    if (!aggregate.alias) {
+      validatePathOrKnownAggregate(model, roleIndex, root, aggregate.expression, aggregate.location, diagnostics);
+      visibleAggregates.add(lastSegment(aggregate.expression));
+      continue;
+    }
+    validateExpression(model, roleIndex, root, aggregate.expression, aggregate.location, diagnostics, {
+      allowUnknownBare: true,
+      visibleAggregates,
+    });
+    const raw = findRawFieldReference(model, root, aggregate.expression, visibleAggregates);
+    if (raw) {
+      diagnostics.push({
+        severity: "error",
+        code: "RAW_FIELD_IN_AGGREGATE_ALIAS",
+        message: `Aggregate alias ${aggregate.alias} references raw row field ${raw} outside an aggregate function.`,
+        location: aggregate.location,
+      });
+    }
+    visibleAggregates.add(aggregate.alias);
+  }
+  return visibleAggregates;
 }
 
 function validateOrderBy(

@@ -28,8 +28,8 @@ export default tseslint.config(
       sourceType: "module",
     },
     rules: {
-      // Passes the current codebase; ratchet this below 18 as complex compiler and MCP flows are split up.
-      complexity: ["error", { max: 18 }],
+      // Passes the current codebase; keep ratcheting down as complex compiler and MCP flows are split up.
+      complexity: ["error", { max: 17 }],
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

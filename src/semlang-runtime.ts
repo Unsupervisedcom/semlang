@@ -2056,7 +2056,25 @@ function ensureSqlJoin(
   if (existingAlias) return { concept: target, alias: existingAlias, prefix };
   const alias = prefix.replace(/[^A-Za-z0-9_]/g, "__");
   ctx.joins.set(prefix, alias);
-  const sourceAlias = sqlAliasFor(ctx, sourcePrefix);
+  const conditions = sqlJoinConditions(ctx, source, sourcePrefix, target, alias, join, diagnostics);
+  if (conditions.length === 0 && join.kind !== "join_cross") {
+    diagnostics.push(`Join ${join.name} has no SQL join condition.`);
+  }
+  const joinKeyword = join.kind === "join_cross" && conditions.length === 0 ? "CROSS JOIN" : "LEFT JOIN";
+  const onClause = conditions.length > 0 ? ` ON ${conditions.join(" AND ")}` : "";
+  ctx.joinClauses.push(`${joinKeyword} ${quoteTablePath(target.source.path)} AS ${alias}${onClause}`);
+  return { concept: target, alias, prefix };
+}
+
+function sqlJoinConditions(
+  ctx: SqlBuildContext,
+  source: ResolvedConcept,
+  sourcePrefix: string,
+  target: ResolvedConcept,
+  alias: string,
+  join: JoinDecl,
+  diagnostics: string[],
+): string[] {
   const conditions: string[] = [];
   if (join.with) {
     const targetIdentity = target.identities[0];
@@ -2076,14 +2094,7 @@ function ensureSqlJoin(
       conditions.push(`${at} < ${alias}.${quoteIdent(period.end)}`);
     }
   }
-  if (conditions.length === 0 && join.kind !== "join_cross") {
-    diagnostics.push(`Join ${join.name} has no SQL join condition.`);
-  }
-  const joinKeyword = join.kind === "join_cross" && conditions.length === 0 ? "CROSS JOIN" : "LEFT JOIN";
-  const onClause = conditions.length > 0 ? ` ON ${conditions.join(" AND ")}` : "";
-  ctx.joinClauses.push(`${joinKeyword} ${quoteTablePath(target.source.path)} AS ${alias}${onClause}`);
-  void sourceAlias;
-  return { concept: target, alias, prefix };
+  return conditions;
 }
 
 function sqlJoinOn(
@@ -2385,10 +2396,8 @@ function roleDescriptions(model: SemanticModel) {
 }
 
 function resolveEntities(model: SemanticModel, name: string) {
-  const lower = name.toLowerCase();
   const matches: Array<Record<string, unknown>> = [];
-  const include = (candidate: string) =>
-    !name || candidate.toLowerCase() === lower || candidate.toLowerCase().includes(lower);
+  const include = entitySearchPredicate(name);
   for (const ignored of model.ignored)
     if (include(ignored.source.expression) || include(ignored.reason ?? ""))
       matches.push({ kind: "ignored", name: ignored.source.expression, ignored });
@@ -2405,8 +2414,19 @@ function resolveEntities(model: SemanticModel, name: string) {
   }
   for (const [lensName, lens] of model.lenses)
     if (include(lensName)) matches.push({ kind: "lens", name: lensName, lens: describeLensPlain(lens) });
-  for (const query of model.queries) if (include(query.name)) matches.push({ kind: "query", name: query.name, query });
+  matches.push(...queryEntityMatches(model.queries, include));
   return matches;
+}
+
+type EntityNameMatcher = (candidate: string) => boolean;
+
+function entitySearchPredicate(name: string): (candidate: string) => boolean {
+  const lower = name.toLowerCase();
+  return (candidate: string) => !name || candidate.toLowerCase() === lower || candidate.toLowerCase().includes(lower);
+}
+
+function queryEntityMatches(queries: QueryDecl[], include: EntityNameMatcher): Array<Record<string, unknown>> {
+  return queries.filter((query) => include(query.name)).map((query) => ({ kind: "query", name: query.name, query }));
 }
 
 async function resolveBusinessEntity(
