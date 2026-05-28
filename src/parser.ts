@@ -1422,14 +1422,14 @@ function parseActionMember(
     return collected.end;
   }
 
-  if (trimmed === "guard:" || trimmed.startsWith("guard: ")) {
+  if (isActionColonSectionHeader(trimmed, "guard")) {
     const first = trimmed === "guard:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)guard:\s*/, "$1") }];
     const collected = collectActionSection(body, index + 1);
     action.guards.push(...parseActionGuards([...first, ...collected.lines], file));
     return collected.end;
   }
 
-  if (trimmed === "edit:" || trimmed.startsWith("edit: ")) {
+  if (isActionColonSectionHeader(trimmed, "edit")) {
     const first = trimmed === "edit:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)edit:\s*/, "$1") }];
     const collected = collectActionSection(body, index + 1);
     action.edits.push(...parseActionEdits([...first, ...collected.lines], file, diagnostics));
@@ -1449,7 +1449,7 @@ function parseActionMember(
     return collected.end;
   }
 
-  if (trimmed === "agent:" || trimmed.startsWith("agent: ")) {
+  if (isActionColonSectionHeader(trimmed, "agent")) {
     const first = trimmed === "agent:" ? [] : [{ ...line, stripped: line.stripped.replace(/^(\s*)agent:\s*/, "$1") }];
     const collected = collectActionSection(body, index + 1);
     const entries = parseMetadataEntries([...first, ...collected.lines], file);
@@ -1890,6 +1890,12 @@ function collectActionSection(lines: SourceLine[], start: number): { lines: Sour
 
 function startsActionMemberDeclaration(trimmed: string): boolean {
   return /^(description:|subject:|param:|guard:|edit:|log\b|effect\b|agent:|execute\b|declares_write:)/.test(trimmed);
+}
+
+type ActionColonSectionName = "guard" | "edit" | "agent";
+
+function isActionColonSectionHeader(trimmed: string, section: ActionColonSectionName): boolean {
+  return trimmed === `${section}:` || trimmed.startsWith(`${section}: `);
 }
 
 function collectQuerySection(lines: SourceLine[], start: number): { lines: SourceLine[]; end: number } {

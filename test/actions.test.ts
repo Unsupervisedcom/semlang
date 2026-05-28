@@ -121,6 +121,34 @@ describe("SemLang actions", () => {
     ]);
   });
 
+  it("parses inline action section bodies", () => {
+    // 06.04.001, 06.04.002, 06.07.001, 06.07.002, 06.09.001, 06.09.004:
+    // guard, edit, and agent sections may carry their first body item inline.
+    const result = parseSemLang(
+      source([
+        "package actions.inline_sections",
+        "",
+        "concept SupplierLot is kind from duckdb.table('supplier_lots') {",
+        "  identity lot_id :: string",
+        "  field:",
+        "    status :: string writeable",
+        "  action hold {",
+        "    subject: single",
+        "    guard: status = 'received'",
+        "    edit: set status = 'held'",
+        "    agent: expose: true",
+        "  }",
+        "}",
+      ]),
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    const action = result.ast?.concepts[0]?.actions[0];
+    expect(action?.guards).toEqual([expect.objectContaining({ predicate: "status = 'received'" })]);
+    expect(action?.edits).toEqual([expect.objectContaining({ kind: "set", target: "status", expression: "'held'" })]);
+    expect(action?.agentMetadata).toEqual([expect.objectContaining({ key: "expose", value: "true" })]);
+  });
+
   it("parses writeable fields, dimensions, and write mappings", () => {
     const result = parseSemLang(actionFixture());
 
