@@ -1,0 +1,1337 @@
+// SemLang sketch for the SaaS product usage and revenue example.
+//
+// This model keeps the finance, product, entitlement, support, incident, and
+// renewal grains separate. A useful agent should discover those grains instead
+// of flattening everything into "customer" and hoping the fanout works out.
+//
+// Style notes mirrored from the retail example:
+//
+//   - `concept ... is kind/event/situation/relator from duckdb.table(...)` declares a
+//     semantic concept and its canonical source together.
+//   - `field_name :: Type` uses Malloy-like field declarations with semantic
+//     metadata carried by the named type.
+//   - temporal axes mark event time, valid state time, and observation time.
+//   - `join_one entitlement_at_activity ... at activity_date` is the compact
+//     shorthand for effective-dated joins.
+//   - `validation:` blocks are executable data-quality predicates. False means
+//     the row is invalid; it is not a query filter.
+//   - `query: name is Concept -> { ... }` keeps Malloy's query shape while
+//     letting the query root be a semantic concept.
+
+package saas.product_usage_revenue
+
+// ---------------------------------------------------------------------------
+// Semantic Types
+// ---------------------------------------------------------------------------
+
+type: AccountId is string {
+  scale_type: nominal
+  identifies: Account
+  description: "Stable customer account key used across finance, product, support, and renewal systems."
+}
+
+type: WorkspaceId is string {
+  scale_type: nominal
+  identifies: Workspace
+  description: "Tenant workspace key. Accounts can own production, sandbox, and internal workspaces."
+}
+
+type: UserId is string {
+  scale_type: nominal
+  identifies: ProductUser
+  description: "Application user key at workspace scope."
+}
+
+type: PlanId is string {
+  scale_type: nominal
+  identifies: ProductPlan
+}
+
+type: FeatureKey is string {
+  scale_type: nominal
+  identifies: ProductFeature
+}
+
+type: SubscriptionId is string {
+  scale_type: nominal
+  identifies: Subscription
+}
+
+type: ContractId is string {
+  scale_type: nominal
+  identifies: Contract
+}
+
+type: InvoiceId is string {
+  scale_type: nominal
+  identifies: Invoice
+}
+
+type: InvoiceLineId is string {
+  scale_type: nominal
+  identifies: InvoiceLine
+}
+
+type: RevenueRecognitionId is string {
+  scale_type: nominal
+  identifies: RevenueRecognitionEntry
+}
+
+type: EntitlementIntervalId is string {
+  scale_type: nominal
+  identifies: EntitlementInterval
+}
+
+type: SupportCaseId is string {
+  scale_type: nominal
+  identifies: SupportCase
+}
+
+type: IncidentId is string {
+  scale_type: nominal
+  identifies: Incident
+}
+
+type: RenewalId is string {
+  scale_type: nominal
+  identifies: Renewal
+}
+
+type: BusinessDate is date {
+  scale_type: interval
+  description: "Calendar date used for service periods, subscription months, renewals, and daily product activity."
+}
+
+type: BusinessTimestamp is timestamp {
+  scale_type: interval
+  description: "Point in time when a SaaS lifecycle event was observed or occurred."
+}
+
+type: Money is currency {
+  scale_type: ratio
+  currency: "USD"
+  render_format: currency("USD", 2)
+  description: "Commercial amount. Source rows may carry non-USD currency, so analyses should group by currency when converting is unavailable."
+}
+
+type: Count is number {
+  scale_type: ratio
+  description: "Countable quantity with a meaningful zero."
+}
+
+type: Seconds is number {
+  scale_type: ratio
+  description: "Duration measured in seconds."
+}
+
+type: Minutes is number {
+  scale_type: ratio
+  description: "Duration measured in minutes."
+}
+
+type: AccountSegment is string {
+  scale_type: ordinal
+  enum: ['startup', 'mid_market', 'enterprise']
+}
+
+type: WorkspaceType is string {
+  scale_type: nominal
+  enum: ['production', 'sandbox', 'internal']
+}
+
+type: UserRole is string {
+  scale_type: nominal
+  enum: ['admin', 'builder', 'viewer']
+}
+
+type: SeatType is string {
+  scale_type: nominal
+  enum: ['paid', 'free', 'service']
+}
+
+type: PlanFamily is string {
+  scale_type: ordinal
+  enum: ['team', 'business', 'enterprise']
+}
+
+type: BillingInterval is string {
+  scale_type: nominal
+  enum: ['monthly', 'annual']
+}
+
+type: SubscriptionState is string {
+  scale_type: ordinal
+  enum: ['active', 'cancel_pending', 'paused', 'churned']
+}
+
+type: ContractType is string {
+  scale_type: nominal
+  enum: ['new', 'renewal', 'expansion', 'contraction']
+}
+
+type: InvoiceStatus is string {
+  scale_type: nominal
+  enum: ['draft', 'open', 'paid', 'void', 'uncollectible']
+}
+
+type: InvoiceLineType is string {
+  scale_type: nominal
+  enum: ['recurring', 'usage', 'credit', 'tax']
+}
+
+type: RevenueCategory is string {
+  scale_type: nominal
+  enum: ['subscription', 'usage', 'professional_services', 'tax', 'credit']
+}
+
+type: AccountingBasis is string {
+  scale_type: nominal
+  enum: ['ratable', 'point_in_time', 'credit']
+}
+
+type: EntitlementStatus is string {
+  scale_type: nominal
+  enum: ['included', 'metered', 'disabled']
+}
+
+type: EnforcementMode is string {
+  scale_type: nominal
+  enum: ['hard_limit', 'soft_limit', 'none']
+}
+
+type: SupportPriority is string {
+  scale_type: ordinal
+  enum: ['low', 'normal', 'high', 'urgent']
+}
+
+type: SupportCaseStatus is string {
+  scale_type: ordinal
+  enum: ['open', 'pending_customer', 'resolved', 'closed']
+}
+
+type: SupportChannel is string {
+  scale_type: nominal
+  enum: ['email', 'chat', 'web', 'phone']
+}
+
+type: IncidentSeverity is string {
+  scale_type: ordinal
+  enum: ['sev4', 'sev3', 'sev2', 'sev1']
+}
+
+type: IncidentStatus is string {
+  scale_type: ordinal
+  enum: ['investigating', 'monitoring', 'resolved']
+}
+
+type: ImpactType is string {
+  scale_type: nominal
+  enum: ['degraded_performance', 'partial_outage', 'full_outage']
+}
+
+type: RenewalStage is string {
+  scale_type: ordinal
+  enum: ['not_started', 'discovery', 'negotiation', 'committed', 'closed_won', 'closed_lost']
+}
+
+type: ForecastCategory is string {
+  scale_type: ordinal
+  enum: ['pipeline', 'best_case', 'commit', 'closed']
+}
+
+// ---------------------------------------------------------------------------
+// Core Customer and Product Concepts
+// ---------------------------------------------------------------------------
+
+concept Account is kind from duckdb.table('accounts') {
+  // The account is the common party across contracts, invoices, product
+  // activity, support, incidents, and renewals. It is not itself a revenue fact.
+  identity account_id :: AccountId
+
+  field:
+    account_name :: string
+    segment :: AccountSegment
+    industry :: string
+    region :: string
+    billing_country :: string
+    account_owner :: string
+    created_date :: BusinessDate
+
+  join_many workspaces: Workspace on account_id
+  join_many subscriptions: Subscription on account_id
+  join_many renewals: Renewal on account_id
+
+  role EnterpriseAccount when segment = 'enterprise'
+  role StartupAccount when segment = 'startup'
+
+  dimension:
+    account_label is concat(account_name, ' (', segment, ')')
+    is_enterprise is this is EnterpriseAccount
+
+  validation:
+    account_has_owner is {
+      description: "Every commercial account must have an owner for lifecycle and renewal accountability."
+      predicate: account_owner is not null and account_owner != ''
+    }
+}
+
+concept Workspace is kind from duckdb.table('workspaces') {
+  identity workspace_id :: WorkspaceId
+
+  join_one account: Account on account_id
+  join_many users: ProductUser on workspace_id
+
+  field:
+    account_id :: AccountId
+    workspace_name :: string
+    workspace_type :: WorkspaceType
+    created_at :: BusinessTimestamp
+    archived_at :: BusinessTimestamp?
+
+  role ProductionWorkspace when workspace_type = 'production'
+  role ArchivedWorkspace when archived_at is not null
+
+  dimension:
+    created_month is created_at.month
+    is_production_workspace is this is ProductionWorkspace
+    is_archived is this is ArchivedWorkspace
+
+  validation:
+    archived_after_created is {
+      description: "A workspace cannot be archived before it exists."
+      predicate: archived_at is null or archived_at >= created_at
+    }
+}
+
+concept ProductUser is kind from duckdb.table('users') {
+  // Users are modeled under workspaces, but account_id is denormalized in the
+  // source. Keeping both joins makes account-scoped and workspace-scoped product
+  // questions easy for agents to discover.
+  identity user_id :: UserId
+
+  join_one account: Account on account_id
+  join_one workspace: Workspace on workspace_id
+
+  field:
+    workspace_id :: WorkspaceId
+    account_id :: AccountId
+    external_user_key :: string
+    user_role :: UserRole
+    seat_type :: SeatType
+    created_at :: BusinessTimestamp
+    deactivated_at :: BusinessTimestamp?
+
+  role PaidSeat when seat_type = 'paid'
+  role ActiveUserRecord when deactivated_at is null
+
+  dimension:
+    created_month is created_at.month
+    is_paid_seat is this is PaidSeat
+    is_active_user_record is this is ActiveUserRecord
+
+  validation:
+    deactivated_after_created is {
+      description: "A user cannot deactivate before creation."
+      predicate: deactivated_at is null or deactivated_at >= created_at
+    }
+}
+
+concept ProductPlan is kind from duckdb.table('product_plans') {
+  identity plan_id :: PlanId
+
+  field:
+    plan_code :: string unique
+    plan_family :: PlanFamily
+    billing_interval :: BillingInterval
+    base_arr_amount :: Money
+    included_seats :: Count
+    created_at :: BusinessTimestamp
+
+  role EnterprisePlan when plan_family = 'enterprise'
+  role AnnualPlan when billing_interval = 'annual'
+
+  dimension:
+    plan_label is concat(plan_code, ' / ', plan_family)
+    created_month is created_at.month
+    base_mrr_amount is base_arr_amount / 12
+
+  validation:
+    plan_amounts_are_non_negative is {
+      description: "Plan list ARR and included seats must not be negative."
+      predicate: base_arr_amount >= 0 and included_seats >= 0
+    }
+}
+
+concept ProductFeature is kind from duckdb.table('product_features') {
+  identity feature_key :: FeatureKey
+
+  field:
+    feature_name :: string
+    feature_family :: string
+    telemetry_event_name :: string unique
+    release_date :: BusinessDate
+
+  role ReleasedFeature when release_date <= now.day
+
+  dimension:
+    release_month is release_date.month
+    feature_label is concat(feature_family, ' / ', feature_name)
+}
+
+// ---------------------------------------------------------------------------
+// Subscription, Contract, Billing, and Revenue Concepts
+// ---------------------------------------------------------------------------
+
+concept Subscription is kind from duckdb.table('subscriptions') {
+  // Current subscription terms live here. Month-by-month movement lives in
+  // SubscriptionPeriod, and recognized revenue lives in RevenueRecognitionEntry.
+  identity subscription_id :: SubscriptionId
+  valid_time: period(current_term_start, current_term_end)
+
+  join_one account: Account on account_id
+  join_one plan: ProductPlan on plan_id
+  join_many periods: SubscriptionPeriod on subscription_id
+  join_many contracts: Contract on subscription_id
+
+  field:
+    account_id :: AccountId
+    plan_id :: PlanId
+    subscription_state :: SubscriptionState
+    start_date :: BusinessDate
+    cancellation_requested_at :: BusinessTimestamp?
+    churn_effective_date :: BusinessDate?
+    current_term_start :: BusinessDate
+    current_term_end :: BusinessDate
+    paid_seats :: Count
+    contracted_arr :: Money
+    billing_currency :: string
+
+  role ActiveSubscription when subscription_state = 'active'
+  role ChurnedSubscription when subscription_state = 'churned'
+  role CancelPendingSubscription when subscription_state = 'cancel_pending'
+
+  dimension:
+    start_month is start_date.month
+    current_term_start_month is current_term_start.month
+    current_term_end_month is current_term_end.month
+    cancellation_requested_date is cancellation_requested_at.day
+    churn_month is churn_effective_date.month
+    contracted_mrr_run_rate_amount is contracted_arr / 12
+    is_active_subscription is this is ActiveSubscription
+
+  measure:
+    subscriptions is count()
+    active_subscriptions is count(case when this is ActiveSubscription then subscription_id end)
+    contracted_arr is sum(contracted_arr)
+    contracted_mrr_run_rate is sum(contracted_mrr_run_rate_amount)
+    paid_seats is sum(paid_seats)
+
+  validation:
+    term_dates_are_ordered is {
+      description: "A subscription term must end after it starts."
+      predicate: current_term_end > current_term_start
+    }
+
+  validation:
+    churn_date_after_start is {
+      description: "If present, churn effective date cannot precede the subscription start date."
+      predicate: churn_effective_date is null or churn_effective_date >= start_date
+    }
+}
+
+concept Contract is relator from duckdb.table('contracts') {
+  // A contract relates an account to a subscription for a commercial term. It is
+  // a signed commercial event and also has a valid service period.
+  identity contract_id :: ContractId
+  occurrence_time: signed_at
+  valid_time: period(contract_start_date, contract_end_date)
+
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+
+  field:
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    contract_number :: string unique
+    contract_type :: ContractType
+    signed_at :: BusinessTimestamp
+    contract_start_date :: BusinessDate
+    contract_end_date :: BusinessDate
+    booking_arr :: Money
+    prior_arr :: Money
+    arr_delta :: Money
+    auto_renewal :: boolean
+
+  role ExpansionContract when contract_type = 'expansion' or arr_delta > 0
+  role ContractionContract when contract_type = 'contraction' or arr_delta < 0
+  role RenewalContract when contract_type = 'renewal'
+
+  dimension:
+    signed_month is signed_at.month
+    contract_start_month is contract_start_date.month
+    contract_end_month is contract_end_date.month
+    is_expansion_contract is this is ExpansionContract
+    is_contraction_contract is this is ContractionContract
+
+  measure:
+    contracts is count()
+    booking_arr is sum(booking_arr)
+    prior_arr is sum(prior_arr)
+    expansion_arr_booked is sum(case when arr_delta > 0 then arr_delta else 0 end)
+    contraction_arr_booked is sum(case when arr_delta < 0 then -arr_delta else 0 end)
+
+  validation:
+    contract_period_is_ordered is {
+      description: "A contract service period must end after it starts."
+      predicate: contract_end_date > contract_start_date
+    }
+}
+
+concept SubscriptionPeriod is situation from duckdb.table('subscription_periods') {
+  // This is the analytical center for ARR movement. It is deliberately separate
+  // from invoices and revenue recognition because ARR is a run-rate state, not
+  // cash billed and not accounting revenue.
+  identity subscription_period_id :: string
+  valid_time: period(period_start, period_end)
+  observation_time: period_start
+
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+  join_one plan: ProductPlan on plan_id
+
+  field:
+    subscription_id :: SubscriptionId
+    account_id :: AccountId
+    plan_id :: PlanId
+    period_start :: BusinessDate
+    period_end :: BusinessDate
+    period_state :: SubscriptionState
+    paid_seats :: Count
+    starting_arr :: Money
+    ending_arr :: Money
+    arr_delta :: Money
+    churn_effective_flag :: boolean
+    prior_arr_amount :: Money
+
+  role ExpansionPeriod when arr_delta > 0
+  role ContractionPeriod when arr_delta < 0 and churn_effective_flag = false
+  role ChurnPeriod when churn_effective_flag
+
+  dimension:
+    period_month is period_start.month
+    mrr_run_rate_amount is ending_arr / 12
+    net_arr_delta is ending_arr - starting_arr
+    is_churn_effective_period is this is ChurnPeriod
+
+  measure:
+    subscription_period_rows is count()
+    starting_arr is sum(starting_arr)
+    ending_arr is sum(ending_arr)
+    mrr_run_rate is sum(mrr_run_rate_amount)
+    paid_seats is sum(paid_seats)
+    expansion_arr is sum(case when this is ExpansionPeriod then arr_delta else 0 end)
+    contraction_arr is sum(case when this is ContractionPeriod then -arr_delta else 0 end)
+    gross_churn_arr is sum(case when this is ChurnPeriod then prior_arr_amount else 0 end)
+    net_arr_movement is sum(arr_delta)
+    logo_churned_accounts is count(case when this is ChurnPeriod then account_id end)
+    active_subscription_periods is count(case when period_state = 'active' then subscription_period_id end)
+
+  view: arr_movement_by_period is {
+    group_by:
+      period_month
+      account.segment
+      account.region
+      plan.plan_family
+      period_state
+    aggregate:
+      starting_arr
+      ending_arr
+      mrr_run_rate
+      expansion_arr
+      contraction_arr
+      gross_churn_arr
+      logo_churned_accounts
+      active_subscription_periods
+  }
+
+  validation:
+    period_dates_are_ordered is {
+      description: "A subscription period must end after it starts."
+      predicate: period_end > period_start
+    }
+}
+
+concept Invoice is event from duckdb.table('invoices') {
+  identity invoice_id :: InvoiceId
+  occurrence_time: invoice_date
+
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+  join_many lines: InvoiceLine on invoice_id
+
+  field:
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    invoice_number :: string unique
+    invoice_date :: BusinessDate
+    due_date :: BusinessDate
+    invoice_status :: InvoiceStatus
+    invoice_total :: Money
+    currency :: string
+
+  role PaidInvoice when invoice_status = 'paid'
+  role OpenInvoice when invoice_status = 'open'
+
+  dimension:
+    invoice_month is invoice_date.month
+    is_paid_invoice is this is PaidInvoice
+
+  measure:
+    invoices is count()
+    invoice_total is sum(invoice_total)
+    paid_invoice_total is sum(case when this is PaidInvoice then invoice_total else 0 end)
+    open_invoice_total is sum(case when this is OpenInvoice then invoice_total else 0 end)
+
+  validation:
+    due_date_not_before_invoice_date is {
+      description: "An invoice due date cannot precede its invoice date."
+      predicate: due_date >= invoice_date
+    }
+}
+
+concept InvoiceLine is relator from duckdb.table('invoice_lines') {
+  identity invoice_line_id :: InvoiceLineId
+  valid_time: period(service_period_start, service_period_end)
+
+  join_one invoice: Invoice on invoice_id
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+  join_many recognition_entries: RevenueRecognitionEntry on invoice_line_id
+
+  field:
+    invoice_id :: InvoiceId
+    subscription_id :: SubscriptionId
+    account_id :: AccountId
+    service_period_start :: BusinessDate
+    service_period_end :: BusinessDate
+    line_type :: InvoiceLineType
+    revenue_category :: RevenueCategory
+    billed_amount :: Money
+
+  role RecurringInvoiceLine when line_type = 'recurring'
+  role CreditInvoiceLine when line_type = 'credit'
+
+  dimension:
+    service_start_month is service_period_start.month
+    service_end_month is service_period_end.month
+
+  measure:
+    invoice_lines is count()
+    billed_amount is sum(billed_amount)
+    recurring_billed_amount is sum(case when this is RecurringInvoiceLine then billed_amount else 0 end)
+    credit_amount is sum(case when this is CreditInvoiceLine then billed_amount else 0 end)
+
+  validation:
+    service_period_is_ordered is {
+      description: "An invoice line service period must end after it starts."
+      predicate: service_period_end > service_period_start
+    }
+}
+
+concept RevenueRecognitionEntry is situation from duckdb.table('revenue_recognition') {
+  // Recognition entries are monthly accounting facts. They should not be used
+  // to infer contracted run-rate without joining to SubscriptionPeriod.
+  identity revenue_recognition_id :: RevenueRecognitionId
+  valid_time: recognition_month
+  observation_time: recognition_month
+
+  join_one invoice_line: InvoiceLine on invoice_line_id
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+
+  field:
+    invoice_line_id :: InvoiceLineId
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    recognition_month :: BusinessDate
+    revenue_category :: RevenueCategory
+    accounting_basis :: AccountingBasis
+    recognized_revenue_amount :: Money
+
+  role RecurringRevenueRecognition when revenue_category = 'subscription'
+  role CreditRecognition when revenue_category = 'credit'
+
+  dimension:
+    recognized_month is recognition_month.month
+    is_recurring_revenue is this is RecurringRevenueRecognition
+
+  measure:
+    revenue_recognition_rows is count()
+    recognized_revenue is sum(recognized_revenue_amount)
+    recognized_subscription_revenue is sum(
+      case when this is RecurringRevenueRecognition then recognized_revenue_amount else 0 end
+    )
+    recognized_credit_amount is sum(
+      case when this is CreditRecognition then recognized_revenue_amount else 0 end
+    )
+
+  view: recognized_revenue_by_month is {
+    group_by:
+      recognized_month
+      account.segment
+      account.region
+      revenue_category
+      accounting_basis
+    aggregate:
+      recognized_revenue
+      recognized_subscription_revenue
+      recognized_credit_amount
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Entitlements and Product Activity
+// ---------------------------------------------------------------------------
+
+concept EntitlementInterval is relator from duckdb.table('entitlement_intervals') {
+  // Effective-dated plan-to-feature rights. Feature usage points directly to the
+  // interval row in the sample data, and the semantic join below also supports
+  // reconstructing the right in force with `at activity_date`.
+  identity entitlement_interval_id :: EntitlementIntervalId
+  valid_time: period(valid_from, valid_to)
+
+  join_one plan: ProductPlan on plan_id
+  join_one feature: ProductFeature on feature_key
+
+  field:
+    plan_id :: PlanId
+    feature_key :: FeatureKey
+    valid_from :: BusinessDate
+    valid_to :: BusinessDate
+    entitlement_status :: EntitlementStatus
+    included_limit :: Count?
+    metering_unit :: string
+    enforcement_mode :: EnforcementMode
+
+  role EnabledEntitlement when entitlement_status in ('included', 'metered')
+  role MeteredEntitlement when entitlement_status = 'metered'
+  role DisabledEntitlement when entitlement_status = 'disabled'
+
+  dimension:
+    is_included_or_metered is this is EnabledEntitlement
+    is_metered is this is MeteredEntitlement
+
+  measure:
+    entitlement_intervals is count()
+    enabled_entitlements is count(case when this is EnabledEntitlement then entitlement_interval_id end)
+
+  validation:
+    entitlement_period_is_ordered is {
+      description: "An entitlement interval must end after it starts."
+      predicate: valid_to > valid_from
+    }
+
+  validation:
+    disabled_entitlements_have_no_positive_limit is {
+      description: "Disabled entitlements should not advertise a usable positive included limit."
+      predicate: entitlement_status != 'disabled' or included_limit is null or included_limit = 0
+    }
+}
+
+concept UserActivityDay is situation from duckdb.table('user_activity_days') {
+  // Daily user activity is useful for adoption, but it is not feature-level
+  // usage. Reach FeatureUsageDay when the question names features or rights.
+  identity user_activity_day_id :: string
+  valid_time: activity_date
+  observation_time: activity_date
+
+  join_one user: ProductUser on user_id
+  join_one workspace: Workspace on workspace_id
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+
+  field:
+    activity_date :: BusinessDate
+    user_id :: UserId
+    workspace_id :: WorkspaceId
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    active_seconds :: Seconds
+    sessions_count :: Count
+    actions_count :: Count
+    is_billable_seat_activity :: boolean
+
+  role BillableSeatActivity when is_billable_seat_activity
+
+  dimension:
+    activity_month is activity_date.month
+    active_minutes is active_seconds / 60
+
+  measure:
+    user_activity_days is count()
+    active_users is count(user_id)
+    active_workspaces is count(workspace_id)
+    active_accounts is count(account_id)
+    billable_active_users is count(case when this is BillableSeatActivity then user_id end)
+    sessions is sum(sessions_count)
+    actions is sum(actions_count)
+    active_seconds is sum(active_seconds)
+    avg_active_seconds_per_user_day is active_seconds / nullif(user_activity_days, 0)
+
+  view: product_activity_by_workspace is {
+    group_by:
+      activity_month
+      account.segment
+      account.region
+      workspace.workspace_type
+    aggregate:
+      active_accounts
+      active_workspaces
+      active_users
+      billable_active_users
+      sessions
+      actions
+      active_seconds
+      avg_active_seconds_per_user_day
+  }
+}
+
+concept FeatureUsageDay is situation from duckdb.table('feature_usage_days') {
+  identity feature_usage_day_id :: string
+  valid_time: activity_date
+  observation_time: activity_date
+
+  join_one user: ProductUser on user_id
+  join_one workspace: Workspace on workspace_id
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+  join_one plan: ProductPlan on plan_id
+  join_one feature: ProductFeature on feature_key
+
+  join_one entitlement_at_activity: EntitlementInterval
+    on plan_id = entitlement_at_activity.plan_id
+    and feature_key = entitlement_at_activity.feature_key
+    at activity_date
+
+  field:
+    activity_date :: BusinessDate
+    user_id :: UserId
+    workspace_id :: WorkspaceId
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    plan_id :: PlanId
+    feature_key :: FeatureKey
+    entitlement_interval_id :: EntitlementIntervalId
+    usage_count :: Count
+    units_consumed :: Count
+    feature_used_flag :: boolean
+
+  role EntitledFeatureUsage when entitlement_at_activity is EnabledEntitlement
+  role MeteredFeatureUsage when entitlement_at_activity is MeteredEntitlement
+  role DisabledFeatureUsage when entitlement_at_activity is DisabledEntitlement
+
+  dimension:
+    activity_month is activity_date.month
+    is_entitled_usage is this is EntitledFeatureUsage
+    is_metered_usage is this is MeteredFeatureUsage
+    usage_over_included_limit is
+      entitlement_at_activity.included_limit is not null
+      and units_consumed > entitlement_at_activity.included_limit
+
+  measure:
+    feature_usage_days is count()
+    feature_events is sum(usage_count)
+    units_consumed is sum(units_consumed)
+    feature_active_users is count(case when feature_used_flag then user_id end)
+    feature_active_workspaces is count(case when feature_used_flag then workspace_id end)
+    feature_adoption_accounts is count(case when feature_used_flag then account_id end)
+    entitled_feature_events is sum(case when this is EntitledFeatureUsage then usage_count else 0 end)
+    disabled_feature_events is sum(case when this is DisabledFeatureUsage then usage_count else 0 end)
+    over_limit_feature_days is count(case when usage_over_included_limit then feature_usage_day_id end)
+
+  view: entitlement_aware_feature_adoption is {
+    group_by:
+      activity_month
+      account.segment
+      plan.plan_family
+      feature.feature_family
+      feature.feature_name
+      entitlement_at_activity.entitlement_status
+      entitlement_at_activity.enforcement_mode
+    aggregate:
+      feature_active_users
+      feature_active_workspaces
+      feature_adoption_accounts
+      feature_events
+      entitled_feature_events
+      disabled_feature_events
+      over_limit_feature_days
+      units_consumed
+  }
+
+  validation:
+    feature_usage_matches_effective_entitlement is {
+      description: "The denormalized entitlement_interval_id should match the entitlement in force for the plan, feature, and activity date."
+      predicate: entitlement_interval_id = entitlement_at_activity.entitlement_interval_id
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Customer Experience, Reliability, and Renewal Concepts
+// ---------------------------------------------------------------------------
+
+concept SupportCase is event from duckdb.table('support_cases') {
+  identity support_case_id :: SupportCaseId
+  occurrence_time: opened_at
+
+  join_one account: Account on account_id
+  join_one workspace?: Workspace on workspace_id
+  join_one subscription?: Subscription on subscription_id
+
+  field:
+    account_id :: AccountId writeable
+    workspace_id :: WorkspaceId? writeable
+    subscription_id :: SubscriptionId? writeable
+    opened_at :: BusinessTimestamp writeable
+    first_response_at :: BusinessTimestamp?
+    resolved_at :: BusinessTimestamp?
+    priority :: SupportPriority writeable
+    case_status :: SupportCaseStatus writeable
+    channel :: SupportChannel writeable
+    category :: string writeable
+    sla_paused_minutes :: Minutes writeable
+    csat_score :: Count?
+
+  role OpenSupportCase when case_status in ('open', 'pending_customer')
+  role UrgentSupportCase when priority = 'urgent'
+  role ResolvedSupportCase when case_status in ('resolved', 'closed')
+
+  dimension:
+    opened_month is opened_at.month
+    first_response_minutes is 0
+    resolution_minutes is 0
+    net_resolution_minutes is resolution_minutes - sla_paused_minutes
+
+  measure:
+    support_cases is count()
+    open_cases is count(case when this is OpenSupportCase then support_case_id end)
+    urgent_cases is count(case when this is UrgentSupportCase then support_case_id end)
+    avg_first_response_minutes is avg(first_response_minutes)
+    avg_net_resolution_minutes is avg(net_resolution_minutes)
+    avg_csat_score is avg(csat_score)
+
+  view: support_health is {
+    group_by:
+      opened_month
+      account.segment
+      priority
+      case_status
+      category
+    aggregate:
+      support_cases
+      open_cases
+      urgent_cases
+      avg_first_response_minutes
+      avg_net_resolution_minutes
+      avg_csat_score
+  }
+
+  action open_case {
+    subject: new
+
+    param:
+      account_id :: AccountId
+      workspace_id :: WorkspaceId?
+      subscription_id :: SubscriptionId?
+      priority :: SupportPriority default 'normal'
+      channel :: SupportChannel
+      category :: string
+
+    edit:
+      insert {
+        account_id: account_id
+        workspace_id: workspace_id
+        subscription_id: subscription_id
+        opened_at: current_time
+        priority: priority
+        case_status: 'open'
+        channel: channel
+        category: category
+        sla_paused_minutes: 0
+      }
+
+    log as SupportCaseActionLog {
+      summary: "Opened support case for account ${account_id}"
+      include: workspace_id, subscription_id, priority, channel, current_user.id
+    }
+  }
+
+  validation:
+    response_and_resolution_after_open is {
+      description: "First response and resolution timestamps cannot precede case opening."
+      predicate:
+        (first_response_at is null or first_response_at >= opened_at)
+        and (resolved_at is null or resolved_at >= opened_at)
+    }
+}
+
+concept Incident is event from duckdb.table('incidents') {
+  identity incident_id :: IncidentId
+  occurrence_time: started_at
+  recorded_time: detected_at
+
+  join_many workspace_impacts: IncidentWorkspaceImpact on incident_id
+
+  field:
+    incident_number :: string unique
+    started_at :: BusinessTimestamp
+    detected_at :: BusinessTimestamp
+    resolved_at :: BusinessTimestamp?
+    severity :: IncidentSeverity
+    incident_status :: IncidentStatus
+    product_area :: string
+    customer_visible :: boolean
+
+  role CustomerVisibleIncident when customer_visible
+  role MajorIncident when severity in ('sev1', 'sev2')
+  role OpenIncident when incident_status in ('investigating', 'monitoring')
+
+  dimension:
+    started_month is started_at.month
+    duration_minutes is 0
+    detection_lag_minutes is 0
+
+  measure:
+    incidents is count()
+    customer_visible_incidents is count(case when this is CustomerVisibleIncident then incident_id end)
+    major_incidents is count(case when this is MajorIncident then incident_id end)
+    avg_detection_lag_minutes is avg(detection_lag_minutes)
+    avg_duration_minutes is avg(duration_minutes)
+
+  validation:
+    detection_and_resolution_are_ordered is {
+      description: "An incident must be detected after it starts and resolved after detection."
+      predicate:
+        detected_at >= started_at
+        and (resolved_at is null or resolved_at >= detected_at)
+    }
+}
+
+concept IncidentWorkspaceImpact is relator from duckdb.table('incident_workspace_impacts') {
+  identity incident_impact_id :: string
+  valid_time: period(impact_start_at, impact_end_at)
+
+  join_one incident: Incident on incident_id
+  join_one workspace: Workspace on workspace_id
+  join_one account: Account on account_id
+
+  field:
+    incident_id :: IncidentId
+    workspace_id :: WorkspaceId
+    account_id :: AccountId
+    impact_start_at :: BusinessTimestamp
+    impact_end_at :: BusinessTimestamp
+    impact_minutes :: Minutes
+    impact_type :: ImpactType
+
+  role SevereCustomerImpact when incident is MajorIncident and incident is CustomerVisibleIncident
+
+  dimension:
+    impact_month is impact_start_at.month
+
+  measure:
+    impacted_workspace_rows is count()
+    impacted_accounts is count(account_id)
+    impacted_workspaces is count(workspace_id)
+    incident_impact_minutes is sum(impact_minutes)
+    severe_customer_impact_minutes is sum(
+      case when this is SevereCustomerImpact then impact_minutes else 0 end
+    )
+
+  view: incident_customer_impact is {
+    group_by:
+      impact_month
+      account.segment
+      incident.severity
+      incident.product_area
+      incident.customer_visible
+      impact_type
+    aggregate:
+      impacted_accounts
+      impacted_workspaces
+      incident_impact_minutes
+      severe_customer_impact_minutes
+  }
+
+  validation:
+    impact_window_is_ordered is {
+      description: "Workspace impact windows must not end before they start."
+      predicate: impact_end_at >= impact_start_at
+    }
+}
+
+concept Renewal is situation from duckdb.table('renewals') {
+  // Renewal is a forecasted lifecycle state around a future due date. It joins
+  // back to the current contract and, when closed-won, may point to the next
+  // signed contract.
+  identity renewal_id :: RenewalId
+  valid_time: renewal_due_date
+  observation_time: renewal_due_date
+
+  join_one account: Account on account_id
+  join_one subscription: Subscription on subscription_id
+  join_one current_contract: Contract
+    on current_contract_id = current_contract.contract_id
+
+  join_one next_contract?: Contract
+    on next_contract_id = next_contract.contract_id
+
+  field:
+    account_id :: AccountId
+    subscription_id :: SubscriptionId
+    current_contract_id :: ContractId
+    next_contract_id :: ContractId?
+    renewal_due_date :: BusinessDate
+    renewal_stage :: RenewalStage
+    forecast_category :: ForecastCategory
+    renewal_arr :: Money
+    expansion_arr_forecast :: Money
+    contraction_arr_risk :: Money
+    churn_risk_reason :: string?
+    closed_at :: BusinessTimestamp?
+
+  role ClosedWonRenewal when renewal_stage = 'closed_won'
+  role ClosedLostRenewal when renewal_stage = 'closed_lost'
+  role AtRiskRenewal when contraction_arr_risk > 0 or churn_risk_reason is not null
+
+  dimension:
+    renewal_due_month is renewal_due_date.month
+    is_closed_won is this is ClosedWonRenewal
+    is_closed_lost is this is ClosedLostRenewal
+
+  measure:
+    renewals is count()
+    renewal_arr is sum(renewal_arr)
+    expansion_arr_forecast is sum(expansion_arr_forecast)
+    contraction_arr_risk is sum(contraction_arr_risk)
+    closed_won_arr is sum(
+      case when this is ClosedWonRenewal then renewal_arr + expansion_arr_forecast else 0 end
+    )
+    closed_lost_arr is sum(case when this is ClosedLostRenewal then renewal_arr else 0 end)
+    at_risk_renewals is count(case when this is AtRiskRenewal then renewal_id end)
+
+  view: renewal_pipeline is {
+    group_by:
+      renewal_due_month
+      account.segment
+      forecast_category
+      renewal_stage
+      churn_risk_reason
+    aggregate:
+      renewals
+      renewal_arr
+      expansion_arr_forecast
+      contraction_arr_risk
+      closed_won_arr
+      closed_lost_arr
+      at_risk_renewals
+  }
+
+  validation:
+    closed_renewals_have_closed_stage is {
+      description: "A closed timestamp is only valid on a closed-won or closed-lost renewal."
+      predicate: closed_at is null or renewal_stage in ('closed_won', 'closed_lost')
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: finance_arr_movement is SubscriptionPeriod -> {
+  // Business question:
+  //   "Show ARR movement by month, segment, region, and plan family."
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: SubscriptionPeriod, Account, ProductPlan
+  //   mcp.describe({ kind: "concept", names: ["SubscriptionPeriod"] })
+  //   -> ARR movement is at subscription-period grain; invoices and recognized
+  //      revenue are different facts and should not be joined unless requested.
+  //   mcp.run_query({ group_by, aggregate })
+  //   -> valid; all measures are declared at the subscription period grain.
+  group_by:
+    period_month
+    account.segment
+    account.region
+    plan.plan_family
+    period_state
+  aggregate:
+    starting_arr
+    ending_arr
+    mrr_run_rate
+    expansion_arr
+    contraction_arr
+    gross_churn_arr
+    logo_churned_accounts
+}
+
+query: recognized_revenue_trend is RevenueRecognitionEntry -> {
+  // Business question:
+  //   "What revenue was recognized by month, segment, region, and accounting
+  //    basis?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: RevenueRecognitionEntry, Account, InvoiceLine
+  //   mcp.describe({ kind: "metric", names: ["recognized_revenue"] })
+  //   -> source table revenue_recognition; not invoice total and not ARR.
+  group_by:
+    recognized_month
+    account.segment
+    account.region
+    revenue_category
+    accounting_basis
+  aggregate:
+    recognized_revenue
+    recognized_subscription_revenue
+    recognized_credit_amount
+}
+
+query: entitlement_aware_usage is FeatureUsageDay -> {
+  // Business question:
+  //   "Which features are being adopted, and was that usage covered by the
+  //    plan entitlement in force on the usage date?"
+  //
+  // Agent discovery sketch:
+  //   mcp.find_paths({
+  //     from: "FeatureUsageDay",
+  //     to: ["ProductFeature", "EntitlementInterval", "ProductPlan"]
+  //   })
+  //   -> FeatureUsageDay -> ProductFeature
+  //   -> FeatureUsageDay -> EntitlementInterval at activity_date
+  //   mcp.run_query(...)
+  //   -> valid; `at activity_date` constrains the effective-dated entitlement.
+  group_by:
+    activity_month
+    account.segment
+    plan.plan_family
+    feature.feature_family
+    feature.feature_name
+    entitlement_at_activity.entitlement_status
+  aggregate:
+    feature_active_users
+    feature_active_workspaces
+    feature_adoption_accounts
+    feature_events
+    entitled_feature_events
+    disabled_feature_events
+    over_limit_feature_days
+}
+
+query: renewal_risk_summary is Renewal -> {
+  // Business question:
+  //   "Which renewal cohorts carry contraction or churn risk?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: Renewal, Account, Contract, Subscription
+  //   mcp.describe({ kind: "role", names: ["AtRiskRenewal"] })
+  //   -> contraction_arr_risk > 0 or churn_risk_reason is populated.
+  group_by:
+    renewal_due_month
+    account.segment
+    forecast_category
+    renewal_stage
+    churn_risk_reason
+  aggregate:
+    renewals
+    renewal_arr
+    expansion_arr_forecast
+    contraction_arr_risk
+    closed_won_arr
+    closed_lost_arr
+    at_risk_renewals
+}
+
+query: support_and_incident_health is IncidentWorkspaceImpact -> {
+  // Business question:
+  //   "Where are customer-visible incidents creating account impact?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: IncidentWorkspaceImpact, Incident, Workspace, Account
+  //   mcp.describe({ kind: "concept", names: ["IncidentWorkspaceImpact"] })
+  //   -> impact minutes are workspace-scoped; count distinct accounts and
+  //      workspaces to avoid treating impact rows as account rows.
+  where:
+    incident is CustomerVisibleIncident
+  group_by:
+    impact_month
+    account.segment
+    account.region
+    incident.severity
+    incident.product_area
+    impact_type
+  aggregate:
+    impacted_accounts
+    impacted_workspaces
+    incident_impact_minutes
+    severe_customer_impact_minutes
+}
+
+query: churned_account_pre_churn_activity is FeatureUsageDay -> {
+  // Deliberately cross-domain business question:
+  //   "What product usage did accounts have in the month before churn?"
+  //
+  // The root is FeatureUsageDay because the question asks about feature usage.
+  // Churn is reached through SubscriptionPeriod, but ARR measures are not mixed
+  // into this query. A follow-up could root at SubscriptionPeriod and join usage
+  // through account/subscription if ARR denominators were needed.
+  //
+  // Agent discovery sketch:
+  //   mcp.find_paths({
+  //     from: "FeatureUsageDay",
+  //     to: ["Subscription", "SubscriptionPeriod"]
+  //   })
+  //   -> FeatureUsageDay.subscription -> Subscription.periods
+  //   mcp.run_query(...)
+  //   -> valid; periods is one-to-many, so the where clause restricts to the
+  //      churn period and group_by stays at feature/month dimensions.
+  where:
+    subscription.periods is ChurnPeriod
+    and activity_date >= subscription.periods.period_start - 30 days
+    and activity_date < subscription.periods.period_start
+  group_by:
+    account.account_name
+    account.segment
+    feature.feature_family
+    feature.feature_name
+    entitlement_at_activity.entitlement_status
+  aggregate:
+    feature_active_users
+    feature_active_workspaces
+    feature_events
+    units_consumed
+}
+
+// MCP action narrative:
+//   mcp.describe({ kind: "concept", names: ["SupportCase"] })
+//   -> includes the open_case action for support workflow creation.
+//   mcp.describe({ kind: "action", names: ["SupportCase.open_case"] })
+//   -> subject: new, params, insert edit assignments, write mappings, and log metadata.
+//   mcp.invoke_action({
+//     concept: "SupportCase",
+//     action: "open_case",
+//     subject: { support_case_id: "CASE_MCP_OPEN_1" },
+//     params: {
+//       account_id: "ACCT_ACME",
+//       workspace_id: "WS_ACME_PROD",
+//       subscription_id: "SUB_ACME_MAIN",
+//       priority: "urgent",
+//       channel: "chat",
+//       category: "workflow_error"
+//     }
+//   })
+//   -> inserts into the temp-mounted DuckDB support_cases table and returns the
+//      created row for inspection.

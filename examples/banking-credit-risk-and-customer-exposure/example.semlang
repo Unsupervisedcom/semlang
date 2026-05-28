@@ -1,0 +1,1286 @@
+// SemLang sketch for the banking credit risk and customer exposure example.
+//
+// This file intentionally stays close to the source data grains:
+//
+//   - LoanExposureSnapshot is the analytical center. It is one row per loan,
+//     as-of date, accounting basis, stress scenario, and model run.
+//   - Collateral valuations, collateral pledges, guarantees, ratings, reviews,
+//     and model scores are separate concepts because each has its own grain and
+//     temporal rules.
+//   - Effective-dated concepts declare `valid_time`, so a query planner or
+//     agent can use `at` temporal joins instead of inventing date predicates.
+//   - Measures that cross collateral, guarantee, or score paths are named at
+//     the concept where the fanout risk is visible.
+//
+// The goal is not to hide banking complexity. It is to name it, so an agent can
+// discover the right path before it writes a query.
+
+package banking.credit_risk_customer_exposure
+
+// ---------------------------------------------------------------------------
+// Semantic Types
+// ---------------------------------------------------------------------------
+//
+// `scale_type` follows the common measurement-scale vocabulary:
+//   nominal  labels with no inherent order
+//   ordinal  ordered values without meaningful distances
+//   interval ordered values with meaningful distances but no true zero
+//   ratio    numeric values with a meaningful zero
+
+type: LegalCustomerId is string {
+  scale_type: nominal
+  identifies: LegalCustomer
+  description: "Stable identifier for a legal customer or guarantor."
+}
+
+type: FacilityId is string {
+  scale_type: nominal
+  identifies: CreditFacility
+  description: "Stable identifier for a committed credit facility."
+}
+
+type: LoanId is string {
+  scale_type: nominal
+  identifies: Loan
+  description: "Stable identifier for a booked loan or draw."
+}
+
+type: CollateralAssetId is string {
+  scale_type: nominal
+  identifies: CollateralAsset
+  description: "Stable identifier for a pledged collateral asset."
+}
+
+type: ExposureSnapshotId is string {
+  scale_type: nominal
+  identifies: LoanExposureSnapshot
+}
+
+type: ReviewId is string {
+  scale_type: nominal
+  identifies: QuarterlyReview
+}
+
+type: BusinessDate is date {
+  scale_type: interval
+  description: "Calendar date used for effective dates, as-of dates, and due dates."
+}
+
+type: EventTimestamp is timestamp {
+  scale_type: interval
+  description: "Point in time when a banking event or evidence event was observed."
+}
+
+type: USDollars is currency {
+  scale_type: ratio
+  currency: "USD"
+  render_format: currency("USD", 2)
+  description: "US dollar amount. Aggregation is safe only at the declared grain or through fanout-safe measures."
+}
+
+type: Rate is number {
+  scale_type: ratio
+  description: "Decimal rate or probability, usually between 0 and 1."
+}
+
+type: DayCount is number {
+  scale_type: ratio
+  description: "Count of days with a meaningful zero."
+}
+
+type: CreditRatingGrade is string {
+  scale_type: ordinal
+  description: "Internal credit grade. Higher grades in this sample are weaker credit quality."
+}
+
+type: CustomerType is string {
+  scale_type: nominal
+  enum: ['operating_company', 'individual', 'trust', 'holding_company']
+}
+
+type: KycStatus is string {
+  scale_type: nominal
+  enum: ['current', 'refresh_due', 'restricted']
+}
+
+type: RiskSegment is string {
+  scale_type: nominal
+  enum: ['commercial_real_estate', 'middle_market', 'small_business', 'private_bank']
+}
+
+type: FacilityType is string {
+  scale_type: nominal
+  enum: ['revolver', 'term_loan', 'construction_line', 'letter_of_credit']
+}
+
+type: FacilityStatus is string {
+  scale_type: ordinal
+  enum: ['active', 'watchlist', 'matured', 'charged_off']
+}
+
+type: LoanType is string {
+  scale_type: nominal
+  enum: ['commercial_mortgage', 'equipment_note', 'working_capital_draw', 'construction_draw']
+}
+
+type: LoanStatus is string {
+  scale_type: ordinal
+  enum: ['current', 'past_due', 'nonaccrual', 'charged_off', 'paid_off']
+}
+
+type: CollateralAssetType is string {
+  scale_type: nominal
+  enum: ['commercial_property', 'equipment', 'receivables', 'marketable_securities']
+}
+
+type: ValuationMethod is string {
+  scale_type: nominal
+  enum: ['appraisal', 'automated_model', 'borrowing_base', 'market_quote']
+}
+
+type: ReleaseStatus is string {
+  scale_type: ordinal
+  enum: ['active', 'partial_release', 'released']
+}
+
+type: GuaranteeType is string {
+  scale_type: nominal
+  enum: ['full_recourse', 'limited_recourse', 'springing', 'government_program']
+}
+
+type: GuaranteeStatus is string {
+  scale_type: ordinal
+  enum: ['active', 'expired', 'released']
+}
+
+type: ReviewStatus is string {
+  scale_type: ordinal
+  enum: ['not_started', 'in_progress', 'submitted', 'approved', 'overdue', 'waived']
+}
+
+type: CovenantStatus is string {
+  scale_type: ordinal
+  enum: ['in_compliance', 'waived', 'breach_under_review', 'breached']
+}
+
+type: RatingScope is string {
+  scale_type: nominal
+  enum: ['customer', 'facility', 'loan']
+}
+
+type: RatingAssignmentSource is string {
+  scale_type: nominal
+  enum: ['model', 'analyst_override', 'committee', 'annual_review', 'quarterly_review']
+}
+
+type: AccountingBasis is string {
+  scale_type: nominal
+  enum: ['regulatory', 'cecl', 'ifrs9', 'management']
+}
+
+type: StressScenario is string {
+  scale_type: nominal
+  enum: ['base', 'downside', 'severe_recession']
+}
+
+type: DefaultStatus is string {
+  scale_type: ordinal
+  enum: ['performing', 'past_due', 'defaulted', 'charged_off']
+}
+
+type: DocumentStatus is string {
+  scale_type: ordinal
+  enum: ['requested', 'received', 'accepted', 'rejected', 'waived']
+}
+
+type: DocumentType is string {
+  scale_type: nominal
+  enum: [
+    'financial_statement',
+    'rent_roll',
+    'borrowing_base_certificate',
+    'collateral_appraisal',
+    'tax_return',
+    'covenant_certificate',
+    'site_inspection',
+    'model_validation_note'
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Semantic Sources
+// ---------------------------------------------------------------------------
+
+concept LegalCustomer is kind from duckdb.table('legal_customers') {
+  identity legal_customer_id :: LegalCustomerId
+
+  field:
+    customer_number :: string unique
+    legal_name :: string
+    customer_type :: CustomerType
+    industry_code :: string
+    relationship_group_id :: string?
+    domicile_country :: string
+    relationship_manager :: string
+    onboarded_date :: BusinessDate
+    kyc_status :: KycStatus
+    risk_segment :: RiskSegment
+
+  join_many facilities: CreditFacility on legal_customer_id
+  join_many loans: Loan on legal_customer_id
+  join_many owned_collateral: CollateralAsset on legal_customer_id = owner_customer_id
+  join_many guarantees_given: Guarantee on legal_customer_id = guarantor_customer_id
+  join_many exposure_snapshots: LoanExposureSnapshot on legal_customer_id
+  join_many model_scores: ModelScoreSnapshot on legal_customer_id
+  join_many reviews: QuarterlyReview on legal_customer_id
+  join_many customer_ratings: RiskRating on legal_customer_id
+
+  role CommercialBorrower when customer_type in ('operating_company', 'holding_company')
+  role KycCurrentCustomer when kyc_status = 'current'
+  role RestrictedCustomer when kyc_status = 'restricted'
+
+  dimension:
+    customer_label is concat(customer_number, ' - ', legal_name)
+    is_commercial_borrower is this is CommercialBorrower
+    is_kyc_current is this is KycCurrentCustomer
+    relationship_group_label is coalesce(relationship_group_id, legal_customer_id)
+
+  measure:
+    legal_customers is count()
+    relationship_groups is count(relationship_group_label)
+    restricted_customers is count(case when this is RestrictedCustomer then legal_customer_id end)
+
+  validation:
+    has_two_character_country is {
+      description: "Domicile country should be stored as a two-character ISO-style code."
+      predicate: domicile_country is not null
+    }
+}
+
+concept CreditFacility is relator from duckdb.table('credit_facilities') {
+  // A facility is modeled as a relator because it creates the lending
+  // relationship between the bank and a legal customer. Loans draw against it.
+  identity facility_id :: FacilityId
+  valid_time: period(origination_date, maturity_date)
+
+  join_one legal_customer: LegalCustomer on legal_customer_id
+  join_many loans: Loan on facility_id
+  join_many exposure_snapshots: LoanExposureSnapshot on facility_id
+  join_many reviews: QuarterlyReview on facility_id
+  join_many facility_ratings: RiskRating on facility_id
+
+  field:
+    facility_number :: string unique
+    legal_customer_id :: LegalCustomerId
+    facility_type :: FacilityType
+    purpose :: string
+    origination_date :: BusinessDate
+    maturity_date :: BusinessDate
+    commitment_amount :: USDollars
+    currency_code :: string
+    revolver_flag :: boolean
+    facility_status :: FacilityStatus
+
+  role ActiveFacility when facility_status in ('active', 'watchlist')
+  role WatchlistFacility when facility_status = 'watchlist'
+
+  dimension:
+    facility_label is concat(facility_number, ' - ', facility_type)
+    is_active_facility is this is ActiveFacility
+    is_watchlist_facility is this is WatchlistFacility
+
+  measure:
+    facilities is count()
+    active_facilities is count(case when this is ActiveFacility then facility_id end)
+    watchlist_facilities is count(case when this is WatchlistFacility then facility_id end)
+    total_commitment is sum(commitment_amount)
+    watchlist_commitment is sum(case when this is WatchlistFacility then commitment_amount else 0 end)
+
+  view: commitments_by_segment is {
+    group_by:
+      legal_customer.risk_segment
+      legal_customer.relationship_manager
+      facility_type
+      facility_status
+    aggregate:
+      facilities
+      active_facilities
+      total_commitment
+      watchlist_commitment
+  }
+
+  validation:
+    maturity_after_origination is {
+      description: "A credit facility must mature after it originates."
+      predicate: maturity_date > origination_date
+    }
+}
+
+concept Loan is relator from duckdb.table('loans') {
+  // The loan is a booked credit contract. It sits below a facility but can have
+  // separate collateral, guarantees, ratings, model scores, and exposure rows.
+  identity loan_id :: LoanId
+  valid_time: period(booked_date, maturity_date)
+
+  join_one facility: CreditFacility on facility_id
+  join_one legal_customer: LegalCustomer on legal_customer_id
+  join_many exposure_snapshots: LoanExposureSnapshot on loan_id
+  join_many collateral_links: LoanCollateralLink on loan_id
+  join_many guarantees: Guarantee on loan_id
+  join_many loan_ratings: RiskRating on loan_id
+  join_many model_scores: ModelScoreSnapshot on loan_id
+  join_many reviews: QuarterlyReview on loan_id
+
+  field:
+    loan_number :: string unique
+    facility_id :: FacilityId
+    legal_customer_id :: LegalCustomerId
+    loan_type :: LoanType
+    booked_date :: BusinessDate
+    maturity_date :: BusinessDate
+    original_principal_amount :: USDollars
+    interest_rate :: Rate
+    payment_frequency :: string
+    loan_status :: LoanStatus
+
+  role ProblemLoan when loan_status in ('past_due', 'nonaccrual', 'charged_off')
+  role PerformingLoan when loan_status = 'current'
+
+  dimension:
+    loan_label is concat(loan_number, ' - ', loan_type)
+    is_problem_loan is this is ProblemLoan
+
+  measure:
+    loans is count()
+    problem_loans is count(case when this is ProblemLoan then loan_id end)
+    original_principal is sum(original_principal_amount)
+
+  view: loan_register is {
+    group_by:
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan_number
+      loan_type
+      loan_status
+    aggregate:
+      loans
+      problem_loans
+      original_principal
+  }
+
+  validation:
+    loan_maturity_after_booking is {
+      description: "A loan must mature after its booked date."
+      predicate: maturity_date > booked_date
+    }
+}
+
+concept CollateralAsset is kind from duckdb.table('collateral_assets') {
+  identity collateral_asset_id :: CollateralAssetId
+
+  join_one owner_customer: LegalCustomer on owner_customer_id = legal_customer_id
+  join_many valuations: CollateralValuation on collateral_asset_id
+  join_many loan_links: LoanCollateralLink on collateral_asset_id
+
+  field:
+    asset_reference :: string unique
+    owner_customer_id :: LegalCustomerId
+    asset_type :: CollateralAssetType
+    jurisdiction :: string
+    asset_description :: string
+    initial_appraised_value :: USDollars
+    currency_code :: string
+    active_from :: BusinessDate
+    retired_date :: BusinessDate?
+
+  role RealEstateCollateral when asset_type = 'commercial_property'
+  role LiquidCollateral when asset_type in ('marketable_securities', 'receivables')
+
+  dimension:
+    collateral_label is concat(asset_reference, ' - ', asset_type)
+    is_real_estate_collateral is this is RealEstateCollateral
+
+  measure:
+    collateral_assets is count()
+    initial_appraised_value is sum(initial_appraised_value)
+
+  validation:
+    retired_after_active is {
+      description: "A collateral asset cannot retire before its active date."
+      predicate: retired_date is null or retired_date >= active_from
+    }
+}
+
+concept CollateralValuation is situation from duckdb.table('collateral_valuations') {
+  // Valuations are effective-dated state about a collateral asset. Queries that
+  // need the value "as of" an exposure date should use `at exposure.as_of_date`.
+  identity collateral_valuation_id :: string
+  valid_time: period(valid_from, valid_to)
+  observation_time: valuation_date
+
+  join_one collateral_asset: CollateralAsset on collateral_asset_id
+
+  field:
+    collateral_asset_id :: CollateralAssetId
+    valuation_date :: BusinessDate
+    valid_from :: BusinessDate
+    valid_to :: BusinessDate
+    valuation_method :: ValuationMethod
+    gross_collateral_value :: USDollars
+    haircut_percent :: Rate
+    net_collateral_value :: USDollars
+    valuation_source :: string
+
+  dimension:
+    valuation_month is valuation_date.month
+    haircut_amount is gross_collateral_value - net_collateral_value
+    is_current_open_ended is valid_to = @9999-12-31
+
+  measure:
+    valuations is count()
+    gross_collateral_value is sum(gross_collateral_value)
+    net_collateral_value is sum(net_collateral_value)
+    haircut_amount is sum(haircut_amount)
+    max_net_value_at_filter is max(net_collateral_value)
+
+  view: collateral_value_history is {
+    group_by:
+      collateral_asset.asset_reference
+      collateral_asset.asset_type
+      valuation_date
+      valid_from
+      valid_to
+      valuation_method
+    aggregate:
+      gross_collateral_value
+      net_collateral_value
+      haircut_amount
+  }
+
+  validation:
+    valid_period_is_ordered is {
+      description: "A collateral valuation must end after it starts."
+      predicate: valid_to > valid_from
+    }
+
+  validation:
+    net_value_respects_haircut is {
+      description: "Net collateral value should equal gross value after haircut within a small rounding tolerance."
+      predicate: (net_collateral_value - (gross_collateral_value * (1 - haircut_percent))) <= 1.00
+        and (net_collateral_value - (gross_collateral_value * (1 - haircut_percent))) >= -1.00
+    }
+}
+
+concept LoanCollateralLink is relator from duckdb.table('loan_collateral_links') {
+  // Many-to-many pledge path between loans and collateral assets.
+  identity loan_id :: LoanId, collateral_asset_id :: CollateralAssetId, effective_from :: BusinessDate
+  valid_time: period(effective_from, coalesce(effective_to, @9999-12-31))
+
+  join_one loan: Loan on loan_id
+  join_one collateral_asset: CollateralAsset on collateral_asset_id
+
+  join_one valuation_at_link_start?: CollateralValuation
+    on collateral_asset_id = valuation_at_link_start.collateral_asset_id
+    at effective_from
+
+  field:
+    effective_to :: BusinessDate?
+    lien_position :: number
+    allocation_percent :: Rate
+    secured_amount_cap :: USDollars
+    release_status :: ReleaseStatus
+
+  role ActiveCollateralLink when release_status in ('active', 'partial_release')
+  role FirstLienCollateralLink when lien_position = 1
+
+  dimension:
+    is_active_link is this is ActiveCollateralLink
+    allocated_initial_value is collateral_asset.initial_appraised_value * allocation_percent
+    allocated_net_value_at_link_start is valuation_at_link_start.net_collateral_value * allocation_percent
+
+  measure:
+    collateral_links is count()
+    active_collateral_links is count(case when this is ActiveCollateralLink then loan_id end)
+    secured_amount_cap is sum(secured_amount_cap)
+    allocated_initial_value is sum(allocated_initial_value)
+    allocated_net_value_at_link_start is sum(allocated_net_value_at_link_start)
+
+  view: collateral_bridge_by_loan is {
+    group_by:
+      loan.loan_number
+      loan.legal_customer.customer_number
+      collateral_asset.asset_reference
+      collateral_asset.asset_type
+      lien_position
+      allocation_percent
+      release_status
+    aggregate:
+      secured_amount_cap
+      allocated_initial_value
+      allocated_net_value_at_link_start
+  }
+
+  validation:
+    link_period_is_ordered is {
+      description: "A collateral link cannot end before it becomes effective."
+      predicate: effective_to is null or effective_to > effective_from
+    }
+}
+
+concept Guarantee is relator from duckdb.table('guarantees') {
+  identity guarantee_id :: string
+  valid_time: period(effective_from, coalesce(effective_to, @9999-12-31))
+
+  join_one loan: Loan on loan_id
+  join_one guarantor: LegalCustomer on guarantor_customer_id = legal_customer_id
+
+  field:
+    loan_id :: LoanId
+    guarantor_customer_id :: LegalCustomerId
+    guarantee_type :: GuaranteeType
+    effective_from :: BusinessDate
+    effective_to :: BusinessDate?
+    guaranteed_amount_cap :: USDollars
+    guarantee_percent :: Rate
+    seniority :: string
+    guarantee_status :: GuaranteeStatus
+
+  role ActiveGuarantee when guarantee_status = 'active'
+  role GovernmentProgramGuarantee when guarantee_type = 'government_program'
+
+  dimension:
+    is_active_guarantee is this is ActiveGuarantee
+    supported_amount is guaranteed_amount_cap * guarantee_percent
+
+  measure:
+    guarantees is count()
+    active_guarantees is count(case when this is ActiveGuarantee then guarantee_id end)
+    guaranteed_amount_cap is sum(guaranteed_amount_cap)
+    supported_amount is sum(supported_amount)
+    government_supported_amount is sum(
+      case when this is GovernmentProgramGuarantee then supported_amount else 0 end
+    )
+
+  view: guarantee_support is {
+    group_by:
+      loan.loan_number
+      guarantor.customer_number
+      guarantor.legal_name
+      guarantee_type
+      seniority
+      guarantee_status
+    aggregate:
+      guaranteed_amount_cap
+      supported_amount
+      government_supported_amount
+  }
+
+  validation:
+    guarantee_period_is_ordered is {
+      description: "A guarantee cannot expire before it becomes effective."
+      predicate: effective_to is null or effective_to > effective_from
+    }
+}
+
+concept QuarterlyReview is event from duckdb.table('quarterly_reviews') {
+  // This is modeled as a review event with a due date occurrence. The submitted
+  // and approved timestamps remain visible because review timeliness is often
+  // the actual analytical question.
+  identity review_id :: ReviewId
+  occurrence_time: review_due_date
+
+  join_one legal_customer: LegalCustomer on legal_customer_id
+  join_one facility?: CreditFacility on facility_id
+  join_one loan?: Loan on loan_id
+  join_many documents: ReviewDocument on review_id
+  join_many ratings_produced: RiskRating on review_id
+
+  field:
+    legal_customer_id :: LegalCustomerId
+    facility_id :: FacilityId?
+    loan_id :: LoanId?
+    review_quarter :: string
+    review_due_date :: BusinessDate
+    submitted_at :: EventTimestamp? writeable
+    approved_at :: EventTimestamp?
+    review_status :: ReviewStatus writeable
+    officer_name :: string
+    committee_decision :: string?
+    covenant_status :: CovenantStatus writeable
+    recommended_rating_grade :: CreditRatingGrade? writeable
+
+  role OpenReview when review_status in ('not_started', 'in_progress', 'submitted', 'overdue')
+  role OverdueReview when review_status = 'overdue'
+  role CovenantBreachReview when covenant_status in ('breach_under_review', 'breached')
+
+  dimension:
+    is_open_review is this is OpenReview
+    is_overdue_review is this is OverdueReview
+    has_covenant_pressure is this is CovenantBreachReview
+    submitted_date is submitted_at.day
+    approved_date is approved_at.day
+
+  measure:
+    reviews is count()
+    approved_reviews is count(case when review_status = 'approved' then review_id end)
+    overdue_reviews is count(case when this is OverdueReview then review_id end)
+    open_reviews is count(case when this is OpenReview then review_id end)
+    covenant_pressure_reviews is count(case when this is CovenantBreachReview then review_id end)
+
+  view: officer_review_queue is {
+    group_by:
+      review_quarter
+      officer_name
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan.loan_number
+      review_status
+      covenant_status
+    aggregate:
+      reviews
+      open_reviews
+      overdue_reviews
+      covenant_pressure_reviews
+  }
+
+  action submit_for_approval {
+    subject: single
+
+    param:
+      submitted_covenant_status :: CovenantStatus
+      submitted_rating_grade :: CreditRatingGrade?
+
+    guard:
+      this.review_status in ['not_started', 'in_progress', 'overdue']
+        else "Only open quarterly reviews can be submitted for approval."
+
+    edit:
+      set review_status = 'submitted'
+      set submitted_at = current_time
+      set covenant_status = submitted_covenant_status
+      set recommended_rating_grade = submitted_rating_grade
+
+    log as QuarterlyReviewActionLog {
+      summary: "Submitted quarterly review ${this.review_id}"
+      include: submitted_covenant_status, submitted_rating_grade, current_user.id
+    }
+  }
+
+  validation:
+    approved_reviews_were_submitted is {
+      description: "A review cannot have an approval timestamp unless it was submitted."
+      predicate: approved_at is null or submitted_at is not null
+    }
+
+  validation:
+    review_has_credit_object is {
+      description: "A quarterly review must be tied to at least a facility or a loan."
+      predicate: facility_id is not null or loan_id is not null
+    }
+}
+
+concept RiskRating is situation from duckdb.table('risk_ratings') {
+  // Ratings can be scoped to a customer, facility, or loan. The SQL enforces a
+  // single populated target. SemLang makes that rule visible and executable.
+  identity risk_rating_id :: string
+  valid_time: period(effective_from, effective_to)
+  observation_time: assigned_at
+
+  join_one legal_customer?: LegalCustomer on legal_customer_id
+  join_one facility?: CreditFacility on facility_id
+  join_one loan?: Loan on loan_id
+  join_one review?: QuarterlyReview on review_id
+
+  field:
+    rating_scope :: RatingScope
+    legal_customer_id :: LegalCustomerId?
+    facility_id :: FacilityId?
+    loan_id :: LoanId?
+    review_id :: ReviewId?
+    rating_grade :: CreditRatingGrade
+    pd_band :: string
+    effective_from :: BusinessDate
+    effective_to :: BusinessDate
+    assigned_at :: EventTimestamp
+    assignment_source :: RatingAssignmentSource
+    rating_reason :: string
+
+  role CustomerRating when rating_scope = 'customer'
+  role FacilityRating when rating_scope = 'facility'
+  role LoanRating when rating_scope = 'loan'
+  role ProblemGradeRating when rating_grade in ('7', '8', '9', '10')
+  role AnalystOverrideRating when assignment_source = 'analyst_override'
+
+  dimension:
+    effective_quarter is effective_from.quarter
+    is_problem_grade is this is ProblemGradeRating
+    rating_subject_key is case
+      when this is CustomerRating then legal_customer_id
+      when this is FacilityRating then facility_id
+      else loan_id
+    end
+
+  measure:
+    ratings is count()
+    problem_ratings is count(case when this is ProblemGradeRating then risk_rating_id end)
+    analyst_overrides is count(case when this is AnalystOverrideRating then risk_rating_id end)
+
+  view: rating_history is {
+    group_by:
+      rating_scope
+      legal_customer.customer_number
+      facility.facility_number
+      loan.loan_number
+      effective_from
+      effective_to
+      rating_grade
+      assignment_source
+    aggregate:
+      ratings
+      problem_ratings
+      analyst_overrides
+  }
+
+  validation:
+    rating_period_is_ordered is {
+      description: "A risk rating must end after it starts."
+      predicate: effective_to > effective_from
+    }
+
+  validation:
+    rating_scope_matches_target is {
+      description: "Exactly one rated target should be populated, matching the rating scope."
+      predicate:
+        (rating_scope = 'customer' and legal_customer_id is not null and facility_id is null and loan_id is null)
+        or (rating_scope = 'facility' and legal_customer_id is null and facility_id is not null and loan_id is null)
+        or (rating_scope = 'loan' and legal_customer_id is null and facility_id is null and loan_id is not null)
+    }
+}
+
+concept ModelScoreSnapshot is situation from duckdb.table('model_score_snapshots') {
+  identity model_score_snapshot_id :: string
+  valid_time: as_of_date
+  observation_time: as_of_date
+
+  join_one legal_customer: LegalCustomer on legal_customer_id
+  join_one loan?: Loan on loan_id
+
+  field:
+    as_of_date :: BusinessDate
+    legal_customer_id :: LegalCustomerId
+    loan_id :: LoanId?
+    model_name :: string
+    model_version :: string
+    model_run_id :: string
+    stress_scenario :: StressScenario
+    accounting_basis :: AccountingBasis
+    probability_of_default :: Rate
+    loss_given_default :: Rate
+    exposure_at_default_amount :: USDollars
+    ecl_amount :: USDollars
+    score_value :: number
+    score_band :: string
+    feature_set_version :: string
+
+  dimension:
+    as_of_quarter is as_of_date.quarter
+    model_variant is concat(model_name, ' / ', model_version, ' / ', model_run_id, ' / ', stress_scenario, ' / ', accounting_basis)
+    modeled_loss_rate is ecl_amount / nullif(exposure_at_default_amount, 0)
+
+  measure:
+    score_rows is count()
+    exposure_at_default is sum(exposure_at_default_amount)
+    expected_credit_loss is sum(ecl_amount)
+    average_probability_of_default is avg(probability_of_default)
+    average_loss_given_default is avg(loss_given_default)
+    average_modeled_loss_rate is avg(modeled_loss_rate)
+    max_score_value is max(score_value)
+
+  view: model_version_scenario_comparison is {
+    group_by:
+      as_of_quarter
+      model_name
+      model_version
+      model_run_id
+      stress_scenario
+      accounting_basis
+      score_band
+    aggregate:
+      score_rows
+      exposure_at_default
+      expected_credit_loss
+      average_probability_of_default
+      average_loss_given_default
+      average_modeled_loss_rate
+  }
+
+  validation:
+    ecl_matches_pd_lgd_ead is {
+      description: "Expected credit loss should equal PD times LGD times EAD within a small rounding tolerance."
+      predicate: (ecl_amount - (probability_of_default * loss_given_default * exposure_at_default_amount)) <= 1.00
+        and (ecl_amount - (probability_of_default * loss_given_default * exposure_at_default_amount)) >= -1.00
+    }
+}
+
+concept LoanExposureSnapshot is situation from duckdb.table('loan_exposure_snapshots') {
+  // Central reporting fact. The joins below preserve the source's explicit
+  // accounting basis, scenario, model version, and model run fields. Joining to
+  // scores requires all of those fields, not just loan and date.
+  identity exposure_snapshot_id :: ExposureSnapshotId
+  valid_time: as_of_date
+  observation_time: as_of_date
+
+  join_one loan: Loan on loan_id
+  join_one facility: CreditFacility on facility_id
+  join_one legal_customer: LegalCustomer on legal_customer_id
+
+  join_one active_loan_rating?: RiskRating
+    on loan_id = active_loan_rating.loan_id
+    at as_of_date
+
+  join_one active_facility_rating?: RiskRating
+    on facility_id = active_facility_rating.facility_id
+    at as_of_date
+
+  join_one active_customer_rating?: RiskRating
+    on legal_customer_id = active_customer_rating.legal_customer_id
+    at as_of_date
+
+  join_many active_guarantees: Guarantee
+    on loan_id = active_guarantees.loan_id
+    at as_of_date
+
+  join_many active_collateral_links: LoanCollateralLink
+    on loan_id = active_collateral_links.loan_id
+    at as_of_date
+
+  join_many model_scores: ModelScoreSnapshot
+    on loan_id = model_scores.loan_id
+    and as_of_date = model_scores.as_of_date
+    and model_run_id = model_scores.model_run_id
+    and model_version = model_scores.model_version
+    and stress_scenario = model_scores.stress_scenario
+    and accounting_basis = model_scores.accounting_basis
+
+  field:
+    as_of_date :: BusinessDate
+    reporting_quarter :: string
+    loan_id :: LoanId
+    facility_id :: FacilityId
+    legal_customer_id :: LegalCustomerId
+    accounting_basis :: AccountingBasis
+    stress_scenario :: StressScenario
+    model_run_id :: string
+    model_version :: string
+    outstanding_principal_amount :: USDollars
+    accrued_interest_amount :: USDollars
+    undrawn_commitment_amount :: USDollars
+    available_credit_amount :: USDollars
+    ead_amount :: USDollars
+    ecl_amount :: USDollars
+    rwa_amount :: USDollars
+    days_past_due :: DayCount
+    default_status :: DefaultStatus
+    charge_off_amount :: USDollars
+    nonaccrual_flag :: boolean
+
+  role RegulatoryBaseExposure when accounting_basis = 'regulatory' and stress_scenario = 'base'
+  role ProblemExposure when default_status in ('past_due', 'defaulted', 'charged_off') or nonaccrual_flag
+  role NonaccrualExposure when nonaccrual_flag
+
+  dimension:
+    as_of_quarter is as_of_date.quarter
+    model_variant is concat(accounting_basis, ' / ', stress_scenario, ' / ', model_version, ' / ', model_run_id)
+    is_problem_exposure is this is ProblemExposure
+    current_rating_grade is coalesce(
+      active_loan_rating.rating_grade,
+      active_facility_rating.rating_grade,
+      active_customer_rating.rating_grade
+    )
+    current_rating_scope is case
+      when active_loan_rating is not null then 'loan'
+      when active_facility_rating is not null then 'facility'
+      when active_customer_rating is not null then 'customer'
+      else 'unrated'
+    end
+    exposure_loss_rate is ecl_amount / nullif(ead_amount, 0)
+
+  measure:
+    snapshot_rows is count()
+    loans_reported is count(loan_id)
+    facilities_reported is count(facility_id)
+    customers_reported is count(legal_customer_id)
+    outstanding_principal is sum(outstanding_principal_amount)
+    accrued_interest is sum(accrued_interest_amount)
+    undrawn_commitment is sum(undrawn_commitment_amount)
+    available_credit is sum(available_credit_amount)
+    exposure_at_default is sum(ead_amount)
+    expected_credit_loss is sum(ecl_amount)
+    risk_weighted_assets is sum(rwa_amount)
+    charge_off_amount is sum(charge_off_amount)
+    past_due_exposure is sum(case when default_status in ('past_due', 'defaulted') then ead_amount else 0 end)
+    nonaccrual_exposure is sum(case when nonaccrual_flag then ead_amount else 0 end)
+    average_days_past_due is avg(days_past_due)
+    average_exposure_loss_rate is avg(exposure_loss_rate)
+
+    active_guarantee_count is count(active_guarantees.guarantee_id)
+    active_collateral_link_count is count(active_collateral_links.collateral_asset_id)
+    model_score_rows is count(model_scores.model_score_snapshot_id)
+    active_guarantee_support is sum(active_guarantees.supported_amount)
+    active_collateral_secured_cap is sum(active_collateral_links.secured_amount_cap)
+
+  view: regulatory_quarter_end_exposure is {
+    where: this is RegulatoryBaseExposure
+    group_by:
+      as_of_quarter
+      legal_customer.risk_segment
+      legal_customer.relationship_manager
+      facility.facility_type
+      loan.loan_type
+      default_status
+      current_rating_grade
+    aggregate:
+      loans_reported
+      outstanding_principal
+      available_credit
+      exposure_at_default
+      expected_credit_loss
+      risk_weighted_assets
+      past_due_exposure
+      nonaccrual_exposure
+      active_guarantee_count
+      active_collateral_link_count
+  }
+
+  view: scenario_model_exposure is {
+    group_by:
+      as_of_quarter
+      accounting_basis
+      stress_scenario
+      model_version
+      model_run_id
+      legal_customer.risk_segment
+    aggregate:
+      loans_reported
+      exposure_at_default
+      expected_credit_loss
+      risk_weighted_assets
+      model_score_rows
+      average_exposure_loss_rate
+  }
+
+  view: exposure_bridge_watchlist is {
+    group_by:
+      as_of_date
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan.loan_number
+      default_status
+      model_variant
+      current_rating_grade
+    aggregate:
+      outstanding_principal
+      exposure_at_default
+      expected_credit_loss
+      past_due_exposure
+      nonaccrual_exposure
+      active_guarantee_count
+      active_collateral_link_count
+  }
+
+  validation:
+    exposure_references_consistent_credit_chain is {
+      description: "The exposure row should reference a loan, facility, and customer that agree with the loan register."
+      predicate:
+        loan.facility_id = facility_id
+        and loan.legal_customer_id = legal_customer_id
+        and facility.legal_customer_id = legal_customer_id
+    }
+
+  validation:
+    nonaccrual_or_default_status_agrees is {
+      description: "Nonaccrual rows should be problem exposures, and defaulted or charged-off rows should not look current."
+      predicate:
+        (not nonaccrual_flag or default_status in ('defaulted', 'charged_off', 'past_due'))
+        and (default_status not in ('defaulted', 'charged_off') or days_past_due > 0 or charge_off_amount > 0)
+    }
+}
+
+concept ReviewDocument is situation from duckdb.table('review_documents') {
+  // Documents are review evidence. Some rows represent a request with no
+  // received timestamp, so this is a situation rather than a simple event.
+  identity review_document_id :: string
+  observation_time: coalesce(received_at, document_period_end)
+
+  join_one review: QuarterlyReview on review_id
+
+  field:
+    review_id :: ReviewId
+    document_type :: DocumentType
+    document_name :: string
+    document_period_end :: BusinessDate?
+    received_at :: EventTimestamp?
+    document_status :: DocumentStatus
+    restricted_purpose :: string
+    source_system :: string
+
+  role ReceivedDocument when document_status in ('received', 'accepted', 'rejected')
+  role AcceptedDocument when document_status = 'accepted'
+  role GapDocument when document_status in ('requested', 'rejected')
+  role ModelValidationEvidence when document_type = 'model_validation_note' or restricted_purpose = 'model_validation'
+
+  dimension:
+    is_received_document is this is ReceivedDocument
+    is_gap_document is this is GapDocument
+    received_date is received_at.day
+
+  measure:
+    review_documents is count()
+    reviews_with_documents is count(review_id)
+    received_documents is count(case when this is ReceivedDocument then review_document_id end)
+    accepted_documents is count(case when this is AcceptedDocument then review_document_id end)
+    gap_documents is count(case when this is GapDocument then review_document_id end)
+    model_validation_documents is count(case when this is ModelValidationEvidence then review_document_id end)
+
+  view: document_sufficiency is {
+    group_by:
+      review.review_quarter
+      review.officer_name
+      review.legal_customer.customer_number
+      document_type
+      document_status
+      restricted_purpose
+    aggregate:
+      reviews_with_documents
+      review_documents
+      received_documents
+      accepted_documents
+      gap_documents
+  }
+
+  validation:
+    received_status_has_received_timestamp is {
+      description: "Received, accepted, and rejected documents should have a received timestamp."
+      predicate:
+        (document_status in ('received', 'accepted', 'rejected') and received_at is not null)
+        or document_status in ('requested', 'waived')
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: regulatory_exposure_by_customer is LoanExposureSnapshot -> {
+  // Business question:
+  //   "What is quarter-end regulatory base exposure by customer and facility?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: LoanExposureSnapshot, LegalCustomer, CreditFacility, Loan
+  //   mcp.describe({ kind: "concept", names: ["LoanExposureSnapshot"] })
+  //   -> role RegulatoryBaseExposure, measures exposure_at_default, ecl, rwa
+  //   mcp.run_query(...)
+  //   -> valid; this query stays on the exposure grain and uses one-to-one
+  //      joins to customer, facility, and loan context.
+  where:
+    this is RegulatoryBaseExposure
+  group_by:
+    as_of_quarter
+    legal_customer.customer_number
+    legal_customer.legal_name
+    legal_customer.risk_segment
+    facility.facility_type
+    current_rating_grade
+    default_status
+  aggregate:
+    loans_reported
+    outstanding_principal
+    available_credit
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    past_due_exposure
+    nonaccrual_exposure
+}
+
+query: watchlist_exposure_bridge is LoanExposureSnapshot -> {
+  // Business question:
+  //   "Which watchlist or problem exposures need a credit officer to explain
+  //    exposure, rating, guarantee, and collateral support?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: LoanExposureSnapshot, CreditFacility, Loan, RiskRating,
+  //      Guarantee, LoanCollateralLink
+  //   mcp.find_paths({ from: "LoanExposureSnapshot", to: ["RiskRating", "Guarantee", "LoanCollateralLink"] })
+  //   -> temporal joins use `at as_of_date` for rating/guarantee/collateral state
+  where:
+    facility is WatchlistFacility
+    or loan is ProblemLoan
+    or this is ProblemExposure
+    or current_rating_grade in ('7', '8', '9', '10')
+  group_by:
+    as_of_date
+    legal_customer.relationship_manager
+    legal_customer.customer_number
+    legal_customer.legal_name
+    facility.facility_number
+    loan.loan_number
+    default_status
+    current_rating_scope
+    current_rating_grade
+  aggregate:
+    outstanding_principal
+    exposure_at_default
+    expected_credit_loss
+    past_due_exposure
+    nonaccrual_exposure
+    active_guarantee_count
+    active_guarantee_support
+    active_collateral_link_count
+    active_collateral_secured_cap
+}
+
+query: collateral_coverage_as_of_exposure is LoanExposureSnapshot -> {
+  // Business question:
+  //   "For each exposure row, what active collateral and current valuation
+  //    support is visible as of the exposure date?"
+  //
+  // Agent discovery sketch:
+  //   mcp.find_paths({
+  //     from: "LoanExposureSnapshot",
+  //     to: ["LoanCollateralLink", "CollateralValuation"]
+  //   })
+  //   -> LoanExposureSnapshot -> active_collateral_links -> collateral_asset
+  //   -> CollateralValuation at LoanExposureSnapshot.as_of_date
+  //
+  // The current SemLang sketch declares the active collateral links on the
+  // exposure concept. A future compiler could push the same `at as_of_date`
+  // into the valuation path for allocated net collateral value as of exposure.
+  where:
+    this is RegulatoryBaseExposure
+  group_by:
+    as_of_date
+    legal_customer.customer_number
+    loan.loan_number
+    active_collateral_links.collateral_asset.asset_reference
+    active_collateral_links.collateral_asset.asset_type
+    active_collateral_links.lien_position
+    active_collateral_links.release_status
+  aggregate:
+    exposure_at_default
+    active_collateral_secured_cap
+    active_collateral_links.allocated_initial_value
+}
+
+query: model_scenario_ecl_comparison is LoanExposureSnapshot -> {
+  // Business question:
+  //   "How do expected credit loss and RWA move across accounting basis,
+  //    stress scenario, and model run?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> central fact: LoanExposureSnapshot
+  //   -> companion model rows: ModelScoreSnapshot
+  //   mcp.run_query(...)
+  //   -> warning if a score join omits scenario, model run, model version, or
+  //      accounting basis; those fields are part of the comparison grain.
+  group_by:
+    as_of_quarter
+    accounting_basis
+    stress_scenario
+    model_version
+    model_run_id
+    legal_customer.risk_segment
+  aggregate:
+    loans_reported
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    average_exposure_loss_rate
+    model_score_rows
+}
+
+query: quarterly_review_evidence_gaps is ReviewDocument -> {
+  // Business question:
+  //   "Which quarterly reviews are open, overdue, or missing usable evidence?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: QuarterlyReview, ReviewDocument, LegalCustomer
+  //   mcp.run_query(...)
+  //   -> valid; ReviewDocument is the root because the evidence row supplies
+  //      document type and status while review supplies officer and covenant state.
+  where:
+    this is GapDocument
+    or review is OpenReview
+  group_by:
+    review.review_quarter
+    review.officer_name
+    review.legal_customer.customer_number
+    review.legal_customer.legal_name
+    review.review_status
+    review.covenant_status
+    document_type
+    document_status
+    restricted_purpose
+  aggregate:
+    reviews_with_documents
+    review_documents
+    received_documents
+    accepted_documents
+    gap_documents
+}
+
+query: problem_rating_lineage is RiskRating -> {
+  // Business question:
+  //   "Which problem ratings came from committee, analyst override, or the
+  //    quarterly review process, and what review evidence supports them?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: RiskRating, QuarterlyReview, ReviewDocument
+  //   mcp.describe({ kind: "roles", names: ["RiskRating"] })
+  //   -> ProblemGradeRating, AnalystOverrideRating
+  where:
+    this is ProblemGradeRating
+  group_by:
+    effective_quarter
+    rating_scope
+    rating_subject_key
+    rating_grade
+    assignment_source
+    review.review_status
+    review.covenant_status
+    review.officer_name
+  aggregate:
+    ratings
+    problem_ratings
+    analyst_overrides
+    review.documents.review_documents
+    review.documents.gap_documents
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By This Banking Sketch
+// ---------------------------------------------------------------------------
+//
+// A first SemLang implementation could compile this file into Malloy sources and
+// validation queries with a few domain-aware expansions:
+//
+//   - `valid_time: period(start, end)` creates a time-range abstraction.
+//   - `join_one active_customer_rating ... at as_of_date` expands to a join
+//     whose `as_of_date` falls inside the rating valid_time.
+//   - Role predicates such as `this is ProblemExposure` compile to reusable
+//     row-level dimensions and can be used in where clauses.
+//   - Validation blocks compile to executable checks. A false predicate marks
+//     invalid rows; it is not a query filter.
+//   - Currency metadata can become Malloy annotations or downstream formatting
+//     hints. It should not silently change arithmetic semantics.
+//   - Fanout-sensitive paths remain explicit. An agent should prefer measures
+//     declared on LoanExposureSnapshot when the question starts from exposure,
+//     and should ask for review if it needs raw collateral or guarantee rows.

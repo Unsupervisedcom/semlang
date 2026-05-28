@@ -1,0 +1,1041 @@
+// SemLang sketch for the healthcare patient journey and quality measures
+// example.
+//
+// This model is intentionally compact but opinionated about grain:
+//
+//   - Patient, Facility, and Provider are durable healthcare kinds.
+//   - Encounter and InpatientStay are clinical events. They look similar in
+//     many warehouses, but the discharge denominator lives only on
+//     InpatientStay.
+//   - DiagnosisInterval and PayerCoverageInterval are temporal situations.
+//     They describe state that is true over a clinical or administrative
+//     interval, so joins should usually be made `at` an encounter or discharge
+//     time.
+//   - Claim and QualityMeasurePopulation keep billing and regulatory grains
+//     separate from clinical utilization.
+//   - ReadmissionEvent is a relator-like event connecting two inpatient stays.
+//
+// The purpose is not to replace the Malloy model. It shows the semantic layer
+// an agent can use before it writes Malloy or SQL: discover the right concept,
+// understand participant paths, verify temporal joins, and avoid accidental
+// fanout across diagnoses, claims, labs, and measure-population rows.
+
+package healthcare.patient_journey_quality_measures
+
+// ---------------------------------------------------------------------------
+// Semantic Types
+// ---------------------------------------------------------------------------
+//
+// These types layer healthcare meaning onto primitive values. `scale_type`
+// follows the measurement-scale vocabulary:
+//   nominal  labels with no inherent order
+//   ordinal  ordered values without meaningful distances
+//   interval ordered values with meaningful distances but no true zero
+//   ratio    numeric values with a meaningful zero
+
+type: PatientId is string {
+  scale_type: nominal
+  identifies: Patient
+  description: "Stable patient key inside the analytics warehouse."
+}
+
+type: MedicalRecordNumber is string {
+  scale_type: nominal
+  identifies_role: PatientRecord
+  description: "Facility/network-facing patient record identifier."
+}
+
+type: FacilityId is string {
+  scale_type: nominal
+  identifies: Facility
+  description: "Stable facility key for hospitals and clinics."
+}
+
+type: ProviderId is string {
+  scale_type: nominal
+  identifies: Provider
+  description: "Stable provider or provider-group key."
+}
+
+type: EncounterId is string {
+  scale_type: nominal
+  identifies: Encounter
+  description: "Clinical contact key. Inpatient encounters may create an InpatientStay."
+}
+
+type: StayId is string {
+  scale_type: nominal
+  identifies: InpatientStay
+  description: "Inpatient stay and discharge key. This is the denominator grain for readmission measures."
+}
+
+type: DiagnosisIntervalId is string {
+  scale_type: nominal
+  identifies: DiagnosisInterval
+}
+
+type: LabResultId is string {
+  scale_type: nominal
+  identifies: LabResult
+}
+
+type: ClaimId is string {
+  scale_type: nominal
+  identifies: Claim
+}
+
+type: CoverageIntervalId is string {
+  scale_type: nominal
+  identifies: PayerCoverageInterval
+}
+
+type: ReadmissionEventId is string {
+  scale_type: nominal
+  identifies: ReadmissionEvent
+}
+
+type: PopulationMemberId is string {
+  scale_type: nominal
+  identifies: QualityMeasurePopulation
+}
+
+type: BusinessDate is date {
+  scale_type: interval
+  description: "Calendar date used for discharge, measurement-period, and coverage-effective dates."
+}
+
+type: EventTimestamp is timestamp {
+  scale_type: interval
+  description: "Point in time when a clinical, billing, or quality event occurred."
+}
+
+type: Days is number {
+  scale_type: ratio
+  description: "Elapsed day count with a meaningful zero."
+}
+
+type: Minutes is number {
+  scale_type: ratio
+  description: "Elapsed minute count with a meaningful zero."
+}
+
+type: MoneyUSD is currency {
+  scale_type: ratio
+  currency: "USD"
+  render_format: currency("USD", 2)
+  description: "US dollar amount. Do not aggregate through one-to-many joins unless the measure is declared fanout-safe."
+}
+
+type: ClinicalResultValue is number {
+  scale_type: ratio
+  description: "Numeric lab value whose interpretation depends on test code, unit, and reference range."
+}
+
+type: SexAtBirth is string {
+  scale_type: nominal
+  enum: ['female', 'male', 'intersex', 'unknown']
+}
+
+type: FacilityType is string {
+  scale_type: nominal
+  enum: ['acute_care_hospital', 'critical_access_hospital', 'ambulatory_clinic']
+}
+
+type: ProviderType is string {
+  scale_type: nominal
+  enum: ['physician', 'advanced_practice_provider', 'hospitalist_group']
+}
+
+type: EncounterType is string {
+  scale_type: nominal
+  enum: ['inpatient', 'emergency', 'observation', 'outpatient']
+}
+
+type: DiagnosisSystem is string {
+  scale_type: nominal
+  enum: ['ICD-10-CM', 'SNOMED-CT']
+}
+
+type: DiagnosisSourceSystem is string {
+  scale_type: nominal
+  enum: ['ehr_problem_list', 'encounter_coding', 'claims']
+}
+
+type: ClaimType is string {
+  scale_type: nominal
+  enum: ['facility', 'professional']
+}
+
+type: ClaimStatus is string {
+  scale_type: ordinal
+  enum: ['submitted', 'denied', 'partially_paid', 'paid']
+}
+
+type: PayerType is string {
+  scale_type: nominal
+  enum: ['commercial', 'medicare', 'medicaid', 'self_pay']
+}
+
+type: DenominatorGrain is string {
+  scale_type: nominal
+  enum: ['inpatient_discharge', 'patient_measure_period']
+}
+
+type: QualitySourceSystem is string {
+  scale_type: nominal
+  enum: ['quality_registry', 'ehr_abstraction', 'claims_measure_engine']
+}
+
+// ---------------------------------------------------------------------------
+// Semantic Sources
+// ---------------------------------------------------------------------------
+
+concept Patient is kind from duckdb.table('patients') {
+  identity patient_id :: PatientId
+
+  field:
+    medical_record_number :: MedicalRecordNumber unique
+    birth_date :: BusinessDate
+    sex_at_birth :: SexAtBirth
+    race_ethnicity :: string
+    deceased_at :: EventTimestamp?
+
+  role DeceasedPatient when deceased_at is not null
+
+  dimension:
+    is_deceased is this is DeceasedPatient
+
+  validation:
+    birth_date_before_death is {
+      description: "A patient death timestamp cannot be before the recorded birth date."
+      predicate: deceased_at is null or deceased_at.day >= birth_date
+    }
+}
+
+concept Facility is kind from duckdb.table('facilities') {
+  identity facility_id :: FacilityId
+
+  field:
+    facility_code :: string unique
+    facility_name :: string
+    facility_type :: FacilityType
+    region :: string
+    market :: string
+    opened_date :: BusinessDate
+    closed_date :: BusinessDate?
+
+  role HospitalFacility
+    when facility_type in ('acute_care_hospital', 'critical_access_hospital')
+
+  role AmbulatoryFacility when facility_type = 'ambulatory_clinic'
+
+  dimension:
+    facility_label is concat(facility_code, ' - ', facility_name)
+    is_hospital is this is HospitalFacility
+
+  validation:
+    closed_after_opened is {
+      description: "A facility cannot close before it opens."
+      predicate: closed_date is null or closed_date >= opened_date
+    }
+}
+
+concept Provider is kind from duckdb.table('providers') {
+  identity provider_id :: ProviderId
+  valid_time: period(active_from, coalesce(active_to, @9999-12-31))
+
+  field:
+    npi :: string unique
+    provider_name :: string
+    provider_type :: ProviderType
+    specialty :: string
+    active_from :: BusinessDate
+    active_to :: BusinessDate?
+
+  role PhysicianProvider when provider_type = 'physician'
+
+  role HospitalistGroup when provider_type = 'hospitalist_group'
+
+  dimension:
+    provider_label is concat(provider_name, ' / ', specialty)
+    is_physician is this is PhysicianProvider
+
+  validation:
+    active_period_is_ordered is {
+      description: "A provider active interval must be open-ended or end after it starts."
+      predicate: active_to is null or active_to >= active_from
+    }
+}
+
+concept PayerCoverageInterval is situation from duckdb.table('payer_coverage_intervals') {
+  // Coverage is administrative state, not an encounter property. Query agents
+  // should attach it at the event date being analyzed, such as admit time or
+  // discharge date.
+  identity coverage_interval_id :: CoverageIntervalId
+  valid_time: period(coverage_start_date, coverage_end_date)
+  observation_time: coverage_start_date
+
+  join_one patient: Patient on patient_id
+
+  field:
+    patient_id :: PatientId
+    payer_name :: string
+    plan_name :: string
+    payer_type :: PayerType
+    member_id :: string
+    coverage_start_date :: BusinessDate
+    coverage_end_date :: BusinessDate
+    is_primary :: boolean
+
+  role PrimaryCoverage when is_primary
+
+  role PublicCoverage when payer_type in ('medicare', 'medicaid')
+
+  dimension:
+    coverage_key is concat(patient_id, '|', payer_name, '|', plan_name)
+    is_public_payer is this is PublicCoverage
+
+  measure:
+    coverage_intervals is count()
+    covered_patients is count(patient_id)
+    primary_coverage_intervals is count(case when this is PrimaryCoverage then coverage_interval_id end)
+
+  validation:
+    coverage_period_is_ordered is {
+      description: "Coverage must end after it starts."
+      predicate: coverage_end_date > coverage_start_date
+    }
+}
+
+concept Encounter is event from duckdb.table('encounters') {
+  // One row per clinical contact. This is the right root for utilization mix,
+  // but not for discharge-denominator quality measures because outpatient and
+  // emergency encounters share this table.
+  identity encounter_id :: EncounterId
+  occurrence_time: admit_at
+
+  join_one patient: Patient on patient_id
+
+  join_one facility: Facility on facility_id
+
+  join_one attending_provider: Provider
+    on attending_provider_id = provider_id
+    at admit_at
+
+  join_one coverage_at_admit?: PayerCoverageInterval
+    on patient_id = coverage_at_admit.patient_id
+    and coverage_at_admit is PrimaryCoverage
+    at admit_at
+
+  field:
+    patient_id :: PatientId
+    facility_id :: FacilityId
+    attending_provider_id :: ProviderId
+    encounter_type :: EncounterType
+    admit_at :: EventTimestamp
+    discharge_at :: EventTimestamp?
+    service_line :: string
+    discharge_disposition :: string?
+    encounter_reason :: string
+
+  role HospitalEncounter
+    when encounter_type in ('inpatient', 'emergency', 'observation')
+
+  role InpatientEncounter when encounter_type = 'inpatient'
+
+  dimension:
+    encounter_date is admit_at.day
+    encounter_month is admit_at.month
+    is_hospital_encounter is this is HospitalEncounter
+
+  measure:
+    encounters is count()
+    patients_seen is count(patient_id)
+    inpatient_encounters is count(case when this is InpatientEncounter then encounter_id end)
+    emergency_encounters is count(case when encounter_type = 'emergency' then encounter_id end)
+    outpatient_encounters is count(case when encounter_type = 'outpatient' then encounter_id end)
+
+  view: encounter_mix is {
+    group_by:
+      encounter_month
+      encounter_type
+      service_line
+      facility.region
+      facility.market
+      coverage_at_admit.payer_type
+    aggregate:
+      encounters
+      patients_seen
+      inpatient_encounters
+      emergency_encounters
+      outpatient_encounters
+  }
+
+  validation:
+    encounter_time_is_ordered is {
+      description: "A discharged encounter cannot end before it starts."
+      predicate: discharge_at is null or discharge_at >= admit_at
+    }
+}
+
+concept InpatientStay is event from duckdb.table('inpatient_stays') {
+  // This is the analytical center for inpatient quality. It repeats patient,
+  // facility, and provider keys from Encounter so the discharge denominator can
+  // be measured without joining through broader utilization first.
+  identity stay_id :: StayId
+  occurrence_time: discharge_at
+
+  join_one encounter: Encounter on encounter_id
+
+  join_one patient: Patient on patient_id
+
+  join_one facility: Facility on facility_id
+
+  join_one attending_provider: Provider
+    on attending_provider_id = provider_id
+    at discharge_at
+
+  join_one coverage_at_discharge?: PayerCoverageInterval
+    on patient_id = coverage_at_discharge.patient_id
+    and coverage_at_discharge is PrimaryCoverage
+    at discharge_date
+
+  join_many diagnoses_at_discharge: DiagnosisInterval
+    on patient_id = diagnoses_at_discharge.patient_id
+    at discharge_date
+
+  join_many readmissions: ReadmissionEvent
+    on stay_id = readmissions.index_stay_id
+
+  join_many measure_population_rows: QualityMeasurePopulation
+    on stay_id
+
+  field:
+    encounter_id :: EncounterId
+    patient_id :: PatientId
+    facility_id :: FacilityId
+    attending_provider_id :: ProviderId
+    admit_at :: EventTimestamp
+    discharge_at :: EventTimestamp
+    discharge_date :: BusinessDate
+    length_of_stay_days :: Days
+    service_line :: string
+    discharge_disposition :: string
+    index_stay_eligible_flag :: boolean
+    planned_admission_flag :: boolean
+    mortality_exclusion_flag :: boolean
+
+  role EligibleIndexDischarge
+    when index_stay_eligible_flag and not mortality_exclusion_flag
+
+  role PlannedAdmission when planned_admission_flag
+
+  role MortalityExclusion when mortality_exclusion_flag
+
+  dimension:
+    discharge_month is discharge_at.month
+    eligible_denominator_discharge is this is EligibleIndexDischarge
+
+  measure:
+    inpatient_stays is count()
+    discharges is count()
+    eligible_index_discharges is count(case when this is EligibleIndexDischarge then stay_id end)
+    planned_index_admissions is count(case when this is PlannedAdmission then stay_id end)
+    mortality_exclusions is count(case when this is MortalityExclusion then stay_id end)
+    total_length_of_stay_days is sum(length_of_stay_days)
+    average_length_of_stay_days is avg(length_of_stay_days)
+    readmissions_30d is count(readmissions.readmission_event_id)
+    unplanned_readmissions_30d is count(
+      case when not readmissions.planned_readmission_flag then readmissions.readmission_event_id end
+    )
+    readmission_rate_30d is unplanned_readmissions_30d / nullif(eligible_index_discharges, 0)
+
+  view: discharge_denominator is {
+    group_by:
+      discharge_month
+      facility.region
+      facility.facility_name
+      service_line
+      discharge_disposition
+      coverage_at_discharge.payer_type
+    aggregate:
+      discharges
+      eligible_index_discharges
+      planned_index_admissions
+      mortality_exclusions
+      unplanned_readmissions_30d
+      readmission_rate_30d
+      average_length_of_stay_days
+  }
+
+  view: provider_discharge_quality is {
+    group_by:
+      discharge_month
+      attending_provider.specialty
+      attending_provider.provider_name
+      service_line
+    aggregate:
+      eligible_index_discharges
+      unplanned_readmissions_30d
+      readmission_rate_30d
+      average_length_of_stay_days
+  }
+
+  validation:
+    stay_time_is_ordered is {
+      description: "An inpatient stay cannot discharge before admission."
+      predicate: discharge_at >= admit_at
+    }
+}
+
+concept DiagnosisInterval is situation from duckdb.table('diagnosis_intervals') {
+  // Diagnoses are interval facts. A chronic problem-list diagnosis and an
+  // encounter-coded diagnosis can both describe the same patient but with
+  // different source and valid-time semantics.
+  identity diagnosis_interval_id :: DiagnosisIntervalId
+  valid_time: period(clinical_valid_start, clinical_valid_end)
+  observation_time: recorded_at
+  recorded_time: recorded_at
+
+  join_one patient: Patient on patient_id
+
+  join_one encounter?: Encounter on encounter_id
+
+  field:
+    patient_id :: PatientId
+    encounter_id :: EncounterId?
+    diagnosis_code :: string
+    diagnosis_system :: DiagnosisSystem
+    diagnosis_description :: string
+    clinical_valid_start :: BusinessDate
+    clinical_valid_end :: BusinessDate
+    recorded_at :: EventTimestamp
+    source_system :: DiagnosisSourceSystem
+    present_on_admission_flag :: boolean?
+
+  role DiabetesDiagnosis
+    when diagnosis_code in ('E10', 'E10.9', 'E11', 'E11.9', 'E11.65')
+
+  role ProblemListDiagnosis when source_system = 'ehr_problem_list'
+
+  role EncounterCodedDiagnosis when source_system = 'encounter_coding'
+
+  dimension:
+    clinical_valid_month is clinical_valid_start.month
+    is_diabetes_diagnosis is this is DiabetesDiagnosis
+    is_problem_list_source is this is ProblemListDiagnosis
+
+  measure:
+    diagnosis_intervals is count()
+    diagnosed_patients is count(patient_id)
+    diabetes_patients is count(case when this is DiabetesDiagnosis then patient_id end)
+    encounter_coded_diagnoses is count(case when this is EncounterCodedDiagnosis then diagnosis_interval_id end)
+
+  view: diagnosis_cohorts is {
+    group_by:
+      clinical_valid_month
+      diagnosis_system
+      diagnosis_code
+      diagnosis_description
+      source_system
+    aggregate:
+      diagnosis_intervals
+      diagnosed_patients
+      diabetes_patients
+  }
+
+  validation:
+    clinical_interval_is_ordered is {
+      description: "A diagnosis interval must end after it starts."
+      predicate: clinical_valid_end > clinical_valid_start
+    }
+}
+
+concept LabResult is event from duckdb.table('lab_results') {
+  identity lab_result_id :: LabResultId
+  occurrence_time: resulted_at
+
+  join_one patient: Patient on patient_id
+
+  join_one encounter?: Encounter on encounter_id
+
+  join_one ordering_provider: Provider
+    on ordering_provider_id = provider_id
+    at resulted_at
+
+  join_one facility: Facility on facility_id
+
+  join_many active_diagnoses: DiagnosisInterval
+    on patient_id = active_diagnoses.patient_id
+    at resulted_at
+
+  field:
+    patient_id :: PatientId
+    encounter_id :: EncounterId?
+    ordering_provider_id :: ProviderId
+    facility_id :: FacilityId
+    specimen_collected_at :: EventTimestamp
+    resulted_at :: EventTimestamp
+    test_code :: string
+    test_name :: string
+    result_value :: ClinicalResultValue
+    result_unit :: string
+    reference_low :: ClinicalResultValue?
+    reference_high :: ClinicalResultValue?
+    abnormal_flag :: boolean
+    turnaround_minutes :: Minutes
+
+  role AbnormalResult when abnormal_flag
+
+  role A1cResult when test_code = 'A1C'
+
+  dimension:
+    resulted_month is resulted_at.month
+    result_context is concat(test_code, ' ', result_unit)
+
+  measure:
+    lab_results is count()
+    patients_with_labs is count(patient_id)
+    abnormal_results is count(case when this is AbnormalResult then lab_result_id end)
+    abnormal_result_rate is abnormal_results / nullif(lab_results, 0)
+    average_result_value is avg(result_value)
+    average_turnaround_minutes is avg(turnaround_minutes)
+
+  view: lab_turnaround_and_abnormality is {
+    group_by:
+      resulted_month
+      facility.facility_name
+      test_code
+      test_name
+      result_unit
+    aggregate:
+      lab_results
+      patients_with_labs
+      abnormal_results
+      abnormal_result_rate
+      average_result_value
+      average_turnaround_minutes
+  }
+
+  validation:
+    lab_result_after_collection is {
+      description: "A lab result cannot be resulted before specimen collection."
+      predicate: resulted_at >= specimen_collected_at
+    }
+}
+
+concept Claim is relator from duckdb.table('claims') {
+  // Claims connect an encounter to a payer outcome. They should not be used as
+  // a proxy for the clinical denominator because denied, submitted, and
+  // professional claims have their own billing lifecycle.
+  identity claim_id :: ClaimId
+  occurrence_time: claim_submitted_at
+
+  join_one encounter: Encounter on encounter_id
+
+  join_one patient: Patient on patient_id
+
+  field:
+    encounter_id :: EncounterId
+    patient_id :: PatientId
+    payer_name :: string
+    claim_type :: ClaimType
+    claim_status :: ClaimStatus writeable
+    billed_amount :: MoneyUSD
+    allowed_amount :: MoneyUSD writeable
+    paid_amount :: MoneyUSD writeable
+    denied_amount :: MoneyUSD writeable
+    claim_submitted_at :: EventTimestamp
+    claim_paid_at :: EventTimestamp? writeable
+    denial_reason :: string?
+
+  role DeniedClaim when claim_status = 'denied' or denied_amount > 0
+
+  role PaidClaim when claim_status in ('paid', 'partially_paid')
+
+  dimension:
+    submitted_month is claim_submitted_at.month
+    has_denial is this is DeniedClaim
+
+  measure:
+    claims is count()
+    denied_claims is count(case when this is DeniedClaim then claim_id end)
+    paid_claims is count(case when this is PaidClaim then claim_id end)
+    billed_amount is sum(billed_amount)
+    allowed_amount is sum(allowed_amount)
+    paid_amount is sum(paid_amount)
+    denied_amount is sum(denied_amount)
+    denial_rate is denied_claims / nullif(claims, 0)
+    collection_rate is paid_amount / nullif(allowed_amount, 0)
+
+  view: payer_claim_outcomes is {
+    group_by:
+      submitted_month
+      payer_name
+      claim_type
+      claim_status
+      encounter.facility.region
+      encounter.service_line
+    aggregate:
+      claims
+      denied_claims
+      billed_amount
+      allowed_amount
+      paid_amount
+      denied_amount
+      denial_rate
+      collection_rate
+  }
+
+  action post_payment {
+    subject: single
+
+    param:
+      adjudicated_allowed_amount :: MoneyUSD
+      payment_amount :: MoneyUSD
+
+    guard:
+      this.claim_status in ['submitted', 'partially_paid']
+        else "Only submitted or partially paid claims can receive a payment posting."
+
+    edit:
+      set claim_status = 'paid'
+      set allowed_amount = adjudicated_allowed_amount
+      set paid_amount = payment_amount
+      set denied_amount = 0
+      set claim_paid_at = current_time
+
+    log as ClaimActionLog {
+      summary: "Posted payment for claim ${this.claim_id}"
+      include: adjudicated_allowed_amount, payment_amount, current_user.id
+    }
+  }
+
+  validation:
+    paid_claims_have_paid_time is {
+      description: "Paid and partially paid claims must have a payment timestamp."
+      predicate: (claim_status not in ('paid', 'partially_paid')) or claim_paid_at is not null
+    }
+}
+
+concept ReadmissionEvent is event from duckdb.table('readmission_events') {
+  // This event relates an index discharge to a later inpatient stay. Measures on
+  // InpatientStay use this concept through a one-to-many join, while direct
+  // readmission queries can study the readmission lifecycle itself.
+  identity readmission_event_id :: ReadmissionEventId
+  occurrence_time: readmitted_at
+
+  join_one index_stay: InpatientStay on index_stay_id = stay_id
+
+  join_one readmission_stay: InpatientStay on readmission_stay_id = stay_id
+
+  join_one patient: Patient on patient_id
+
+  field:
+    index_stay_id :: StayId
+    readmission_stay_id :: StayId
+    patient_id :: PatientId
+    readmitted_at :: EventTimestamp
+    days_after_discharge :: Days
+    planned_readmission_flag :: boolean
+    same_facility_flag :: boolean
+
+  role UnplannedReadmission when not planned_readmission_flag
+
+  role SameFacilityReadmission when same_facility_flag
+
+  measure:
+    readmission_events is count()
+    unplanned_readmissions is count(case when this is UnplannedReadmission then readmission_event_id end)
+    planned_readmissions is count(case when planned_readmission_flag then readmission_event_id end)
+    same_facility_readmissions is count(case when this is SameFacilityReadmission then readmission_event_id end)
+    average_days_to_readmit is avg(days_after_discharge)
+
+  validation:
+    readmission_window_is_30_days is {
+      description: "This table models thirty-day readmissions only."
+      predicate: days_after_discharge >= 0 and days_after_discharge <= 30
+    }
+
+  validation:
+    readmission_is_not_index_stay is {
+      description: "A stay cannot be its own readmission."
+      predicate: index_stay_id != readmission_stay_id
+    }
+}
+
+concept QualityMeasurePopulation is relator from duckdb.table('quality_measure_populations') {
+  // One row is a measure-population membership decision. This is the safest
+  // concept for regulatory scorecards because denominator, numerator,
+  // exclusion, and exception status are explicit rather than inferred from raw
+  // clinical facts at query time.
+  identity population_member_id :: PopulationMemberId
+  valid_time: period(measurement_period_start, measurement_period_end)
+  occurrence_time: numerator_event_at
+
+  join_one patient: Patient on patient_id
+
+  join_one stay?: InpatientStay on stay_id
+
+  join_one facility: Facility on facility_id
+
+  join_one provider: Provider on provider_id
+
+  field:
+    measure_id :: string
+    measure_version :: string
+    measure_name :: string
+    measurement_period_start :: BusinessDate
+    measurement_period_end :: BusinessDate
+    denominator_grain :: DenominatorGrain
+    patient_id :: PatientId
+    stay_id :: StayId?
+    facility_id :: FacilityId
+    provider_id :: ProviderId
+    denominator_flag :: boolean
+    numerator_flag :: boolean
+    exclusion_flag :: boolean
+    exception_flag :: boolean
+    exclusion_reason :: string?
+    numerator_event_at :: EventTimestamp?
+    source_system :: QualitySourceSystem
+
+  role EffectiveDenominatorMember
+    when denominator_flag and not exclusion_flag and not exception_flag
+
+  role NumeratorMember
+    when numerator_flag and denominator_flag and not exclusion_flag and not exception_flag
+
+  role ExcludedMember when exclusion_flag
+
+  dimension:
+    measurement_period_label is concat(measure_version, ' ', measure_id)
+    effective_denominator_member is this is EffectiveDenominatorMember
+
+  measure:
+    population_rows is count()
+    denominator_members is count(case when denominator_flag then population_member_id end)
+    exclusion_members is count(case when this is ExcludedMember then population_member_id end)
+    exception_members is count(case when exception_flag then population_member_id end)
+    effective_denominator_members is count(case when this is EffectiveDenominatorMember then population_member_id end)
+    numerator_members is count(case when this is NumeratorMember then population_member_id end)
+    measure_rate is numerator_members / nullif(effective_denominator_members, 0)
+
+  view: quality_measure_scorecard is {
+    group_by:
+      measure_id
+      measure_version
+      measure_name
+      denominator_grain
+      facility.region
+      facility.facility_name
+      provider.specialty
+    aggregate:
+      denominator_members
+      exclusion_members
+      exception_members
+      effective_denominator_members
+      numerator_members
+      measure_rate
+  }
+
+  view: denominator_audit is {
+    group_by:
+      measure_id
+      measure_version
+      denominator_grain
+      source_system
+      exclusion_flag
+      exception_flag
+      exclusion_reason
+    aggregate:
+      population_rows
+      denominator_members
+      effective_denominator_members
+      numerator_members
+  }
+
+  validation:
+    measurement_period_is_ordered is {
+      description: "A measure period must end after it starts."
+      predicate: measurement_period_end > measurement_period_start
+    }
+
+  validation:
+    discharge_denominator_has_stay is {
+      description: "Inpatient-discharge denominator rows must point at the stay being evaluated."
+      predicate: denominator_grain != 'inpatient_discharge' or stay_id is not null
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: readmission_monitor is InpatientStay -> {
+  // Business question:
+  //   "Monitor eligible inpatient discharges and unplanned 30-day readmissions
+  //    by month, facility, service line, and payer type."
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: InpatientStay, ReadmissionEvent, Facility, PayerCoverageInterval
+  //   mcp.describe({ kind: "concept", names: ["InpatientStay"] })
+  //   -> grain: stay_id; role EligibleIndexDischarge; join readmissions
+  //   -> temporal join coverage_at_discharge at discharge_date
+  //   mcp.run_query(...)
+  //   -> valid; readmission measures are declared on InpatientStay to avoid
+  //      double counting through diagnosis or claim paths
+  where:
+    eligible_denominator_discharge
+  group_by:
+    discharge_month
+    facility.facility_name
+    service_line
+    coverage_at_discharge.payer_type
+  aggregate:
+    eligible_index_discharges
+    unplanned_readmissions_30d
+    readmission_rate_30d
+    average_length_of_stay_days
+}
+
+query: quality_measure_scorecard is QualityMeasurePopulation -> {
+  // Business question:
+  //   "Show quality-measure performance by measure, facility, and provider
+  //    specialty using the official denominator rows."
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concept: QualityMeasurePopulation
+  //   mcp.describe({ kind: "concept", names: ["QualityMeasurePopulation"] })
+  //   -> source table quality_measure_populations, grain population_member_id
+  //   mcp.run_query(...)
+  //   -> valid; denominator and numerator flags are explicit at this grain
+  group_by:
+    measure_id
+    measure_version
+    denominator_grain
+    facility.facility_name
+    provider.specialty
+  aggregate:
+    effective_denominator_members
+    numerator_members
+    exclusion_members
+    measure_rate
+}
+
+query: payer_denial_and_coverage is Claim -> {
+  // Business question:
+  //   "Where are claim denials and collections concentrated, and what payer
+  //    coverage was active when the encounter began?"
+  //
+  // Agent discovery sketch:
+  //   mcp.find_paths({
+  //     from: "Claim",
+  //     to: ["Encounter", "Facility", "PayerCoverageInterval"]
+  //   })
+  //   -> Claim -> Encounter -> coverage_at_admit
+  //   -> Claim -> Encounter -> Facility
+  //   mcp.run_query(...)
+  //   -> valid; amount measures remain on Claim and coverage is reached
+  //      through Encounter at admit_at
+  group_by:
+    submitted_month
+    payer_name
+    encounter.coverage_at_admit.payer_type
+    encounter.facility.region
+    encounter.service_line
+  aggregate:
+    claims
+    denied_claims
+    billed_amount
+    paid_amount
+    denied_amount
+    denial_rate
+    collection_rate
+}
+
+query: diabetes_a1c_followup is LabResult -> {
+  // Business question:
+  //   "For diabetes patients, how many A1c results are abnormal and how long
+  //    does outpatient lab turnaround take?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> concepts: LabResult, DiagnosisInterval, Patient, Facility
+  //   mcp.find_paths({ from: "LabResult", to: "DiagnosisInterval" })
+  //   -> LabResult.patient_id = DiagnosisInterval.patient_id at resulted_at
+  //   mcp.run_query(...)
+  //   -> note: the base model exposes A1cResult on LabResult and
+  //      DiabetesDiagnosis on DiagnosisInterval; use a temporal patient join
+  where:
+    this is A1cResult
+    and active_diagnoses is DiabetesDiagnosis
+  group_by:
+    resulted_month
+    facility.facility_name
+    encounter.service_line
+    result_unit
+  aggregate:
+    patients_with_labs
+    lab_results
+    abnormal_results
+    abnormal_result_rate
+    average_result_value
+    average_turnaround_minutes
+}
+
+query: discharge_diagnosis_denominator_audit is InpatientStay -> {
+  // Business question:
+  //   "Which readmission-denominator discharges had active pneumonia or heart
+  //    failure diagnoses at discharge?"
+  //
+  // Agent discovery sketch:
+  //   mcp.describe({ kind: "temporal_axes", names: ["DiagnosisInterval"] })
+  //   -> valid_time: clinical_valid_start to clinical_valid_end
+  //   mcp.find_paths({ from: "InpatientStay", to: "DiagnosisInterval" })
+  //   -> diagnoses_at_discharge uses `at discharge_date`
+  //   mcp.run_query(...)
+  //   -> valid; diagnosis filters do not change the discharge grain
+  where:
+    eligible_denominator_discharge
+    and diagnoses_at_discharge.diagnosis_code in ('J18.9', 'I50.23')
+  group_by:
+    discharge_month
+    facility.facility_name
+    service_line
+    diagnoses_at_discharge.diagnosis_code
+    diagnoses_at_discharge.diagnosis_description
+  aggregate:
+    eligible_index_discharges
+    unplanned_readmissions_30d
+    readmission_rate_30d
+    average_length_of_stay_days
+}
+
+// ---------------------------------------------------------------------------
+// Compiler Ideas Implied By This Compact Syntax
+// ---------------------------------------------------------------------------
+//
+// A first SemLang implementation could expand this file into verbose concept
+// declarations plus Malloy source definitions:
+//
+//   - `concept X is kind/event/situation/relator from duckdb.table('x')` creates both
+//     the semantic concept and its canonical source.
+//   - `field_name :: Type` maps by name to a physical column unless an
+//     explicit expression follows.
+//   - `occurrence_time`, `valid_time`, `recorded_time`, and `observation_time`
+//     are explicit temporal axes. `at some_time` on a join expands to a
+//     valid-time containment predicate for interval concepts.
+//   - `role R when predicate` creates a semantic predicate usable as
+//     `thing is R`.
+//   - `validation: name is { predicate: ... }` compiles to an executable
+//     data-quality check where false rows are invalid model state.
+//   - `render_format: currency("USD", 2)` is metadata that a Malloy or BI emitter can
+//     translate into display annotations.
+//   - `join_one x?: Concept` marks an optional participant. Clinical data often
+//     needs this for claims, outpatient labs, coverage, and population rows.
+//   - `query: q is Concept -> { ... }` resolves the semantic concept to its
+//     canonical source, then validates group-by and aggregate expressions
+//     against the concept graph.

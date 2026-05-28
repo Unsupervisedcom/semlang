@@ -1,0 +1,716 @@
+source: suppliers is duckdb.table('suppliers') extend {
+  primary_key: supplier_id
+
+  dimension:
+    is_approved_supplier is approved_status = 'approved'
+    is_conditional_supplier is approved_status = 'conditional'
+    is_suspended_supplier is approved_status = 'suspended'
+    supplier_label is concat(supplier_code, ' - ', supplier_name)
+    is_approved_supplier is (approved_status = 'approved')
+}
+
+source: materials is duckdb.table('materials') extend {
+  primary_key: material_id
+
+  dimension:
+    is_critical_material is criticality_level in ('quality_critical', 'safety_critical')
+    is_safety_critical_material is criticality_level = 'safety_critical'
+    material_label is concat(material_number, ' - ', material_name)
+    is_critical_material is (criticality_level in ('quality_critical', 'safety_critical'))
+}
+
+source: supplier_lots is duckdb.table('supplier_lots') extend {
+  primary_key: supplier_lot_id
+
+  join_one: supplier is suppliers
+    on supplier_id = supplier.supplier_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  dimension:
+    is_released_supplier_lot is lot_status = 'released'
+    is_quarantined_supplier_lot is lot_status = 'quarantined'
+    is_rejected_supplier_lot is lot_status = 'rejected'
+    is_critical_supplier_lot is (material.criticality_level in ('quality_critical', 'safety_critical'))
+    supplier_lot_label is concat(supplier.supplier_code, ' / ', material.material_number, ' / ', lot_number)
+    accepted_yield is accepted_quantity / nullif(received_quantity, 0)
+    is_released_lot is (lot_status = 'released')
+    is_quarantined_lot is (lot_status = 'quarantined')
+
+  measure:
+    supplier_lots is count()
+    released_lots is count(case when (lot_status = 'released') then supplier_lot_id end)
+    quarantined_lots is count(case when (lot_status = 'quarantined') then supplier_lot_id end)
+    received_quantity is sum(received_quantity)
+    accepted_quantity is sum(accepted_quantity)
+    average_accepted_yield is avg(accepted_yield)
+
+  view: supplier_lot_status is {
+    group_by:
+      received_month is received_date.month
+      supplier.supplier_code
+      supplier.supplier_name
+      material.material_number
+      material.material_name
+      material.criticality_level
+      lot_status
+    aggregate:
+      supplier_lots
+      received_quantity
+      accepted_quantity
+      quarantined_lots
+      average_accepted_yield
+  }
+}
+
+source: supplier_lot_genealogy is duckdb.table('supplier_lot_genealogy') extend {
+  primary_key: lot_genealogy_id
+
+  join_one: parent_lot is supplier_lots
+    on parent_supplier_lot_id = parent_lot.supplier_lot_id
+
+  join_one: child_lot is supplier_lots
+    on child_supplier_lot_id = child_lot.supplier_lot_id
+
+  dimension:
+    is_lot_split is relationship_type = 'split'
+    is_lot_rework is relationship_type = 'rework'
+
+  measure:
+    genealogy_edges is count()
+    transferred_quantity is sum(transferred_quantity)
+
+  view: lot_genealogy_paths is {
+    group_by:
+      relationship_type
+      parent_lot.supplier.supplier_code
+      parent_lot.lot_number
+      child_lot.lot_number
+      child_lot.material.material_number
+    aggregate:
+      genealogy_edges
+      transferred_quantity
+  }
+}
+
+source: product_models is duckdb.table('product_models') extend {
+  primary_key: product_model_id
+
+  dimension:
+    is_active_product_model is retired_date is null
+    model_label is concat(model_number, ' - ', model_name)
+    is_active_model is (retired_date is null)
+}
+
+source: bom_versions is duckdb.table('bom_versions') extend {
+  primary_key: bom_version_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  dimension:
+    is_released_bomversion is release_status = 'released'
+    is_approved_bomversion is release_status in ('released', 'superseded', 'obsolete')
+    bom_label is concat(bom_number, ' rev ', revision_code)
+    is_released_bom is (release_status = 'released')
+
+  measure:
+    bom_versions is count()
+    released_bom_versions is
+      count(case when (release_status in ('released', 'superseded', 'obsolete')) then bom_version_id end)
+}
+
+source: bom_components is duckdb.table('bom_components') extend {
+  primary_key: bom_component_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  dimension:
+    is_primary_component is component_role = 'primary'
+    is_packaging_component is component_role = 'packaging'
+
+  measure:
+    component_rows is count()
+    required_quantity_per_unit is sum(quantity_per_unit)
+    average_scrap_factor_pct is avg(scrap_factor_pct)
+
+  view: bom_version_components is {
+    group_by:
+      bom_version.product_model.model_number
+      bom_version.revision_code
+      material.material_number
+      material.material_name
+      material.criticality_level
+      component_role
+    aggregate:
+      component_rows
+      required_quantity_per_unit
+      average_scrap_factor_pct
+  }
+}
+
+source: production_orders is duckdb.table('production_orders') extend {
+  primary_key: production_order_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_one: bom_version_at_start is bom_versions
+    on product_model_id = bom_version_at_start.product_model_id
+    and started_at >= bom_version_at_start.effective_from
+    and started_at < bom_version_at_start.effective_to
+
+  join_many: lot_consumption is production_order_lot_consumption
+    on production_order_id = lot_consumption.production_order_id
+
+  join_many: units is serialized_units
+    on production_order_id = units.production_order_id
+
+  join_many: inspections is inspections
+    on production_order_id = inspections.production_order_id
+
+  join_many: defects is inspection_defects
+    on production_order_id = defects.production_order_id
+
+  dimension:
+    is_completed_production_order is order_status in ('completed', 'closed')
+    is_cancelled_production_order is order_status = 'cancelled'
+    started_date is started_at.day
+    started_month is started_at.month
+    order_duration_hours is (completed_at - started_at) / 1 hours
+    used_declared_bom_effectively is
+      started_at >= bom_version.effective_from and started_at < bom_version.effective_to
+    declared_bom_matches_time_effective_bom is bom_version_id = bom_version_at_start.bom_version_id
+
+  measure:
+    production_orders is count()
+    planned_units is sum(planned_quantity)
+    completed_units is count(units.serial_number)
+    released_units is count(case when units.unit_status in ('released', 'shipped') then units.serial_number end)
+    consumed_supplier_lots is count(lot_consumption.supplier_lot_id)
+    consumed_materials is count(lot_consumption.material_id)
+    consumed_quantity is sum(lot_consumption.consumed_quantity)
+    defective_units is count(defects.serial_number)
+    defect_rows is count(defects.defect_id)
+    average_order_duration_hours is avg(order_duration_hours)
+
+  view: production_by_bom_version is {
+    group_by:
+      started_month
+      manufacturing_site
+      line_code
+      product_model.model_number
+      product_model.model_family
+      bom_version.revision_code
+      order_status
+    aggregate:
+      production_orders
+      planned_units
+      completed_units
+      released_units
+      consumed_supplier_lots
+      consumed_materials
+      defective_units
+  }
+}
+
+source: production_order_lot_consumption is duckdb.table('production_order_lot_consumption') extend {
+  primary_key: consumption_id
+
+  join_one: production_order is production_orders
+    on production_order_id = production_order.production_order_id
+
+  join_one: supplier_lot is supplier_lots
+    on supplier_lot_id = supplier_lot.supplier_lot_id
+
+  join_one: material is materials
+    on material_id = material.material_id
+
+  dimension:
+    is_manual_consumption_adjustment is consumption_source = 'manual_adjustment'
+    is_messcanned_consumption is consumption_source = 'mes_scan'
+
+  measure:
+    consumed_lot_links is count()
+    consumed_supplier_lots is count(supplier_lot_id)
+    consumed_materials is count(material_id)
+    consumed_quantity is sum(consumed_quantity)
+    manual_consumption_links is
+      count(case when (consumption_source = 'manual_adjustment') then consumption_id end)
+
+  view: consumed_lots_by_supplier is {
+    group_by:
+      consumed_month is consumed_at.month
+      production_order.manufacturing_site
+      production_order.line_code
+      supplier_lot.supplier.supplier_code
+      supplier_lot.lot_number
+      material.material_number
+      material.criticality_level
+      consumption_source
+    aggregate:
+      consumed_lot_links
+      consumed_quantity
+      manual_consumption_links
+  }
+}
+
+source: serialized_units is duckdb.table('serialized_units') extend {
+  primary_key: serial_number
+
+  join_one: production_order is production_orders
+    on production_order_id = production_order.production_order_id
+
+  join_one: product_model is product_models
+    on product_model_id = product_model.product_model_id
+
+  join_one: bom_version is bom_versions
+    on bom_version_id = bom_version.bom_version_id
+
+  join_many: inspections is inspections
+    on serial_number = inspections.serial_number
+
+  join_many: defects is inspection_defects
+    on serial_number = defects.serial_number
+
+  join_many: shipment_unit_rows is shipment_units
+    on serial_number = shipment_unit_rows.serial_number
+
+  join_many: warranty_claims is warranty_claims
+    on serial_number = warranty_claims.serial_number
+
+  join_many: recall_scope_rows is recall_affected_units
+    on serial_number = recall_scope_rows.serial_number
+
+  dimension:
+    is_shipped_unit is unit_status = 'shipped'
+    is_accepted_unit is final_quality_disposition = 'accepted'
+    is_held_unit is unit_status = 'held'
+    is_scrapped_unit is unit_status = 'scrapped'
+    is_nonconforming_unit is final_quality_disposition in ('rework_required', 'rejected')
+    completed_date is completed_at.day
+    completed_month is completed_at.month
+    was_shipped is (unit_status = 'shipped')
+    accepted_unit is (final_quality_disposition = 'accepted')
+
+  measure:
+    units_built is count()
+    released_units is count(case when unit_status in ('released', 'shipped') then serial_number end)
+    shipped_units is count(case when (unit_status = 'shipped') then serial_number end)
+    accepted_units is count(case when (final_quality_disposition = 'accepted') then serial_number end)
+    held_units is count(case when (unit_status = 'held') then serial_number end)
+    scrapped_units is count(case when (unit_status = 'scrapped') then serial_number end)
+    nonconforming_units is
+      count(case when (final_quality_disposition in ('rework_required', 'rejected')) then serial_number end)
+    defective_units is count(case when defects.defect_id is not null then serial_number end)
+    critical_defective_units is count(case when defects.severity_level = 'critical' then serial_number end)
+    defect_rows is count(defects.defect_id)
+    final_acceptance_rate is accepted_units / nullif(units_built, 0)
+    defect_unit_rate is defective_units / nullif(units_built, 0)
+    warranty_claim_count is count(warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(warranty_claims.serial_number)
+    warranty_cost is sum(warranty_claims.claim_cost_amount)
+    recall_scope_rows is count(recall_scope_rows.recall_unit_id)
+
+  view: unit_quality_by_bom_and_lot is {
+    group_by:
+      completed_month
+      production_order.manufacturing_site
+      product_model.model_number
+      bom_version.revision_code
+      production_order.lot_consumption.supplier_lot.supplier.supplier_code
+      production_order.lot_consumption.supplier_lot.lot_number
+      production_order.lot_consumption.material.material_number
+    aggregate:
+      units_built
+      released_units
+      shipped_units
+      accepted_units
+      nonconforming_units
+      defective_units
+      defect_rows
+      defect_unit_rate
+      warranty_claim_count
+      warranty_cost
+  }
+}
+
+source: inspections is duckdb.table('inspections') extend {
+  primary_key: inspection_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  join_one: production_order is production_orders
+    on production_order_id = production_order.production_order_id
+
+  join_many: defects is inspection_defects
+    on inspection_id = defects.inspection_id
+
+  dimension:
+    is_passed_inspection is inspection_status = 'passed'
+    is_failed_inspection is inspection_status = 'failed'
+    is_conditional_inspection is inspection_status = 'conditional'
+    inspection_date is performed_at.day
+    inspection_month is performed_at.month
+    passed_first_pass is first_pass_flag = 1
+
+  measure:
+    inspection_rows is count()
+    inspected_units is count(serial_number)
+    passed_inspections is count(case when (inspection_status = 'passed') then inspection_id end)
+    failed_inspections is count(case when (inspection_status = 'failed') then inspection_id end)
+    conditional_inspections is count(case when (inspection_status = 'conditional') then inspection_id end)
+    defect_rows is count(defects.defect_id)
+    defective_units is count(defects.serial_number)
+    first_pass_yield is avg(first_pass_flag)
+    defect_rate is defective_units / nullif(inspected_units, 0)
+    rework_hours is sum(defects.rework_hours)
+
+  view: quality_by_station is {
+    group_by:
+      inspection_month
+      inspection_type
+      station_code
+      inspection_status
+    aggregate:
+      inspection_rows
+      inspected_units
+      passed_inspections
+      failed_inspections
+      conditional_inspections
+      defect_rows
+      defective_units
+      defect_rate
+      first_pass_yield
+      rework_hours
+  }
+}
+
+source: inspection_defects is duckdb.table('inspection_defects') extend {
+  primary_key: defect_id
+
+  join_one: inspection is inspections
+    on inspection_id = inspection.inspection_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  join_one: production_order is production_orders
+    on production_order_id = production_order.production_order_id
+
+  join_one: related_supplier_lot is supplier_lots
+    on related_supplier_lot_id = related_supplier_lot.supplier_lot_id
+
+  dimension:
+    is_critical_defect is severity_level = 'critical'
+    is_major_defect is severity_level = 'major'
+    is_supplier_chargeback_defect is defect_disposition = 'supplier_chargeback'
+    detected_date is detected_at.day
+    detected_month is detected_at.month
+    has_related_supplier_lot is related_supplier_lot_id is not null
+
+  measure:
+    defect_rows is count()
+    defective_units is count(serial_number)
+    critical_defect_rows is count(case when (severity_level = 'critical') then defect_id end)
+    major_defect_rows is count(case when (severity_level = 'major') then defect_id end)
+    supplier_chargeback_rows is count(case when (defect_disposition = 'supplier_chargeback') then defect_id end)
+    rework_hours is sum(rework_hours)
+
+  view: defects_by_supplier_lot is {
+    group_by:
+      detected_month
+      related_supplier_lot.supplier.supplier_code
+      related_supplier_lot.lot_number
+      related_supplier_lot.material.material_number
+      defect_category
+      severity_level
+      defect_disposition
+    aggregate:
+      defect_rows
+      defective_units
+      critical_defect_rows
+      supplier_chargeback_rows
+      rework_hours
+  }
+}
+
+source: shipments is duckdb.table('shipments') extend {
+  primary_key: shipment_id
+
+  join_many: units is shipment_units
+    on shipment_id = units.shipment_id
+
+  dimension:
+    is_shipped_shipment is shipment_status in ('shipped', 'delivered')
+    is_returned_shipment is shipment_status = 'returned'
+    shipped_date is shipped_at.day
+    shipped_month is shipped_at.month
+
+  measure:
+    shipments is count()
+    shipped_unit_rows is count(units.shipment_unit_id)
+    shipped_units is count(units.serial_number)
+}
+
+source: shipment_units is duckdb.table('shipment_units') extend {
+  primary_key: shipment_unit_id
+
+  join_one: shipment is shipments
+    on shipment_id = shipment.shipment_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  dimension:
+    is_exception_approved_shipment_unit is shipped_unit_status = 'exception_approved'
+
+  measure:
+    shipment_unit_rows is count()
+    shipped_units is count(serial_number)
+    exception_approved_units is
+      count(case when (shipped_unit_status = 'exception_approved') then serial_number end)
+}
+
+source: warranty_claims is duckdb.table('warranty_claims') extend {
+  primary_key: warranty_claim_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  dimension:
+    is_approved_warranty_claim is claim_status in ('approved', 'closed')
+    is_open_warranty_claim is claim_status = 'opened'
+    claim_date is claim_opened_at.day
+    claim_month is claim_opened_at.month
+    is_approved_claim is (claim_status in ('approved', 'closed'))
+
+  measure:
+    warranty_claim_count is count()
+    claimed_units is count(serial_number)
+    approved_claims is count(case when (claim_status in ('approved', 'closed')) then warranty_claim_id end)
+    open_claims is count(case when (claim_status = 'opened') then warranty_claim_id end)
+    # currency=usd2
+    warranty_cost is sum(claim_cost_amount)
+
+  view: warranty_by_failure_category is {
+    group_by:
+      claim_month
+      service_region
+      failure_category
+      claim_status
+    aggregate:
+      warranty_claim_count
+      claimed_units
+      approved_claims
+      open_claims
+      warranty_cost
+  }
+}
+
+source: recall_campaigns is duckdb.table('recall_campaigns') extend {
+  primary_key: recall_campaign_id
+
+  join_many: affected_units is recall_affected_units
+    on recall_campaign_id = affected_units.recall_campaign_id
+
+  dimension:
+    is_active_recall_campaign is campaign_status = 'active'
+    is_regulatory_reportable_recall is regulatory_report_required = 1
+    initiated_date is initiated_at.day
+    initiated_month is initiated_at.month
+    is_active_recall is (campaign_status = 'active')
+    requires_regulatory_report is (regulatory_report_required = 1)
+
+  measure:
+    recall_campaigns is count()
+    active_recall_campaigns is count(case when (campaign_status = 'active') then recall_campaign_id end)
+    affected_units is count(affected_units.serial_number)
+    open_scope_units is
+      count( case when affected_units.affected_status in ('identified', 'notified') then affected_units.serial_number end )
+}
+
+source: recall_affected_units is duckdb.table('recall_affected_units') extend {
+  primary_key: recall_unit_id
+
+  join_one: recall_campaign is recall_campaigns
+    on recall_campaign_id = recall_campaign.recall_campaign_id
+
+  join_one: serialized_unit is serialized_units
+    on serial_number = serialized_unit.serial_number
+
+  join_one: traced_supplier_lot is supplier_lots
+    on traced_supplier_lot_id = traced_supplier_lot.supplier_lot_id
+
+  join_many: warranty_claims is warranty_claims
+    on serial_number = warranty_claims.serial_number
+
+  join_many: shipment_unit_rows is shipment_units
+    on serial_number = shipment_unit_rows.serial_number
+
+  dimension:
+    is_open_recall_scope_item is affected_status in ('identified', 'notified')
+    is_remediated_recall_scope_item is affected_status = 'remediated'
+    is_excluded_recall_scope_item is affected_status = 'excluded'
+    identified_date is identified_at.day
+    identified_month is identified_at.month
+    is_open_scope_item is (affected_status in ('identified', 'notified'))
+    is_reportable_open_scope_item is
+      ((recall_campaign.regulatory_report_required = 1)) and ((affected_status in ('identified', 'notified')))
+
+  measure:
+    affected_unit_rows is count()
+    affected_units is count(serial_number)
+    shipped_affected_units is count(shipment_unit_rows.serial_number)
+    notified_units is count(case when affected_status = 'notified' then serial_number end)
+    remediated_units is count(case when (affected_status = 'remediated') then serial_number end)
+    open_scope_units is count(case when (affected_status in ('identified', 'notified')) then serial_number end)
+    reportable_open_scope_units is count(case when is_reportable_open_scope_item then serial_number end)
+    warranty_claim_count is count(warranty_claims.warranty_claim_id)
+    warranty_claimed_units is count(warranty_claims.serial_number)
+    warranty_cost is sum(warranty_claims.claim_cost_amount)
+
+  view: recall_scope_by_lot_model_region is {
+    group_by:
+      recall_campaign.campaign_code
+      recall_campaign.campaign_status
+      identified_month
+      traced_supplier_lot.supplier.supplier_code
+      traced_supplier_lot.lot_number
+      serialized_unit.product_model.model_number
+      serialized_unit.bom_version.revision_code
+      shipment_unit_rows.shipment.destination_region
+      affected_status
+    aggregate:
+      affected_units
+      shipped_affected_units
+      notified_units
+      remediated_units
+      open_scope_units
+      warranty_claim_count
+      warranty_claimed_units
+      warranty_cost
+  }
+}
+
+query: supplier_quality_scorecard is serialized_units -> {
+  group_by:
+    completed_month
+    production_order.manufacturing_site
+    production_order.lot_consumption.supplier_lot.supplier.supplier_code
+    production_order.lot_consumption.supplier_lot.supplier.supplier_name
+    production_order.lot_consumption.material.material_number
+    production_order.lot_consumption.supplier_lot.lot_number
+    product_model.model_family
+    product_model.model_number
+  aggregate:
+    units_built
+    shipped_units
+    accepted_units
+    nonconforming_units
+    defective_units
+    critical_defective_units
+    defect_rows
+    defect_unit_rate
+    warranty_claimed_units
+    warranty_cost
+}
+
+query: recall_investigation_scope is recall_affected_units -> {
+  group_by:
+    recall_campaign.campaign_code
+    recall_campaign.campaign_status
+    recall_campaign.initiated_month
+    traced_supplier_lot.supplier.supplier_code
+    traced_supplier_lot.lot_number
+    serialized_unit.product_model.model_number
+    serialized_unit.bom_version.revision_code
+    shipment_unit_rows.shipment.destination_region
+    affected_status
+  aggregate:
+    affected_units
+    shipped_affected_units
+    notified_units
+    remediated_units
+    open_scope_units
+    reportable_open_scope_units
+    warranty_claim_count
+    warranty_cost
+}
+
+query: bom_effectivity_audit is production_orders -> {
+  where: not used_declared_bom_effectively or not declared_bom_matches_time_effective_bom
+  group_by:
+    started_month
+    manufacturing_site
+    line_code
+    production_order_number
+    product_model.model_number
+    bom_version.revision_code
+    bom_version.effective_from
+    bom_version.effective_to
+    bom_version_at_start.revision_code
+  aggregate:
+    production_orders
+    planned_units
+    completed_units
+}
+
+query: quarantined_lot_build_exposure is serialized_units -> {
+  where: (production_order.lot_consumption.supplier_lot.lot_status = 'quarantined') or (production_order.lot_consumption.supplier_lot.lot_status = 'rejected')
+  group_by:
+    completed_month
+    production_order.production_order_number
+    serial_number
+    unit_status
+    final_quality_disposition
+    production_order.lot_consumption.supplier_lot.supplier.supplier_code
+    production_order.lot_consumption.supplier_lot.lot_number
+    production_order.lot_consumption.material.material_number
+  aggregate:
+    units_built
+    defective_units
+    warranty_claim_count
+    warranty_cost
+}
+
+query: field_quality_by_failure_and_bom is warranty_claims -> {
+  group_by:
+    claim_month
+    service_region
+    failure_category
+    failure_code
+    serialized_unit.product_model.model_family
+    serialized_unit.product_model.model_number
+    serialized_unit.bom_version.revision_code
+  aggregate:
+    warranty_claim_count
+    claimed_units
+    approved_claims
+    open_claims
+    warranty_cost
+}
+
+query: lot_genealogy_recall_candidates is supplier_lot_genealogy -> {
+  where: relationship_type in ('split', 'merge', 'rework')
+  group_by:
+    relationship_type
+    parent_lot.supplier.supplier_code
+    parent_lot.material.material_number
+    parent_lot.lot_number
+    parent_lot.lot_status
+    child_lot.lot_number
+    child_lot.lot_status
+  aggregate:
+    genealogy_edges
+    transferred_quantity
+}
