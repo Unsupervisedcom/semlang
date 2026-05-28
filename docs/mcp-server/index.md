@@ -7,7 +7,8 @@ sidebar_position: 1
 
 The SemLang MCP server gives agents a small set of tools for semantic discovery, ontology navigation, lens planning, query validation, Malloy-backed query execution, and supported local action invocation.
 
-SemLang models use Malloy-style named connections in source declarations. Configure those connections in Malloy project or global config using the same names referenced by `.semlang` files; see [Malloy Connections](./malloy-connections.md) for setup details.
+SemLang models use Malloy-style named connections in source declarations.
+Configure those connections in Malloy project or global config using the same names referenced by `.semlang` files; see [Malloy Connections](./malloy-connections.md) for setup details.
 
 ## Live Source Install
 
@@ -19,7 +20,9 @@ npm install
 npm link
 ```
 
-This exposes `semlang` anywhere on the machine. The MCP command is intentionally source-backed: every MCP process starts through the checked-out TypeScript source with the repo-local `tsx`, so new agents pick up code changes without waiting for a build. Restart an already-running MCP session to load edits made after it started.
+This exposes `semlang` anywhere on the machine.
+The MCP command is intentionally source-backed: every MCP process starts through the checked-out TypeScript source with the repo-local `tsx`, so new agents pick up code changes without waiting for a build.
+Restart an already-running MCP session to load edits made after it started.
 
 ## Project Configuration
 
@@ -63,7 +66,8 @@ MCP client configuration can usually stay this small:
 }
 ```
 
-`run_query` returns a transaction GUID for tracing. If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
+`run_query` returns a transaction GUID for tracing.
+If executed row output is larger than 10 lines, SemLang writes the rows to `<export-directory>/<transaction-guid>.json` and returns that path instead of inline rows.
 
 ## Tool Surface
 

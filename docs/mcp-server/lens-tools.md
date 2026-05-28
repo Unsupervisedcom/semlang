@@ -5,7 +5,8 @@ sidebar_position: 5
 
 # Lens Detail
 
-Lens capabilities are exposed through the consolidated `search` and `describe` tools. Use `search` to discover candidate lenses for a question, and use `describe` to inspect, expand, audit required fields, or plan lens application before validating queries.
+Lens capabilities are exposed through the consolidated `search` and `describe` tools.
+Use `search` to discover candidate lenses for a question, and use `describe` to inspect, expand, audit required fields, or plan lens application before validating queries.
 
 ## Discover Lenses
 
@@ -52,7 +53,8 @@ Call `describe` with `kind: "lens"` and `operation: "expand"` to apply one or mo
 
 ### Output
 
-Returns diagnostics, an expanded model summary, and refinements from the requested lenses. If expansion fails, the response includes diagnostics and an error.
+Returns diagnostics, an expanded model summary, and refinements from the requested lenses.
+If expansion fails, the response includes diagnostics and an error.
 
 ## Required Fields
 
@@ -69,7 +71,8 @@ Call `describe` with `kind: "lens"` and `operation: "required_fields"` to report
 
 ### Output
 
-Returns one entry per selected lens refinement. Each entry includes exposed fields, expression text, required expression fields, and field-specific matches when `field` or `fields` is provided.
+Returns one entry per selected lens refinement.
+Each entry includes exposed fields, expression text, required expression fields, and field-specific matches when `field` or `fields` is provided.
 
 ### Example
 
@@ -94,7 +97,8 @@ Call `describe` with `kind: "lens"` and `operation: "plan"` to plan lens applica
 
 ### Output
 
-Returns described lenses and ordered steps. Each step includes parent lenses to apply first, affected concepts, and added semantic types.
+Returns described lenses and ordered steps.
+Each step includes parent lenses to apply first, affected concepts, and added semantic types.
 
 ### Example
 

@@ -5,7 +5,8 @@ sidebar_position: 6
 
 # Query and Action Tools
 
-`run_query` validates and runs SemLang queries. `invoke_action` invokes supported action edits through the configured Malloy connection.
+`run_query` validates and runs SemLang queries.
+`invoke_action` invokes supported action edits through the configured Malloy connection.
 
 ## `run_query`
 
@@ -43,7 +44,10 @@ Validates a named query, full query declaration, or temporary query body against
 
 ### Output
 
-For named queries, returns the resolved query, diagnostics, extracted `queryMalloy`, and an `execution` object. For temporary queries, returns the generated query name, root, lenses, diagnostics, extracted `queryMalloy`, and `execution`. When `dry_run_only` is true, `execution` is present with `skipped: true`, `execution.ok` is omitted, and `query_limit_seconds` is not required. The full compiled Malloy model is not returned by `run_query`; request it from `load_ontology` with `return_malloy_model` when debugging the whole generated model.
+For named queries, returns the resolved query, diagnostics, extracted `queryMalloy`, and an `execution` object.
+For temporary queries, returns the generated query name, root, lenses, diagnostics, extracted `queryMalloy`, and `execution`.
+When `dry_run_only` is true, `execution` is present with `skipped: true`, `execution.ok` is omitted, and `query_limit_seconds` is not required.
+The full compiled Malloy model is not returned by `run_query`; request it from `load_ontology` with `return_malloy_model` when debugging the whole generated model.
 
 ### Examples
 
@@ -61,9 +65,14 @@ For named queries, returns the resolved query, diagnostics, extracted `queryMall
 }
 ```
 
-Execution uses the Malloy config context captured by `load_ontology`. Named queries and temporary root/body queries are both eligible for execution. If the loaded SemLang config does not identify a Malloy config, execution fails with a clear setup error. If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
+Execution uses the Malloy config context captured by `load_ontology`.
+Named queries and temporary root/body queries are both eligible for execution.
+If the loaded SemLang config does not identify a Malloy config, execution fails with a clear setup error.
+If execution exceeds `query_limit_seconds`, SemLang terminates the isolated Malloy execution worker and returns a timeout result.
 
-Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config. If a model references an unknown custom connection, `run_query` returns a clear Malloy execution error naming the missing connection. See [Malloy Connections](./malloy-connections.md).
+Custom connection names such as `warehouse.table('analytics.orders')` must be present in Malloy config.
+If a model references an unknown custom connection, `run_query` returns a clear Malloy execution error naming the missing connection.
+See [Malloy Connections](./malloy-connections.md).
 
 ### Execution Results
 
@@ -80,7 +89,8 @@ Default successful responses omit verbose execution internals including generate
 
 ## `invoke_action`
 
-Invokes a supported action by generating SQL and executing it with the ontology's configured Malloy connection. Generated write SQL avoids `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` so the core lowering can run on more Malloy-backed SQL engines.
+Invokes a supported action by generating SQL and executing it with the ontology's configured Malloy connection.
+Generated write SQL avoids `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` so the core lowering can run on more Malloy-backed SQL engines.
 
 ### Inputs
 
@@ -106,7 +116,8 @@ The invoker skips or rejects unsupported edit kinds, malformed raw SQL write map
 
 ### Output
 
-Returns the resolved concept and action, generated SQL, changed row count, selected affected rows, diagnostics, timeout metadata (`query_limit_seconds`, `timed_out`), and a verification query when available. Use `dry_run_only: true` to return generated SQL without execution.
+Returns the resolved concept and action, generated SQL, changed row count, selected affected rows, diagnostics, timeout metadata (`query_limit_seconds`, `timed_out`), and a verification query when available.
+Use `dry_run_only: true` to return generated SQL without execution.
 
 ### Example
 

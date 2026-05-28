@@ -1,6 +1,7 @@
 # SemLang vs Palantir Ontology
 
-This comparison focuses on ontology-system functionality: modeling, querying, operational writeback, governance, developer access, and application/runtime surfaces. SemLang status is based on the local V1 language and action documentation; Palantir status is based on public Palantir Foundry documentation reviewed in May 2026.
+This comparison focuses on ontology-system functionality: modeling, querying, operational writeback, governance, developer access, and application/runtime surfaces.
+SemLang status is based on the local V1 language and action documentation; Palantir status is based on public Palantir Foundry documentation reviewed in May 2026.
 
 Legend: `✓` = supported, `△` = partial or planned, `X` = not supported or not documented as a comparable capability.
 
@@ -48,6 +49,8 @@ Legend: `✓` = supported, `△` = partial or planned, `X` = not supported or no
 
 ## High-Level Gap Summary
 
-SemLang is strongest as a compact, text-first semantic modeling and analytical query layer. It has richer explicit ontological classifiers than Palantir's public Ontology model and a clean Malloy lowering story for read analytics.
+SemLang is strongest as a compact, text-first semantic modeling and analytical query layer.
+It has richer explicit ontological classifiers than Palantir's public Ontology model and a clean Malloy lowering story for read analytics.
 
-Palantir is strongest as an operational ontology platform. The biggest gaps for SemLang relative to Palantir are durable object storage/indexing, governed writeback, function-backed actions, object-level security, end-user applications, generated SDKs, branching/proposal workflows, materializations, lineage, observability, and semantic/vector search over object data.
+Palantir is strongest as an operational ontology platform.
+The biggest gaps for SemLang relative to Palantir are durable object storage/indexing, governed writeback, function-backed actions, object-level security, end-user applications, generated SDKs, branching/proposal workflows, materializations, lineage, observability, and semantic/vector search over object data.

@@ -1,8 +1,10 @@
 # SemLang V1 Language Specification
 
-SemLang is a semantic modeling language that stays close to Malloy so it can be compiled into Malloy for query execution. It adds an ontology layer inspired by gUFO and OntoUML: business concepts, roles, relators, situations, temporal axes, and validation predicates live beside the analytical model instead of in a separate diagram.
+SemLang is a semantic modeling language that stays close to Malloy so it can be compiled into Malloy for query execution.
+It adds an ontology layer inspired by gUFO and OntoUML: business concepts, roles, relators, situations, temporal axes, and validation predicates live beside the analytical model instead of in a separate diagram.
 
-V1 is defined by the retail SemLang examples in `packages/semlang/examples/retail-omnichannel-margin-and-returns` and by the recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples. The compiler is intentionally conservative: every accepted construct must lower to deterministic Malloy or produce diagnostics.
+V1 is defined by the retail SemLang examples in `packages/semlang/examples/retail-omnichannel-margin-and-returns` and by the recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples.
+The compiler is intentionally conservative: every accepted construct must lower to deterministic Malloy or produce diagnostics.
 
 ## Packages and Includes
 
@@ -18,7 +20,9 @@ Files may include other SemLang files by relative path:
 include "./example.semlang"
 ```
 
-Includes are loaded before the including file is resolved. Each resolved include file is merged once per compilation, so shared files can be safely included through multiple paths in the include graph. Include cycles are invalid.
+Includes are loaded before the including file is resolved.
+Each resolved include file is merged once per compilation, so shared files can be safely included through multiple paths in the include graph.
+Include cycles are invalid.
 
 ## Semantic Types
 
@@ -32,9 +36,14 @@ type: Dollars is currency {
 }
 ```
 
-V1 primitive bases are `string`, `number`, `date`, `timestamp`, `currency`, and `boolean`. Type bodies are metadata maps. Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`. SemLang-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
+V1 primitive bases are `string`, `number`, `date`, `timestamp`, `currency`, and `boolean`.
+Type bodies are metadata maps.
+Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`.
+SemLang-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`.
+Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
 
-Field annotations use Malloy-like `::` syntax. A trailing `?` marks nullable values:
+Field annotations use Malloy-like `::` syntax.
+A trailing `?` marks nullable values:
 
 ```semlang
 customer_id :: CustomerId?
@@ -50,7 +59,8 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 }
 ```
 
-The `from` clause follows Malloy source semantics. It can reference a table or view through a named connection, a SQL source, a named source, a concept source, or a query result:
+The `from` clause follows Malloy source semantics.
+It can reference a table or view through a named connection, a SQL source, a named source, a concept source, or a query result:
 
 ```semlang
 source: recent_sales is duckdb.sql("""select * from sales where sold_at >= '2026-01-01'""")
@@ -81,7 +91,9 @@ ignored duckdb.table('staging_customer_raw') {
 }
 ```
 
-`reason` is required. Ignored declarations are metadata only: they do not produce concepts, fields, sources, queries, or any Malloy output. Tooling can read them from the resolved semantic model and JSON Schema metadata to distinguish deliberately excluded tables from tables that have not yet been modeled.
+`reason` is required.
+Ignored declarations are metadata only: they do not produce concepts, fields, sources, queries, or any Malloy output.
+Tooling can read them from the resolved semantic model and JSON Schema metadata to distinguish deliberately excluded tables from tables that have not yet been modeled.
 
 V1 concept stereotypes are:
 
@@ -91,7 +103,9 @@ V1 concept stereotypes are:
 - `relator`: relationship object such as a promotion allocation.
 - `phase of Parent`: temporal/specialized state of a parent concept.
 
-`identity` declares one or more source-backed key fields. Composite identities are comma-separated. Malloy emission maps a single identity to `primary_key: field`; composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
+`identity` declares one or more source-backed key fields.
+Composite identities are comma-separated.
+Malloy emission maps a single identity to `primary_key: field`; composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
 
 ## Fields, Joins, and Temporal Axes
 
@@ -105,9 +119,11 @@ field:
   }
 ```
 
-Identities, fields, dimensions, and measures may include a block-level `description`. Field and definition blocks can also carry write mappings where write behavior is declared.
+Identities, fields, dimensions, and measures may include a block-level `description`.
+Field and definition blocks can also carry write mappings where write behavior is declared.
 
-Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading. Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
+Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading.
+Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
 
 `join_one` and `join_many` declare Malloy joins and semantic participation:
 
@@ -119,10 +135,13 @@ join_one profile: duckdb.table('customer_profiles') on customer_id = profile.cus
 join_cross fiscal_calendar: FiscalCalendar
 ```
 
-The `?` marker means participation is optional. It is semantic metadata; Malloy emission still uses the appropriate join kind.
+The `?` marker means participation is optional.
+It is semantic metadata; Malloy emission still uses the appropriate join kind.
 `with` joins use Malloy's foreign-key shorthand and require the target concept to have an identity when the target is known.
-When a one-to-one auxiliary table should enrich a concept without changing the concept's master row population, `join_one` may target an inline named-connection source expression. This mirrors Malloy source-extension syntax and keeps the primary `from` source as the concept's master list.
-Inline filters are not part of `join_one` syntax. To filter an auxiliary source before joining it, declare a named source query:
+When a one-to-one auxiliary table should enrich a concept without changing the concept's master row population, `join_one` may target an inline named-connection source expression.
+This mirrors Malloy source-extension syntax and keeps the primary `from` source as the concept's master list.
+Inline filters are not part of `join_one` syntax.
+To filter an auxiliary source before joining it, declare a named source query:
 
 ```semlang
 source: active_profiles is duckdb.table('customer_profiles') -> {
@@ -180,11 +199,15 @@ Roles are usable in expressions:
 customer is Customer.Loyalty
 ```
 
-The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`. Bare role names are also accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`. If a bare role name is ambiguous, use the qualified form.
+The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`.
+Bare role names are also accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`.
+If a bare role name is ambiguous, use the qualified form.
 
-Role `label` and `aliases` metadata support discovery and presentation. Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
+Role `label` and `aliases` metadata support discovery and presentation.
+Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
 
-During Malloy emission, role tests lower to their predicates with the correct path prefix. A join target may name a role, including a qualified role such as `Customer.Loyalty`; V1 resolves it to the role's base concept and applies the role predicate as part of validation and expression lowering.
+During Malloy emission, role tests lower to their predicates with the correct path prefix.
+A join target may name a role, including a qualified role such as `Customer.Loyalty`; V1 resolves it to the role's base concept and applies the role predicate as part of validation and expression lowering.
 
 ## Dimensions, Measures, Views, and Queries
 
@@ -234,9 +257,13 @@ query: monthly_margin_and_returns is SaleLine -> {
 max_possible_unique_customers is identified_customers + unrecognized_cash_sales
 ```
 
-Aliases may reference visible measures, aggregate functions, and earlier aggregate aliases. Raw row-level fields must appear inside aggregate functions.
+Aliases may reference visible measures, aggregate functions, and earlier aggregate aliases.
+Raw row-level fields must appear inside aggregate functions.
 
-Query and view bodies support the Malloy clauses `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:`. `select:` creates projection-style views and queries. `project:` is accepted for Malloy compatibility and emitted as `select:`. `calculate:` is passed through as Malloy analytic/window calculation syntax after expression validation.
+Query and view bodies support the Malloy clauses `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:`.
+`select:` creates projection-style views and queries.
+`project:` is accepted for Malloy compatibility and emitted as `select:`.
+`calculate:` is passed through as Malloy analytic/window calculation syntax after expression validation.
 
 ## Validations
 
@@ -250,7 +277,8 @@ validation:
   }
 ```
 
-V1 preserves validations in the semantic model. They are not emitted into analytical Malloy queries by default.
+V1 preserves validations in the semantic model.
+They are not emitted into analytical Malloy queries by default.
 
 ## Lenses
 
@@ -278,11 +306,11 @@ A query applies lenses with `with`:
 query: western_margin is SaleLine with western_region -> { ... }
 ```
 
-V1 lens application copies the semantic model for the query, applies lenses left-to-right, merges `refine: X extend { ... }` members into concept `X`, and treats `where:` refinements as source filters. Multiple filters compose by conjunction.
+V1 lens application copies the semantic model for the query, applies lenses left-to-right, merges `refine: X extend { ... }` members into concept `X`, and treats `where:` refinements as source filters.
+Multiple filters compose by conjunction.
 
-Lens filters are not limited to the query root. They apply to the query-local
-concept graph before the query body is lowered, so a root-grain query can
-aggregate through a filtered joined grain.
+Lens filters are not limited to the query root.
+They apply to the query-local concept graph before the query body is lowered, so a root-grain query can aggregate through a filtered joined grain.
 
 ```semlang
 concept ProductSKU is kind from duckdb.table('products') {
@@ -333,10 +361,9 @@ query: young_adult_apple_value is Customer with apple_products, young_adult_cust
 }
 ```
 
-This query is rooted at `Customer`, but `apple_product_spend` aggregates through
-`sale_lines`. With the lenses applied, the generated customer source joins the
-query-local `SaleLine` source, and that `SaleLine` source carries the Apple
-filter. The young-adult filter applies at the customer source at the same time.
+This query is rooted at `Customer`, but `apple_product_spend` aggregates through `sale_lines`.
+With the lenses applied, the generated customer source joins the query-local `SaleLine` source, and that `SaleLine` source carries the Apple filter.
+The young-adult filter applies at the customer source at the same time.
 The base model remains unchanged for other queries.
 
 ## Malloy Lowering
@@ -347,7 +374,8 @@ Source expressions emit in Malloy's connection-qualified form:
 source: retail_line_items is duckdb.table('retail_line_items') extend { ... }
 ```
 
-SQL sources emit as `connection.sql("""...""")`, named source references emit by name, and concepts backed by queries are emitted after the query declaration they reference. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
+SQL sources emit as `connection.sql("""...""")`, named source references emit by name, and concepts backed by queries are emitted after the query declaration they reference.
+The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
 
 Semantic-only constructs lower as follows:
 

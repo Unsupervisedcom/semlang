@@ -2,13 +2,15 @@
 title: SemLang Concepts
 ---
 
-SemLang concepts name what rows mean. A concept should not simply mirror a table, and it should not split a business object apart just because different systems store different columns.
+SemLang concepts name what rows mean.
+A concept should not simply mirror a table, and it should not split a business object apart just because different systems store different columns.
 
 The central modeling question is:
 
 > Are these rows another description of the same thing, or are they a different thing connected to it?
 
-Prefer one `kind` when sources describe the same durable business thing at the same identity grain, use the same ordinary business noun, and share a lifecycle. Split into a joined concept when the second source introduces a different lifecycle, temporal validity, relationship, event, or measurement grain.
+Prefer one `kind` when sources describe the same durable business thing at the same identity grain, use the same ordinary business noun, and share a lifecycle.
+Split into a joined concept when the second source introduces a different lifecycle, temporal validity, relationship, event, or measurement grain.
 
 ## Concept Types
 
@@ -24,7 +26,8 @@ Prefer one `kind` when sources describe the same durable business thing at the s
 
 ## Worked Example: Customer
 
-Assume `Customer` is a `kind`: a durable customer account that sales, billing, product, and support teams all recognize. Other tables can still be modeled relative to that one kind in different ways.
+Assume `Customer` is a `kind`: a durable customer account that sales, billing, product, and support teams all recognize.
+Other tables can still be modeled relative to that one kind in different ways.
 
 | Source or table               | What people call it       | Grain                                       | Lifecycle                                               | Model it as                                       | Why                                                                                                                                                             |
 | ----------------------------- | ------------------------- | ------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -41,7 +44,8 @@ Assume `Customer` is a `kind`: a durable customer account that sales, billing, p
 | `invoices`                    | Invoice                   | One row per issued invoice.                 | Invoices are issued, adjusted, paid, or voided.         | `event` or `kind`, joined to `Customer`           | Use `event` for invoice issuance; use `kind` when invoices are durable business documents with their own lifecycle.                                             |
 | `customer_report_view`        | Customer report row       | One row per report-specific projection.     | Report shape changes with the analysis, not the domain. | Query, view, or `lens`                            | Reporting convenience should not create a new ontology object.                                                                                                  |
 
-This example is intentionally merge-friendly. The CRM, billing, and customer-success sources all describe the same `Customer` kind because they share the ordinary noun, identity grain, and lifecycle.
+This example is intentionally merge-friendly.
+The CRM, billing, and customer-success sources all describe the same `Customer` kind because they share the ordinary noun, identity grain, and lifecycle.
 
 ## Decision Heuristics
 
@@ -56,7 +60,8 @@ This example is intentionally merge-friendly. The CRM, billing, and customer-suc
 | Connects two or more concepts and carries its own fields, status, or dates.  | Join through a `relator`.      | The relationship has its own identity or lifecycle.            |
 | Exists only for one report, audience, or workflow.                           | Use a query, view, or `lens`.  | Report shape should not become ontology shape.                 |
 
-The important distinction is not "same table" or "different table." The important distinction is whether the rows have the same semantic identity and lifecycle.
+The important distinction is not "same table" or "different table."
+The important distinction is whether the rows have the same semantic identity and lifecycle.
 
 ## Common Modeling Smells
 

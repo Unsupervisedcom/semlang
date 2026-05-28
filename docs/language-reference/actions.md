@@ -3,9 +3,11 @@ title: Actions
 sidebar_position: 6
 ---
 
-Actions describe permitted write operations on ontology objects. They are concept-local because every action has a subject: an existing object, a new object of the owning concept, or a collection of owning-concept objects.
+Actions describe permitted write operations on ontology objects.
+They are concept-local because every action has a subject: an existing object, a new object of the owning concept, or a collection of owning-concept objects.
 
-SemLang still lowers analytical reads to Malloy. Actions lower to a separate action manifest for a runtime adapter, API gateway, MCP server, or app surface that can validate parameters, evaluate guards, perform writes, and record an action log.
+SemLang still lowers analytical reads to Malloy.
+Actions lower to a separate action manifest for a runtime adapter, API gateway, MCP server, or app surface that can validate parameters, evaluate guards, perform writes, and record an action log.
 
 ## Concept-Local Actions
 
@@ -43,7 +45,8 @@ concept SupplierLot is kind from duckdb.table('supplier_lots') {
 }
 ```
 
-The implicit `this` binding is the subject object for `subject: single` and each item under evaluation for `subject: collection`. For `subject: new`, `this` is bound by the `insert` edit.
+The implicit `this` binding is the subject object for `subject: single` and each item under evaluation for `subject: collection`.
+For `subject: new`, `this` is bound by the `insert` edit.
 
 ## Subject
 
@@ -55,7 +58,9 @@ subject: new
 subject: collection
 ```
 
-`single` means the action targets one existing object of the owning concept. `new` means the action creates one object of the owning concept. `collection` means the action targets a list of existing owning-concept objects.
+`single` means the action targets one existing object of the owning concept.
+`new` means the action creates one object of the owning concept.
+`collection` means the action targets a list of existing owning-concept objects.
 
 Collection subjects can add execution semantics:
 
@@ -66,7 +71,8 @@ subject: collection {
 }
 ```
 
-`atomic: true` means all items commit or none commit. `atomic: false` allows per-item success and failure reporting.
+`atomic: true` means all items commit or none commit.
+`atomic: false` allows per-item success and failure reporting.
 
 ## Parameters
 
@@ -93,11 +99,13 @@ action quarantine {
 }
 ```
 
-The action manifest exports parameter schemas using the JSON Schema metadata declared on semantic types. Action-local parameter metadata can refine the type when needed, but it cannot relax the named type.
+The action manifest exports parameter schemas using the JSON Schema metadata declared on semantic types.
+Action-local parameter metadata can refine the type when needed, but it cannot relax the named type.
 
 ## Guards
 
-Guards are submission criteria. They must be true before the edit plan can run:
+Guards are submission criteria.
+They must be true before the edit plan can run:
 
 ```semlang
 guard:
@@ -108,7 +116,8 @@ guard:
     else "Only quality managers can quarantine lots."
 ```
 
-Guards can reference `this`, parameters, fields, dimensions, joins, roles, and user context exposed by the runtime. For `subject: collection`, guards are evaluated for each item unless the guard is explicitly marked as collection-level by the runtime manifest.
+Guards can reference `this`, parameters, fields, dimensions, joins, roles, and user context exposed by the runtime.
+For `subject: collection`, guards are evaluated for each item unless the guard is explicitly marked as collection-level by the runtime manifest.
 
 ## Writeable Fields and Dimensions
 
@@ -125,7 +134,8 @@ For a source-backed field, `writeable` implies the default write implementation:
 write: column status = value
 ```
 
-where `status` is both the semantic field name and the physical column name. The runtime owns the `UPDATE`, `WHERE`, transaction, parameter binding, and authorization checks.
+where `status` is both the semantic field name and the physical column name.
+The runtime owns the `UPDATE`, `WHERE`, transaction, parameter binding, and authorization checks.
 
 Derived dimensions are not writeable unless they declare an explicit write mapping:
 
@@ -138,7 +148,8 @@ dimension:
   }
 ```
 
-`value` is the value assigned by the action. The compiler rejects assignments to non-writeable fields, derived dimensions without write mappings, measures, joins, roles, and aggregate values.
+`value` is the value assigned by the action.
+The compiler rejects assignments to non-writeable fields, derived dimensions without write mappings, measures, joins, roles, and aggregate values.
 
 ## Custom Write Mappings
 
@@ -173,7 +184,8 @@ field:
   }
 ```
 
-Raw SQL write mappings are assignment fragments, not full statements. The runtime must parameterize `{value}` and must not string-interpolate user input.
+Raw SQL write mappings are assignment fragments, not full statements.
+The runtime must parameterize `{value}` and must not string-interpolate user input.
 
 ## Edits
 
@@ -186,7 +198,8 @@ edit:
   set quarantined_at = current_time
 ```
 
-For `subject: single`, `set field = expression` assigns a writeable member on `this`. For `subject: new`, use `insert`:
+For `subject: single`, `set field = expression` assigns a writeable member on `this`.
+For `subject: new`, use `insert`:
 
 ```semlang
 concept RecallCampaign is kind from duckdb.table('recall_campaigns') {
@@ -223,7 +236,8 @@ effect after_commit:
   }
 ```
 
-`before_commit` effects can block the transaction. `after_commit` effects run after durable writes and are logged independently.
+`before_commit` effects can block the transaction.
+`after_commit` effects run after durable writes and are logged independently.
 
 Action logs describe the audit object emitted by the runtime:
 
@@ -261,7 +275,8 @@ action quarantine {
 }
 ```
 
-When this is added, raw execution blocks must declare their semantic write scope so agents, reviewers, audit tools, and policy checks can reason about the change. Whole-action raw SQL execution is not part of the first parser and validation slice.
+When this is added, raw execution blocks must declare their semantic write scope so agents, reviewers, audit tools, and policy checks can reason about the change.
+Whole-action raw SQL execution is not part of the first parser and validation slice.
 
 ## Agent Exposure
 
@@ -275,11 +290,13 @@ agent:
   idempotency_key: concat('quarantine:', this.supplier_lot_id)
 ```
 
-Agent metadata is not authorization. It tells tool surfaces how to present the action, whether confirmation is required, and how to avoid accidental duplicate submissions.
+Agent metadata is not authorization.
+It tells tool surfaces how to present the action, whether confirmation is required, and how to avoid accidental duplicate submissions.
 
 ## Lowering
 
-Actions do not lower to Malloy. The compiler emits Malloy for reads and an action manifest for writes:
+Actions do not lower to Malloy.
+The compiler emits Malloy for reads and an action manifest for writes:
 
 ```text
 SemLang
@@ -288,4 +305,5 @@ SemLang
   -> action manifest
 ```
 
-The action manifest contains the parameter JSON Schema, subject mode, guards, writable-member mappings, edit plan, side-effect plan, log configuration, and agent metadata. Runtime adapters turn the manifest into SQL, API calls, queue messages, or other write mechanisms.
+The action manifest contains the parameter JSON Schema, subject mode, guards, writable-member mappings, edit plan, side-effect plan, log configuration, and agent metadata.
+Runtime adapters turn the manifest into SQL, API calls, queue messages, or other write mechanisms.

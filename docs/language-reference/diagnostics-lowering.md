@@ -15,7 +15,9 @@ source: retail_line_items is duckdb.table('retail_line_items') extend {
 }
 ```
 
-Source declarations must use real Malloy source syntax, including named connections such as `duckdb.table('retail_line_items')` or `duckdb.sql("""select ...""")`. Unqualified `table('...')` is diagnosed because it would hide a connection decision in the SemLang compiler. The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
+Source declarations must use real Malloy source syntax, including named connections such as `duckdb.table('retail_line_items')` or `duckdb.sql("""select ...""")`.
+Unqualified `table('...')` is diagnosed because it would hide a connection decision in the SemLang compiler.
+The compiler may emit semantically equivalent Malloy rather than byte-for-byte matching hand-written fixtures.
 
 Semantic-only constructs lower as follows:
 
@@ -42,7 +44,9 @@ query: monthly_margin is SaleLine -> {
 }
 ```
 
-Lowering resolves the root concept to the generated Malloy source name and emits a Malloy query. Query and view bodies preserve Malloy-shaped `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:` clauses. When a query applies lenses, the compiler creates a query-specific semantic model, emits lens-refined sources for that query, and points the query at the refined root source.
+Lowering resolves the root concept to the generated Malloy source name and emits a Malloy query.
+Query and view bodies preserve Malloy-shaped `where:`, `select:`/`project:`, `group_by:`, `aggregate:`, `having:`, `calculate:`, `nest:`, `index:`, `order_by:`, and `limit:`/`top:` clauses.
+When a query applies lenses, the compiler creates a query-specific semantic model, emits lens-refined sources for that query, and points the query at the refined root source.
 
 ## Diagnostics
 

@@ -3,7 +3,8 @@ title: Lenses
 sidebar_position: 6
 ---
 
-A lens is a query-time semantic overlay. Lenses let a query refine concepts without changing the base semantic model.
+A lens is a query-time semantic overlay.
+Lenses let a query refine concepts without changing the base semantic model.
 
 ```semlang
 lens: western_region is {
@@ -51,11 +52,13 @@ lens: western_margin_operations is western_region, margin_operations extend {
 }
 ```
 
-V1 applies lenses left-to-right. The compiler copies the semantic model for the query, applies each lens, and merges each `refine: X extend { ... }` block into concept `X`.
+V1 applies lenses left-to-right.
+The compiler copies the semantic model for the query, applies each lens, and merges each `refine: X extend { ... }` block into concept `X`.
 
 ## Filters
 
-`where:` refinements become query-local source filters on the refined concepts. Multiple filters compose by conjunction:
+`where:` refinements become query-local source filters on the refined concepts.
+Multiple filters compose by conjunction:
 
 ```semlang
 lens: active_western_stores is western_region extend {
@@ -69,7 +72,8 @@ Applying `active_western_stores` includes both the inherited western-region filt
 
 ## Deep Lens Application
 
-Lens filters apply to the whole query-local concept graph, not only to the query root. This matters when the query is rooted at one grain but a metric aggregates through a joined grain.
+Lens filters apply to the whole query-local concept graph, not only to the query root.
+This matters when the query is rooted at one grain but a metric aggregates through a joined grain.
 
 ```semlang
 concept ProductSKU is kind from duckdb.table('products') {
@@ -120,7 +124,9 @@ query: young_adult_apple_value is Customer with apple_products, young_adult_cust
 }
 ```
 
-The query asks a customer-grain question. The Apple lens filters the product and sale-line grains, while the young-adult lens filters the customer grain. During lowering, the compiler emits query-local sources for `Customer`, `SaleLine`, and `ProductSKU`; the customer source joins the lens-expanded sale-line source, and `apple_product_spend` aggregates over that filtered upstream source.
+The query asks a customer-grain question.
+The Apple lens filters the product and sale-line grains, while the young-adult lens filters the customer grain.
+During lowering, the compiler emits query-local sources for `Customer`, `SaleLine`, and `ProductSKU`; the customer source joins the lens-expanded sale-line source, and `apple_product_spend` aggregates over that filtered upstream source.
 
 The generated Malloy has this shape:
 
@@ -146,7 +152,8 @@ query: young_adult_apple_value is customers__young_adult_apple_value -> {
 }
 ```
 
-This is the important lens contract: filters from active lenses are applied upstream to the refined concept before root-grain metrics aggregate through that concept. The base `Customer`, `SaleLine`, and `ProductSKU` sources remain available unchanged for non-lensed queries.
+This is the important lens contract: filters from active lenses are applied upstream to the refined concept before root-grain metrics aggregate through that concept.
+The base `Customer`, `SaleLine`, and `ProductSKU` sources remain available unchanged for non-lensed queries.
 
 ## Lens-Local Types
 

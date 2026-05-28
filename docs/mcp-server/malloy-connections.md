@@ -5,20 +5,23 @@ sidebar_position: 7
 
 # Malloy Connections
 
-SemLang source declarations use Malloy connection syntax, and the MCP server preserves those connection names when it compiles a model. A source such as `warehouse.table('analytics.orders')` means:
+SemLang source declarations use Malloy connection syntax, and the MCP server preserves those connection names when it compiles a model.
+A source such as `warehouse.table('analytics.orders')` means:
 
 - `warehouse` is the Malloy connection name.
 - `table('analytics.orders')` is the table path Malloy will resolve for that connection type.
 - SemLang validates the shape and emits the connection-qualified Malloy source unchanged.
 
-The compiler preserves connection-qualified source expressions; MCP query execution uses Malloy config captured when the ontology source is loaded. SemLang still requires connection names in source declarations and does not invent a connection for unqualified `table(...)` calls.
+The compiler preserves connection-qualified source expressions; MCP query execution uses Malloy config captured when the ontology source is loaded.
+SemLang still requires connection names in source declarations and does not invent a connection for unqualified `table(...)` calls.
 
 There are two different names involved:
 
 - The **connection name** appears in SemLang and Malloy source text, such as `warehouse.table(...)`.
 - The **connection type** appears in Malloy config, such as `"is": "databricks"` or `"is": "duckdb"`.
 
-The connection name does not need to match the backend type. Prefer stable project names such as `warehouse`, `analytics`, or `finance` when the same model might move between engines.
+The connection name does not need to match the backend type.
+Prefer stable project names such as `warehouse`, `analytics`, or `finance` when the same model might move between engines.
 
 ## Choose Connection Names
 
@@ -38,7 +41,8 @@ source: recent_orders is warehouse.sql("""
 """)
 ```
 
-Built-in default-looking names such as `duckdb` are fine when Malloy can create or discover those connections. Custom names such as `warehouse`, `prod_bq`, or `finance_pg` must be present in Malloy configuration.
+Built-in default-looking names such as `duckdb` are fine when Malloy can create or discover those connections.
+Custom names such as `warehouse`, `prod_bq`, or `finance_pg` must be present in Malloy configuration.
 
 ## Project Config
 
@@ -53,7 +57,8 @@ malloy:
   configPath: config/databricks-malloy.json
 ```
 
-During setup, SemLang discovers `malloy-config-local.json` or `malloy-config.json` by walking up from the SemLang model file to the project root. If it finds no config, `malloy.configPath` is omitted.
+During setup, SemLang discovers `malloy-config-local.json` or `malloy-config.json` by walking up from the SemLang model file to the project root.
+If it finds no config, `malloy.configPath` is omitted.
 
 ```json
 {
@@ -99,16 +104,20 @@ Malloy merges `malloy-config-local.json` with the sibling `malloy-config.json`, 
 
 ## Engine Packages
 
-Malloy's SDK needs a connection package loaded for each configured connection type. SemLang MCP currently registers:
+Malloy's SDK needs a connection package loaded for each configured connection type.
+SemLang MCP currently registers:
 
 | Config `is` value | Package loaded by SemLang MCP  |
 | ----------------- | ------------------------------ |
 | `duckdb`          | `@malloydata/db-duckdb/native` |
 | `databricks`      | `@malloydata/db-databricks`    |
 
-If `malloy-config.json` uses a connection type that SemLang MCP does not yet register, `run_query` fails before execution with an error naming the missing type. Adding a new engine is a SemLang MCP code/dependency change; changing connection names or credentials is project configuration.
+If `malloy-config.json` uses a connection type that SemLang MCP does not yet register, `run_query` fails before execution with an error naming the missing type.
+Adding a new engine is a SemLang MCP code/dependency change; changing connection names or credentials is project configuration.
 
-Do not rewrite every SemLang model from `duckdb.table(...)` to `databricks.table(...)` just because the deployment target is Databricks. Update source declarations only when the connection name or table path should change. A model can use `warehouse.table('main.analytics.orders')` while config maps `warehouse` to `"is": "databricks"`.
+Do not rewrite every SemLang model from `duckdb.table(...)` to `databricks.table(...)` just because the deployment target is Databricks.
+Update source declarations only when the connection name or table path should change.
+A model can use `warehouse.table('main.analytics.orders')` while config maps `warehouse` to `"is": "databricks"`.
 
 ## CLI Setup And Verification
 
@@ -141,7 +150,8 @@ malloy-cli --project-dir /path/to/project connections list
 malloy-cli --project-dir /path/to/project connections test warehouse
 ```
 
-The connection name used in the SemLang model must appear in these commands. If the model says `finance_pg.table('public.invoice')`, test `finance_pg`, not `postgres`.
+The connection name used in the SemLang model must appear in these commands.
+If the model says `finance_pg.table('public.invoice')`, test `finance_pg`, not `postgres`.
 
 ## MCP Usage
 
@@ -158,7 +168,8 @@ The MCP server can then:
 - Return generated Malloy containing the configured connection names.
 - Execute named or temporary queries through the Malloy SDK.
 
-`run_query` requires the Malloy config captured by `load_ontology`. For custom names such as `warehouse`, add the connection to `malloy-config.json` or `malloy-config-local.json`, then run `semlang setup`.
+`run_query` requires the Malloy config captured by `load_ontology`.
+For custom names such as `warehouse`, add the connection to `malloy-config.json` or `malloy-config-local.json`, then run `semlang setup`.
 
 ## Troubleshooting
 

@@ -3,7 +3,8 @@ title: Sources
 sidebar_position: 4
 ---
 
-SemLang source clauses are intentionally Malloy-shaped. A concept's `from` clause takes a Malloy source expression; the compiler validates the expression form and preserves it when lowering.
+SemLang source clauses are intentionally Malloy-shaped.
+A concept's `from` clause takes a Malloy source expression; the compiler validates the expression form and preserves it when lowering.
 
 ## Tables
 
@@ -15,7 +16,8 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 }
 ```
 
-SemLang does not treat `table('retail_line_items')` as a magic default. If the source is DuckDB, BigQuery, Postgres, or another Malloy connection, put that connection name in the declaration.
+SemLang does not treat `table('retail_line_items')` as a magic default.
+If the source is DuckDB, BigQuery, Postgres, or another Malloy connection, put that connection name in the declaration.
 
 ## SQL Sources
 

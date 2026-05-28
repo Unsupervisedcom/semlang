@@ -5,9 +5,11 @@ sidebar_position: 9
 
 # Supported Malloy Features in SemLang
 
-This audit compares SemLang's current compiler surface with the official Malloy documentation. It focuses on what the SemLang parser, resolver, and emitter accept today and whether the emitted Malloy preserves the documented Malloy behavior.
+This audit compares SemLang's current compiler surface with the official Malloy documentation.
+It focuses on what the SemLang parser, resolver, and emitter accept today and whether the emitted Malloy preserves the documented Malloy behavior.
 
-`Supported in SemLang` is exactly `Supported` only when the feature works as expected. Other statuses call out reduced syntax, validation limits, or intentionally deferred areas.
+`Supported in SemLang` is exactly `Supported` only when the feature works as expected.
+Other statuses call out reduced syntax, validation limits, or intentionally deferred areas.
 
 ## Official Malloy Sources Reviewed
 

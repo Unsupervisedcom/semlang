@@ -3,7 +3,8 @@ title: Expressions
 sidebar_position: 5
 ---
 
-SemLang expressions intentionally stay close to Malloy expressions. The compiler preserves row-level and aggregate expressions where possible, while adding semantic lowering for role tests, temporal joins, lenses, and query aliases.
+SemLang expressions intentionally stay close to Malloy expressions.
+The compiler preserves row-level and aggregate expressions where possible, while adding semantic lowering for role tests, temporal joins, lenses, and query aliases.
 
 ## Typed Names
 
@@ -14,7 +15,8 @@ customer_id :: CustomerId
 closed_date :: BusinessDate?
 ```
 
-The trailing `?` marks a nullable value. Typed names appear in identities, fields, and optional type annotations on dimensions and measures.
+The trailing `?` marks a nullable value.
+Typed names appear in identities, fields, and optional type annotations on dimensions and measures.
 
 ## Definitions
 
@@ -30,7 +32,8 @@ measure:
   }
 ```
 
-Definitions can wrap onto continuation lines when the expression is long. They may also include a block-level `description`, which is preserved for schema export, MCP introspection, and semantic search.
+Definitions can wrap onto continuation lines when the expression is long.
+They may also include a block-level `description`, which is preserved for schema export, MCP introspection, and semantic search.
 
 ## Role Tests
 
@@ -43,7 +46,9 @@ dimension:
   loyalty_segment is case when customer is Customer.Loyalty then 'Loyalty' else 'Other' end
 ```
 
-During lowering, the role test is replaced by the role predicate. If the test uses a path such as `customer is Customer.Loyalty`, field references inside the predicate are prefixed with that path. Bare role names can be used when the tested path identifies the owning concept, such as `customer is Loyalty`.
+During lowering, the role test is replaced by the role predicate.
+If the test uses a path such as `customer is Customer.Loyalty`, field references inside the predicate are prefixed with that path.
+Bare role names can be used when the tested path identifies the owning concept, such as `customer is Loyalty`.
 
 ## Join Conditions
 
@@ -54,7 +59,8 @@ join_one store: Store on store_id
 join_many returns: ReturnLine on line_item_id = original_line_item_id
 ```
 
-If the condition is a single field name, lowering treats it as equality between the source field and the same field on the join target. Explicit equality conditions can name source and target fields directly.
+If the condition is a single field name, lowering treats it as equality between the source field and the same field on the join target.
+Explicit equality conditions can name source and target fields directly.
 
 Temporal joins can add `at expression`:
 
@@ -86,7 +92,8 @@ Lens filters compose by conjunction when multiple lenses or refinements apply.
 
 ## Query Items and Aliases
 
-`select:`, `group_by:`, `aggregate:`, `calculate:`, and `order_by:` sections contain expressions. Aggregate entries may define query-local aliases:
+`select:`, `group_by:`, `aggregate:`, `calculate:`, and `order_by:` sections contain expressions.
+Aggregate entries may define query-local aliases:
 
 ```semlang
 aggregate:
@@ -94,8 +101,10 @@ aggregate:
   max_possible_unique_customers is identified_customers + unrecognized_cash_sales
 ```
 
-Aliases may reference visible measures, aggregate functions, and earlier aggregate aliases. Raw row-level fields must appear inside aggregate functions.
+Aliases may reference visible measures, aggregate functions, and earlier aggregate aliases.
+Raw row-level fields must appear inside aggregate functions.
 
-`order_by:` items may include `asc` or `desc` after the expression. `limit:` accepts an integer row count.
+`order_by:` items may include `asc` or `desc` after the expression.
+`limit:` accepts an integer row count.
 
 Malloy filter forms such as `status ? 'new' | 'open'`, ranges with `to`, regex/string matching with `~` and `!~`, and filter strings such as `f'this week'` are validated for referenced paths and emitted unchanged.

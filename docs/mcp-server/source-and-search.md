@@ -20,11 +20,13 @@ Compiles one or more SemLang files or inline source strings and stores the resul
 | `malloyConfigPath`  | string  | Explicit Malloy config file escape hatch. Normal projects should use `.semlang/settings.yml`.              |
 | `returnMalloyModel` | boolean | When true, include the full compiled Malloy model in `malloyModel`. Defaults to false.                     |
 
-With no inputs, `load_ontology` uses the entrypoint and runtime paths from `.semlang/settings.yml`. If no config is available, it returns setup guidance instead of guessing paths.
+With no inputs, `load_ontology` uses the entrypoint and runtime paths from `.semlang/settings.yml`.
+If no config is available, it returns setup guidance instead of guessing paths.
 
 ### Output
 
-Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available. The full compiled Malloy model is omitted by default and returned as `malloyModel` only when requested with `returnMalloyModel`.
+Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded files, counts, source names, type names, concept names, lens names, query names, and Malloy project/config context when available.
+The full compiled Malloy model is omitted by default and returned as `malloyModel` only when requested with `returnMalloyModel`.
 
 ### Example
 
@@ -34,7 +36,8 @@ Returns `ok`, `diagnostics`, and a `context` summary with package name, loaded f
 
 ## `search`
 
-Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase. It can also resolve ontology names or business labels when `kind` is `entity`.
+Searches concepts, metrics, members, queries, and lenses using terms from a user question or phrase.
+It can also resolve ontology names or business labels when `kind` is `entity`.
 
 ### Inputs
 
@@ -46,9 +49,12 @@ Searches concepts, metrics, members, queries, and lenses using terms from a user
 
 ### Output
 
-Metadata search returns matching concepts, metrics, members, queries, lenses, actions, and roles. Each match includes a score and matched terms. Entity resolution returns matching sources, types, concepts, members, lenses, queries, candidate identifiers, candidate fields, matching rows when local DuckDB example data is available, and roles.
+Metadata search returns matching concepts, metrics, members, queries, lenses, actions, and roles.
+Each match includes a score and matched terms.
+Entity resolution returns matching sources, types, concepts, members, lenses, queries, candidate identifiers, candidate fields, matching rows when local DuckDB example data is available, and roles.
 
-Lens-oriented responses include scored lenses with descriptions, parents, refined concepts, scores, and matched terms. Use `find_paths` when the exact join route matters.
+Lens-oriented responses include scored lenses with descriptions, parents, refined concepts, scores, and matched terms.
+Use `find_paths` when the exact join route matters.
 
 ### Example
 

@@ -7,7 +7,8 @@ sidebar_position: 2
 
 The SemLang MCP server exposes a compact ontology-aware tool surface for agents that need to discover a model, inspect semantic structure, plan lens overlays, validate queries, run Malloy-backed queries, and invoke supported local actions.
 
-Call `load_ontology` first in each MCP session. All other tools read the compiled model held in the server context and return an error if no source has been loaded.
+Call `load_ontology` first in each MCP session.
+All other tools read the compiled model held in the server context and return an error if no source has been loaded.
 
 ## Public Tools
 
@@ -20,10 +21,15 @@ Call `load_ontology` first in each MCP session. All other tools read the compile
 | `run_query`     | Validate named or temporary queries and execute them through the Malloy SDK unless `dry_run_only` is true.                                                         |
 | `invoke_action` | Generate and execute supported local action SQL through the configured Malloy connection, or return generated SQL with `dry_run_only`.                             |
 
-The public manifest intentionally avoids duplicate aliases and narrowly sliced helper tools. Consolidated tools use structured input schemas with explicit modes so agents can choose valid arguments without carrying a long list of overlapping tool names in context.
+The public manifest intentionally avoids duplicate aliases and narrowly sliced helper tools.
+Consolidated tools use structured input schemas with explicit modes so agents can choose valid arguments without carrying a long list of overlapping tool names in context.
 
 ## Response Shape
 
-Tools return structured JSON. Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
+Tools return structured JSON.
+Successful responses generally include `ok: true`; failed or skipped operations return `ok: false` with an `error`, `reason`, `diagnostics`, or `candidates` field.
 
-`load_ontology({})` reads `.semlang/settings.yml` for the ontology entrypoint and runtime paths. If config is missing, it returns setup guidance. `run_query` executes through the Malloy SDK using the captured Malloy config and requires `query_limit_seconds` unless `dry_run_only` is true. `invoke_action` uses the same captured Malloy connection context to execute generated action SQL.
+`load_ontology({})` reads `.semlang/settings.yml` for the ontology entrypoint and runtime paths.
+If config is missing, it returns setup guidance.
+`run_query` executes through the Malloy SDK using the captured Malloy config and requires `query_limit_seconds` unless `dry_run_only` is true.
+`invoke_action` uses the same captured Malloy connection context to execute generated action SQL.

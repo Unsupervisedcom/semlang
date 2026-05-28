@@ -3,7 +3,8 @@ title: Schema Vocabulary
 sidebar_position: 7
 ---
 
-SemLang can project its semantic type system to JSON Schema draft 2020-12. The exported schema uses native JSON Schema keywords for value validation and the SemLang vocabulary URI for semantic metadata:
+SemLang can project its semantic type system to JSON Schema draft 2020-12.
+The exported schema uses native JSON Schema keywords for value validation and the SemLang vocabulary URI for semantic metadata:
 
 ```json
 {
@@ -30,7 +31,8 @@ type: EmailAddress is string {
 }
 ```
 
-Recognized JSON Schema metadata includes `title`, `description`, `default`, `deprecated`, `readOnly`, `writeOnly`, `examples`, `enum`, `const`, numeric bounds, string bounds, `pattern`, `format`, content annotations, array bounds, object bounds, `properties`, `items`, and related applicator keywords. SemLang validates the simple scalar and array shapes it can check locally.
+Recognized JSON Schema metadata includes `title`, `description`, `default`, `deprecated`, `readOnly`, `writeOnly`, `examples`, `enum`, `const`, numeric bounds, string bounds, `pattern`, `format`, content annotations, array bounds, object bounds, `properties`, `items`, and related applicator keywords.
+SemLang validates the simple scalar and array shapes it can check locally.
 
 SemLang-specific type metadata remains available for semantic meaning:
 
@@ -90,7 +92,9 @@ Concept row schemas export under `$defs` names beginning with `concept.`:
 }
 ```
 
-Identity and field descriptions export as property-level `description` values. Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata; dimension and measure descriptions are preserved inside those metadata objects. Role metadata includes the local name, qualified name, predicate, optional label, and aliases.
+Identity and field descriptions export as property-level `description` values.
+Joins, roles, temporal axes, validations, dimensions, and measures are semantic model features rather than plain JSON value constraints, so they export as `x-semlang-*` metadata; dimension and measure descriptions are preserved inside those metadata objects.
+Role metadata includes the local name, qualified name, predicate, optional label, and aliases.
 
 ## CLI
 

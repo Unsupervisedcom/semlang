@@ -3,9 +3,12 @@ title: SemLang Language Reference
 sidebar_position: 1
 ---
 
-SemLang is a semantic modeling language that stays close to Malloy so SemLang models can compile into Malloy for query execution. It adds an ontology layer beside the analytical model: business concepts, roles, relators, situations, temporal axes, lenses, and validation predicates live in the same file as dimensions, measures, views, and queries.
+SemLang is a semantic modeling language that stays close to Malloy so SemLang models can compile into Malloy for query execution.
+It adds an ontology layer beside the analytical model: business concepts, roles, relators, situations, temporal axes, lenses, and validation predicates live in the same file as dimensions, measures, views, and queries.
 
-Version 1 is intentionally conservative. Every accepted construct must either lower to deterministic Malloy or produce diagnostics. The language shape is defined by the retail SemLang examples and by recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples.
+Version 1 is intentionally conservative.
+Every accepted construct must either lower to deterministic Malloy or produce diagnostics.
+The language shape is defined by the retail SemLang examples and by recurring Malloy patterns in the banking, healthcare, manufacturing, retail, and SaaS examples.
 
 ## File Shape
 
@@ -21,7 +24,8 @@ Files may include other SemLang files by relative path:
 include "./example.semlang"
 ```
 
-Includes are loaded before the including file is resolved. Include cycles are invalid.
+Includes are loaded before the including file is resolved.
+Include cycles are invalid.
 
 After the package and any includes, a file can declare semantic types, named sources, concepts, lenses, and queries:
 

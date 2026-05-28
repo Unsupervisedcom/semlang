@@ -7,35 +7,45 @@ description: Use when creating an initial SemLang ontology from a data source, o
 
 Use this skill when a user wants to create an initial ontology for a domain, data product, warehouse schema, application database, or analytics package.
 
-Assume the ontology is for production analytics unless the user says otherwise. The goal is not to mirror every table. The goal is to infer the domain's durable concepts, relationships, useful states, events, metrics, and question vocabulary, then validate that ontology with the user before treating it as authoritative.
+Assume the ontology is for production analytics unless the user says otherwise.
+The goal is not to mirror every table.
+The goal is to infer the domain's durable concepts, relationships, useful states, events, metrics, and question vocabulary, then validate that ontology with the user before treating it as authoritative.
 
 ## Operating Principles
 
 - Start from the user's business domain and questions, not only from the physical schema.
 - Treat existing documentation, data catalogs, ERDs, dbt docs, BI dashboards, metric definitions, tickets, and stakeholder notes as optional but high-value context.
-- Preserve uncertainty. When a relationship, concept type, temporal grain, or metric meaning is inferred, mark it as inferred and validate it explicitly.
-- When delegation is available and permitted, use a sub-agent for the data-connection and source-introspection work, then reuse that same sub-agent for the first-pass ontology creation. The calling agent should preserve context for user review, questions, and modeling decisions instead of spending it on the iterative mechanics of connection setup and bulk drafting.
+- Preserve uncertainty.
+  When a relationship, concept type, temporal grain, or metric meaning is inferred, mark it as inferred and validate it explicitly.
+- When delegation is available and permitted, use a sub-agent for the data-connection and source-introspection work, then reuse that same sub-agent for the first-pass ontology creation.
+  The calling agent should preserve context for user review, questions, and modeling decisions instead of spending it on the iterative mechanics of connection setup and bulk drafting.
 - Prefer SemLang concept stereotypes deliberately:
   - `kind` for identity-bearing entities such as Customer, Event, Venue, Product, Account, or Supplier.
   - `event` for temporal occurrences such as Order, TicketScan, MessageSend, Incident, or Payment.
   - `situation` for state or measurement snapshots such as InventoryLevel, PriceSnapshot, SubscriptionStatus, or DailyBalance.
   - `relator` for association or bridge concepts such as EventAttraction, AccountMembership, ProductBundleItem, or ProviderFacilityAffiliation.
   - `phase` only for lifecycle stages of an entity, not table variants.
-- Keep SemLang Malloy-shaped where possible. Do not invent syntax that cannot lower clearly.
-- Model joins as a dedicated pass after the first concept inventory exists. Schema extraction usually exposes fields, not business relationships.
-- Validate incrementally with the SemLang MCP `load_ontology` tool. Large ontologies should be organized into domain files and loaded in batches.
+- Keep SemLang Malloy-shaped where possible.
+  Do not invent syntax that cannot lower clearly.
+- Model joins as a dedicated pass after the first concept inventory exists.
+  Schema extraction usually exposes fields, not business relationships.
+- Validate incrementally with the SemLang MCP `load_ontology` tool.
+  Large ontologies should be organized into domain files and loaded in batches.
 
 ## Phase 1: Intake
 
-Ask for the minimum information needed to begin. Prefer concise questions and proceed with reasonable assumptions when the user cannot answer everything.
+Ask for the minimum information needed to begin.
+Prefer concise questions and proceed with reasonable assumptions when the user cannot answer everything.
 
 Ask about the data source:
 
-- What type of source system contains the data: warehouse/database, application database, API export, local files, remote files, or something else? If the source is local or remote files, use DuckDB to inspect and model them.
+- What type of source system contains the data: warehouse/database, application database, API export, local files, remote files, or something else?
+  If the source is local or remote files, use DuckDB to inspect and model them.
 - Do you already know the catalog, schema, database, directory, file paths, or relevant source names, or should I introspect the source and bring back options?
 - Are there any schemas, tables, files, or domains that should obviously be ignored?
 
-Try to connect with the available information. Ask follow-up questions reactively only when connection attempts or source inspection reveal a concrete blocker.
+Try to connect with the available information.
+Ask follow-up questions reactively only when connection attempts or source inspection reveal a concrete blocker.
 
 Ask one optional context question:
 
@@ -58,7 +68,8 @@ For each relevant table, file, or source:
 - Identify money, count, duration, percentage, score, quantity, status, category, and identifier fields.
 - Mark sources that appear intentionally out of scope, staging-only, legacy, duplicated, or unsafe to query.
 
-If the source supports metadata commands, prefer structured metadata over scraping display text. For Databricks, use current CLI shapes such as `databricks tables get <catalog>.<schema>.<table>` when available.
+If the source supports metadata commands, prefer structured metadata over scraping display text.
+For Databricks, use current CLI shapes such as `databricks tables get <catalog>.<schema>.<table>` when available.
 
 ## Phase 3: Documentation And Usage Analysis
 
@@ -74,13 +85,16 @@ Look for:
 - Synonyms and aliases used by different teams for the same concept.
 - Questions that require joins, time windows, role filters, or aggregate measures.
 
-Compare the docs against source inventory and note conflicts. When documentation and physical schema disagree, ask the user to resolve the business meaning before encoding it as canonical.
+Compare the docs against source inventory and note conflicts.
+When documentation and physical schema disagree, ask the user to resolve the business meaning before encoding it as canonical.
 
 ## Phase 4: Scaffold Concept Files
 
-Start writing SemLang early. Do not create a separate long-lived inventory document unless the user asks for one.
+Start writing SemLang early.
+Do not create a separate long-lived inventory document unless the user asks for one.
 
-Create domain-oriented SemLang files and use comments near the top of each file, source, or concept to hold the working notes that would otherwise live in a separate inventory. As the model becomes clearer, move more information out of comments and into real SemLang declarations.
+Create domain-oriented SemLang files and use comments near the top of each file, source, or concept to hold the working notes that would otherwise live in a separate inventory.
+As the model becomes clearer, move more information out of comments and into real SemLang declarations.
 
 For each candidate concept, capture in comments or declarations:
 
@@ -108,7 +122,9 @@ concept Order is event from databricks.table('prod.sales.orders') {
 }
 ```
 
-Group concepts into domain files by business area once the inventory is large enough. Use a single entry-point file that includes shared types before domain files. Avoid re-including shared files from every domain file.
+Group concepts into domain files by business area once the inventory is large enough.
+Use a single entry-point file that includes shared types before domain files.
+Avoid re-including shared files from every domain file.
 
 ## Phase 5: Relationship Pass
 
@@ -139,11 +155,13 @@ For each concept, identify:
 - Views: common analytical shapes that combine dimensions, measures, filters, and joins.
 - Validations: data-quality expectations, not ordinary query filters.
 
-Use roles only when the name carries reusable business meaning. If a filter merely narrows a source for one analysis, use a `where:` clause or lens instead.
+Use roles only when the name carries reusable business meaning.
+If a filter merely narrows a source for one analysis, use a `where:` clause or lens instead.
 
 ## Phase 7: Draft And Validate The Ontology
 
-Create the first SemLang draft in small, valid increments. Valid means loading the entry-point file with the SemLang MCP `load_ontology` tool and using the feedback to fix parse, semantic, source, and lowering issues.
+Create the first SemLang draft in small, valid increments.
+Valid means loading the entry-point file with the SemLang MCP `load_ontology` tool and using the feedback to fix parse, semantic, source, and lowering issues.
 
 - Put `package` first in every SemLang file.
 - Put `include` declarations immediately after `package`.
@@ -158,7 +176,8 @@ Create the first SemLang draft in small, valid increments. Valid means loading t
 
 ## Phase 8: Independent Audit
 
-Before presenting the ontology for validation, run a systematic audit. When delegation is available and permitted, have a sub-agent perform this audit independently, then iterate with that sub-agent until the issues are resolved or clearly deferred.
+Before presenting the ontology for validation, run a systematic audit.
+When delegation is available and permitted, have a sub-agent perform this audit independently, then iterate with that sub-agent until the issues are resolved or clearly deferred.
 
 Check for:
 
@@ -175,11 +194,13 @@ Check for:
 - Source tables that were skipped without an explicit reason.
 - Sample questions that cannot be answered from the current model.
 
-Fix obvious issues before the user validation session. Keep unresolved business questions visible.
+Fix obvious issues before the user validation session.
+Keep unresolved business questions visible.
 
 ## Phase 9: User Validation Review
 
-Review the ontology with the user in business language before treating it as complete. Present concise summaries and ask for corrections.
+Review the ontology with the user in business language before treating it as complete.
+Present concise summaries and ask for corrections.
 
 First, validate the core concepts and relationships:
 
@@ -231,7 +252,8 @@ Finally, solicit more real questions:
 What are five to ten real questions people ask about this domain that are painful, frequent, high-stakes, or currently require manual work?
 ```
 
-For each added question, record whether the current ontology can answer it. If not, identify the missing concept, relationship, role, measure, temporal axis, validation, or source.
+For each added question, record whether the current ontology can answer it.
+If not, identify the missing concept, relationship, role, measure, temporal axis, validation, or source.
 
 ## Phase 10: Iterate And Handoff
 
@@ -249,4 +271,5 @@ The handoff should include:
 - Example questions the ontology can answer now.
 - Suggested next modeling passes.
 
-Run the project's validation command before handoff when working in a repository. For SemLang projects, prefer the repository's full check command when available.
+Run the project's validation command before handoff when working in a repository.
+For SemLang projects, prefer the repository's full check command when available.

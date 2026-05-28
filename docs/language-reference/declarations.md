@@ -3,7 +3,8 @@ title: Declarations
 sidebar_position: 3
 ---
 
-SemLang declarations define packages, reusable semantic types, concepts, analytical members, validations, lenses, and queries. Declarations use a Malloy-like shape but carry additional semantic information for SemLang resolution and lowering.
+SemLang declarations define packages, reusable semantic types, concepts, analytical members, validations, lenses, and queries.
+Declarations use a Malloy-like shape but carry additional semantic information for SemLang resolution and lowering.
 
 ## Package and Include
 
@@ -19,7 +20,9 @@ Use `include` to load another SemLang file before resolving the current file:
 include "./shared-types.semlang"
 ```
 
-Includes are relative paths. Each resolved include file is merged once per compilation, so shared files can be included by both a root file and downstream domain files. Include cycles are invalid.
+Includes are relative paths.
+Each resolved include file is merged once per compilation, so shared files can be included by both a root file and downstream domain files.
+Include cycles are invalid.
 
 ## Semantic Types
 
@@ -42,7 +45,10 @@ V1 primitive bases are:
 - `currency`
 - `boolean`
 
-Type bodies are metadata maps. Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`. SemLang-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`. Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
+Type bodies are metadata maps.
+Recognized JSON Schema-style metadata includes `description`, `enum`, `const`, `default`, `examples`, numeric and string bounds, `pattern`, and `format`.
+SemLang-specific metadata includes `scale_type`, `identifies`, `identifies_role`, `currency`, `unit`, and `render_format`.
+Unknown metadata is preserved in the AST and semantic model but does not affect Malloy emission.
 
 ## Sources and Concepts
 
@@ -65,7 +71,9 @@ concept Store is kind from store_rows {
 }
 ```
 
-The source expression uses Malloy's named connection forms. Use `duckdb.table('stores')`, `bigquery.table('dataset.table')`, `duckdb.sql("""select ...""")`, or a named source/query reference. SemLang does not invent an implicit connection for `table('stores')`.
+The source expression uses Malloy's named connection forms.
+Use `duckdb.table('stores')`, `bigquery.table('dataset.table')`, `duckdb.sql("""select ...""")`, or a named source/query reference.
+SemLang does not invent an implicit connection for `table('stores')`.
 
 Concept bodies can contain identities, temporal axes, fields, joins, roles, dimensions, measures, views, validations, and `where` filters.
 
@@ -90,7 +98,8 @@ measure:
   gross_sales :: Dollars is sum(gross_sales_amount)
 ```
 
-Definitions may include a block-level `description`. Descriptions on identities, fields, dimensions, and measures are preserved in the semantic model and are exposed through JSON Schema export and MCP ontology introspection.
+Definitions may include a block-level `description`.
+Descriptions on identities, fields, dimensions, and measures are preserved in the semantic model and are exposed through JSON Schema export and MCP ontology introspection.
 
 ## Views
 
@@ -120,7 +129,8 @@ validation:
   }
 ```
 
-V1 preserves validations in the semantic model. They are not emitted into analytical Malloy queries by default.
+V1 preserves validations in the semantic model.
+They are not emitted into analytical Malloy queries by default.
 
 ## Queries
 

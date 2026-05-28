@@ -3,7 +3,8 @@ title: Concepts
 sidebar_position: 2
 ---
 
-Concepts are SemLang's main modeling unit. A concept declares an ontological classifier and the Malloy source expression that backs it.
+Concepts are SemLang's main modeling unit.
+A concept declares an ontological classifier and the Malloy source expression that backs it.
 
 ```semlang
 concept SaleLine is situation from duckdb.table('retail_line_items') {
@@ -11,7 +12,8 @@ concept SaleLine is situation from duckdb.table('retail_line_items') {
 }
 ```
 
-The compiler emits each concept as a Malloy source. Semantic members such as roles, temporal axes, and validations enrich that source before or during lowering.
+The compiler emits each concept as a Malloy source.
+Semantic members such as roles, temporal axes, and validations enrich that source before or during lowering.
 
 Concept `from` clauses use Malloy source description:
 
@@ -34,7 +36,8 @@ concept SaleStatus is situation from sales_by_status {
 }
 ```
 
-Use explicit connection names, such as `duckdb.table('customers')` and `duckdb.sql("""...""")`. Named sources, concept sources, and query declarations can also be used as source references.
+Use explicit connection names, such as `duckdb.table('customers')` and `duckdb.sql("""...""")`.
+Named sources, concept sources, and query declarations can also be used as source references.
 
 ## Stereotypes
 
@@ -71,7 +74,8 @@ Composite identities are comma-separated:
 identity store_id :: StoreId, snapshot_date :: BusinessDate
 ```
 
-When a concept lowers to Malloy, a single identity becomes `primary_key: field`. Composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
+When a concept lowers to Malloy, a single identity becomes `primary_key: field`.
+Composite identities lower through a deterministic generated dimension, with `primary_key:` pointing at that generated field.
 
 ## Fields
 
@@ -86,10 +90,12 @@ field:
   }
 ```
 
-The trailing `?` marks a nullable value. The optional `unique` marker records uniqueness metadata on a field.
+The trailing `?` marks a nullable value.
+The optional `unique` marker records uniqueness metadata on a field.
 Identities, fields, dimensions, and measures may include a block-level `description`; descriptions are preserved for schema export and MCP ontology introspection.
 
-Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading. Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
+Identity and field names that match SemLang keywords, such as `measure`, are accepted in unambiguous declarations but reported as validation lint warnings during ontology loading.
+Reference the name wherever an expression is expected, such as `where: measure > 0` or `dimension: measurement_value is measure`; only the section header form with a colon, such as `measure:`, is parsed as language syntax.
 
 ## Joins
 
@@ -103,12 +109,16 @@ join_one profile: duckdb.table('customer_profiles') on customer_id = profile.cus
 join_cross fiscal_calendar: FiscalCalendar
 ```
 
-The `?` marker after the join name means participation is optional. It is semantic metadata; Malloy emission still uses the declared join kind.
+The `?` marker after the join name means participation is optional.
+It is semantic metadata; Malloy emission still uses the declared join kind.
 `with` joins use Malloy's foreign-key shorthand and require a target identity when SemLang can resolve the target concept.
 
-A join target can also name a role. V1 resolves the role to its base concept and applies the role predicate as part of validation and expression lowering.
-For one-to-one auxiliary tables, `join_one` can target an inline named-connection source expression. The owning concept's `from` source remains the master row population; the inline source is a Malloy-shaped enrichment join.
-Inline filters are not part of `join_one` syntax. To filter an auxiliary source before joining it, declare a named source query:
+A join target can also name a role.
+V1 resolves the role to its base concept and applies the role predicate as part of validation and expression lowering.
+For one-to-one auxiliary tables, `join_one` can target an inline named-connection source expression.
+The owning concept's `from` source remains the master row population; the inline source is a Malloy-shaped enrichment join.
+Inline filters are not part of `join_one` syntax.
+To filter an auxiliary source before joining it, declare a named source query:
 
 ```semlang
 source: active_profiles is duckdb.table('customer_profiles') -> {
@@ -169,8 +179,11 @@ Roles can be tested in expressions:
 customer is Customer.Loyalty
 ```
 
-The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`. Bare role names are accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`. If a bare role name is ambiguous, use the qualified form.
+The canonical role name is the owning concept plus the local role name, such as `Customer.Loyalty`.
+Bare role names are accepted when the tested path identifies the owning concept, such as `customer is Loyalty` when `customer` joins to `Customer`.
+If a bare role name is ambiguous, use the qualified form.
 
-Role `label` and `aliases` metadata support discovery and presentation. Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
+Role `label` and `aliases` metadata support discovery and presentation.
+Array-valued metadata may use either bracketed literals or top-level comma-separated values, so `aliases: ["Rewards Customer", "Member Customer"]` and `aliases: "Rewards Customer", "Member Customer"` are equivalent.
 
 During Malloy emission, role tests lower to their predicates with the correct path prefix.

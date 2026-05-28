@@ -1,6 +1,7 @@
 # SemLang Actions Requirements
 
-This document defines the first implementation slice for SemLang actions. The language reference in `packages/semlang/docs/language-reference/actions.md` is the user-facing contract; this file is the implementation checklist.
+This document defines the first implementation slice for SemLang actions.
+The language reference in `packages/semlang/docs/language-reference/actions.md` is the user-facing contract; this file is the implementation checklist.
 
 ## Goals
 
@@ -168,13 +169,16 @@ Recommended diagnostic codes:
 - `WRITEABLE_DIMENSION_REQUIRES_MAPPING`
 - `INVALID_WRITE_MAPPING`
 
-Validation can defer expression type-checking for guard predicates, edit expressions, write expressions, and agent metadata. Those expressions should still be preserved exactly enough for a future manifest emitter.
+Validation can defer expression type-checking for guard predicates, edit expressions, write expressions, and agent metadata.
+Those expressions should still be preserved exactly enough for a future manifest emitter.
 
 ## Lowering Requirements
 
-Malloy emission must ignore actions and write mappings. Existing Malloy output for read models should remain stable except for harmless formatting changes around parsed declarations.
+Malloy emission must ignore actions and write mappings.
+Existing Malloy output for read models should remain stable except for harmless formatting changes around parsed declarations.
 
-The MCP `invoke_action` adapter may lower supported actions to SQL through the configured Malloy connection. SQL action lowering must remain separate from Malloy read/query lowering, avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default path, quote schema-qualified table path components separately, and reject write selectors that can fan out one subject identity into multiple rows.
+The MCP `invoke_action` adapter may lower supported actions to SQL through the configured Malloy connection.
+SQL action lowering must remain separate from Malloy read/query lowering, avoid dialect-specific `RETURNING`, `UPDATE ... FROM`, and `DELETE ... USING` constructs in the default path, quote schema-qualified table path components separately, and reject write selectors that can fan out one subject identity into multiple rows.
 
 The first implementation does not need to expose a public action manifest emitter, but the AST and semantic model should be structured so a manifest emitter can be added without reparsing action bodies.
 
@@ -191,4 +195,5 @@ Add focused tests for:
 - rejecting a writeable dimension with no mapping
 - ensuring Malloy output ignores actions and still emits the concept source
 
-Update fixture examples with realistic actions in at least the manufacturing, retail, healthcare, banking, and SaaS examples. Examples should compile without diagnostics.
+Update fixture examples with realistic actions in at least the manufacturing, retail, healthcare, banking, and SaaS examples.
+Examples should compile without diagnostics.
