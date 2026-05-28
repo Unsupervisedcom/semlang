@@ -1,0 +1,39 @@
+# SemLang Packages
+
+This public repository contains SemLang package resources for agent tools while
+SemLang core source remains private in `Unsupervisedcom/semlang-core`.
+
+## Pi
+
+Install the Pi package from this repository:
+
+```sh
+pi install git:https://github.com/Unsupervisedcom/semlang
+```
+
+For local development from a `semlang-core` checkout that has this repository as
+a submodule:
+
+```sh
+pi install "$PWD/packages/semlang"
+```
+
+The package explicitly loads the bundled `pi-mcp-adapter` extension from
+`node_modules/pi-mcp-adapter/index.ts`. The Pi package exposes all SemLang skills
+in `skills/`, including `semlang-setup`, `semlang`, and
+`initial-ontology-creation`.
+
+Use the `semlang-setup` skill to inspect or add SemLang MCP configuration. After
+MCP config changes, run `/reload` or restart Pi.
+
+## Claude Code
+
+This repository includes the Claude Code plugin manifest in
+`.claude-plugin/plugin.json`, an MCP server config in `.mcp.json`, and SemLang
+skills in `skills/`.
+
+SemLang MCP starts with the published SemLang package, pinned to this package
+version, for example `npx -y semlang@0.1.2 mcp`.
+
+SemLang MCP respects `SEMLANG_*` environment settings. Run `semlang setup` to
+inspect resolved SemLang project settings.

@@ -1,0 +1,27 @@
+{
+  "name": "pi-semlang",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "description": "Public SemLang package resources for Pi and Claude Code.",
+  "keywords": [
+    "pi-package",
+    "semlang",
+    "mcp"
+  ],
+  "dependencies": {
+    "pi-mcp-adapter": "2.8.0",
+    "semlang": "0.1.2"
+  },
+  "bundledDependencies": [
+    "pi-mcp-adapter"
+  ],
+  "pi": {
+    "extensions": [
+      "node_modules/pi-mcp-adapter/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}
