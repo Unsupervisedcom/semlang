@@ -32,6 +32,16 @@ This repository includes the Claude Code plugin manifest in
 `.claude-plugin/plugin.json`, an MCP server config in `.mcp.json`, and SemLang
 skills in `skills/`.
 
+After adding the public SemLang package repository to a Claude Code plugin
+marketplace, install it with:
+
+```sh
+claude plugin install semlang@semlang
+```
+
+If your marketplace entry uses a different marketplace name, replace the final
+`semlang` after `@` with that name.
+
 SemLang MCP starts with the published SemLang package, pinned to this package
 version, for example `npx -y semlang@0.1.2 mcp`.
 
