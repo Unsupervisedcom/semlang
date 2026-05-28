@@ -42,7 +42,7 @@ version:
   "mcpServers": {
     "semlang": {
       "command": "npx",
-      "args": ["-y", "semlang@0.1.3", "mcp"],
+      "args": ["-y", "semlang@0.1.2", "mcp"],
       "lifecycle": "lazy"
     }
   }

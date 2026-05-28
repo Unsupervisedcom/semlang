@@ -46,7 +46,7 @@ If your marketplace entry uses a different marketplace name, replace the final
 `semlang` after `@` with that name.
 
 SemLang MCP starts with the published SemLang package, pinned to this package
-version, for example `npx -y semlang@0.1.3 mcp`.
+version, for example `npx -y semlang@0.1.2 mcp`.
 
 SemLang MCP respects `SEMLANG_*` environment settings. Run `semlang setup` to
 inspect resolved SemLang project settings.
