@@ -3,6 +3,9 @@
 This public repository contains SemLang package resources for agent tools while
 SemLang core source remains private in `Unsupervisedcom/semlang-core`.
 
+The `skills/` directory is generated from the authoritative
+`skills_for_cli_packages/` directory in `semlang-core` during core releases.
+
 ## Pi
 
 Install the Pi package from this repository:
