@@ -3,6 +3,11 @@
 This public repository contains SemLang package resources for agent tools while
 SemLang core source remains private in `Unsupervisedcom/semlang-core`.
 
+Public SemLang documentation lives in `docs/`, supplementary design notes live
+in `design-docs/`, and shared documentation/test examples live in `examples/`.
+The private core repository consumes these examples directly from this public
+package checkout so the examples used in docs and tests stay in one place.
+
 The `skills/` directory is generated from the authoritative
 `skills_for_cli_packages/` directory in `semlang-core` during core releases.
 

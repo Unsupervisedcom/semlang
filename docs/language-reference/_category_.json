@@ -1,0 +1,9 @@
+{
+  "label": "Language Reference",
+  "position": 1,
+  "link": {
+    "type": "generated-index",
+    "title": "SemLang Language Reference",
+    "description": "Reference pages for authoring SemLang packages, concepts, expressions, lenses, diagnostics, and Malloy lowering."
+  }
+}

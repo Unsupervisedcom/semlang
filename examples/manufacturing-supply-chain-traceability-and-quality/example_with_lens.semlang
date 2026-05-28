@@ -1,0 +1,443 @@
+// SemLang sketch for the manufacturing traceability and quality example,
+// extended with query-time lenses.
+//
+// Lenses are useful here because quality and traceability questions often come
+// from different operating contexts:
+//
+//   - A plant leader wants the same unit-quality model narrowed to one site.
+//   - A recall coordinator wants only active, open-scope containment work.
+//   - A supplier-quality engineer wants additional provenance fields that are
+//     not needed in the base analytical model.
+//
+// Each lens below overlays the base model imported from example.semlang. The
+// base concepts keep the enterprise vocabulary stable; lenses add temporary
+// filters, fields, roles, dimensions, measures, and views for a particular
+// workspace.
+
+package manufacturing.supply_chain_traceability_quality.with_lens
+
+include "./example.semlang"
+
+// ---------------------------------------------------------------------------
+// Lens: Denver Plant
+// ---------------------------------------------------------------------------
+//
+// A site operations user should not need to repeat
+// `production_order.manufacturing_site = 'Denver Plant'` in every quality
+// query. This lens narrows production orders and any reachable unit, inspection,
+// defect, or recall row to the Denver plant context.
+
+lens: denver_plant is {
+  description: "Manufacturing and quality view for the Denver Plant."
+
+  refine: ProductionOrder extend {
+    where: manufacturing_site = 'Denver Plant'
+
+    role DenverPlantOrder when manufacturing_site = 'Denver Plant'
+
+    dimension:
+      plant_line_label is concat(manufacturing_site, ' / ', line_code)
+  }
+
+  refine: SerializedUnit extend {
+    where: production_order is DenverPlantOrder
+
+    view: denver_unit_quality_by_lot is {
+      group_by:
+        completed_month
+        production_order.line_code
+        product_model.model_number
+        bom_version.revision_code
+        production_order.lot_consumption.supplier_lot.supplier.supplier_code
+        production_order.lot_consumption.supplier_lot.lot_number
+        production_order.lot_consumption.material.material_number
+      aggregate:
+        units_built
+        shipped_units
+        accepted_units
+        nonconforming_units
+        defective_units
+        critical_defective_units
+        defect_unit_rate
+        warranty_claim_count
+        warranty_cost
+    }
+  }
+
+  refine: Inspection extend {
+    where: production_order is DenverPlantOrder
+  }
+
+  refine: InspectionDefect extend {
+    where: production_order is DenverPlantOrder
+  }
+
+  refine: RecallAffectedUnit extend {
+    where: serialized_unit.production_order is DenverPlantOrder
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Active Recall Response
+// ---------------------------------------------------------------------------
+//
+// Recall response is a live-work queue. The base model includes all campaign
+// states for history; this lens keeps only active campaigns and open scope
+// items, then adds a priority vocabulary for triage.
+
+lens: active_recall_response is {
+  description: "Open-scope units in active recall campaigns."
+
+  type: RecallPriorityBand is string {
+    scale_type: ordinal
+    enum: ['standard', 'expedite', 'regulatory_hot']
+  }
+
+  refine: RecallCampaign extend {
+    where: this is ActiveRecallCampaign
+  }
+
+  refine: RecallAffectedUnit extend {
+    where:
+      recall_campaign is ActiveRecallCampaign
+      and this is OpenRecallScopeItem
+
+    dimension:
+      priority_band :: RecallPriorityBand is case
+        when recall_campaign is RegulatoryReportableRecall
+          and affected_status = 'identified'
+        then 'regulatory_hot'
+        when affected_status = 'notified' then 'expedite'
+        else 'standard'
+      end
+
+      containment_age_days is (now - identified_at) / 1 days
+
+    measure:
+      regulatory_hot_units is count(case when priority_band = 'regulatory_hot' then serial_number end)
+      expedite_units is count(case when priority_band = 'expedite' then serial_number end)
+
+    view: active_recall_work_queue is {
+      group_by:
+        recall_campaign.campaign_code
+        priority_band
+        identified_date
+        traced_supplier_lot.supplier.supplier_code
+        traced_supplier_lot.lot_number
+        serialized_unit.product_model.model_number
+        serialized_unit.bom_version.revision_code
+        shipment_unit_rows.shipment.destination_region
+        affected_status
+      aggregate:
+        affected_units
+        shipped_affected_units
+        open_scope_units
+        reportable_open_scope_units
+        regulatory_hot_units
+        expedite_units
+        warranty_claim_count
+        warranty_cost
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Supplier Provenance
+// ---------------------------------------------------------------------------
+//
+// The base model leaves certificate and supplier batch fields out of the
+// everyday semantic surface. This lens exposes them for supplier quality and
+// audit work. The fields are source-backed columns from supplier_lots.
+
+lens: supplier_provenance is {
+  description: "Supplier quality provenance fields for certificate and batch audit."
+
+  refine: SupplierLot extend {
+    field:
+      supplier_batch_code :: string?
+      source_certificate_id :: string?
+
+    dimension:
+      provenance_label is concat(supplier.supplier_code, ' / ', supplier_batch_code)
+      has_source_certificate is source_certificate_id is not null
+      certificate_or_batch_key is case
+        when source_certificate_id is not null then source_certificate_id
+        when supplier_batch_code is not null then supplier_batch_code
+        else lot_number
+      end
+
+    validation:
+      released_lots_have_source_certificate is {
+        description: "Released supplier lots should carry a certificate of conformance or equivalent source certificate."
+        predicate: lot_status != 'released' or source_certificate_id is not null
+      }
+  }
+
+  refine: ProductionOrderLotConsumption extend {
+    dimension:
+      supplier_certificate_at_consumption is supplier_lot.source_certificate_id
+      supplier_batch_at_consumption is supplier_lot.supplier_batch_code
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens: Quality Operations
+// ---------------------------------------------------------------------------
+//
+// This lens adds an operating risk band to units and defects. It intentionally
+// does not filter the population; teams can apply it to broad scorecards or
+// combine it with denver_plant or active_recall_response.
+
+lens: quality_operations is {
+  description: "Temporary quality triage vocabulary for manufacturing operations."
+
+  type: QualityRiskBand is string {
+    scale_type: ordinal
+    enum: ['watch', 'contain', 'escalate']
+  }
+
+  refine: SerializedUnit extend {
+    dimension:
+      // This risk band stays at SerializedUnit row grain. Evidence from
+      // one-to-many paths such as defects, recalls, and warranty claims remains
+      // available through measures and queries, but does not define a row-level
+      // dimension on the base unit.
+      quality_risk_band :: QualityRiskBand is case
+        when final_quality_disposition = 'rejected'
+          or unit_status = 'scrapped'
+        then 'escalate'
+        when final_quality_disposition = 'rework_required'
+          or unit_status = 'held'
+        then 'contain'
+        else 'watch'
+      end
+
+    measure:
+      escalation_units is count(case when quality_risk_band = 'escalate' then serial_number end)
+      containment_units is count(case when quality_risk_band = 'contain' then serial_number end)
+
+    view: quality_risk_by_bom_and_lot is {
+      group_by:
+        completed_month
+        quality_risk_band
+        production_order.manufacturing_site
+        production_order.line_code
+        product_model.model_number
+        bom_version.revision_code
+        production_order.lot_consumption.supplier_lot.supplier.supplier_code
+        production_order.lot_consumption.supplier_lot.lot_number
+      aggregate:
+        units_built
+        shipped_units
+        nonconforming_units
+        defective_units
+        critical_defective_units
+        escalation_units
+        containment_units
+        warranty_claim_count
+        warranty_cost
+    }
+  }
+
+  refine: InspectionDefect extend {
+    dimension:
+      supplier_chargeback_candidate is
+        severity_level in ('major', 'critical')
+        and related_supplier_lot_id is not null
+        and defect_disposition in ('supplier_chargeback', 'under_review')
+
+    measure:
+      supplier_chargeback_candidate_rows is count(case when supplier_chargeback_candidate then defect_id end)
+
+    view: supplier_chargeback_queue is {
+      where:
+        supplier_chargeback_candidate
+      group_by:
+        detected_month
+        related_supplier_lot.supplier.supplier_code
+        related_supplier_lot.material.material_number
+        related_supplier_lot.lot_number
+        defect_code
+        defect_category
+        severity_level
+        defect_disposition
+      aggregate:
+        defect_rows
+        defective_units
+        supplier_chargeback_candidate_rows
+        rework_hours
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lens Composition
+// ---------------------------------------------------------------------------
+
+lens: denver_quality_operations is denver_plant, quality_operations extend {
+  description: "Denver plant quality operations workspace."
+
+  refine: SerializedUnit extend {
+    view: denver_quality_risk_queue is {
+      where:
+        quality_risk_band in ('contain', 'escalate')
+      group_by:
+        completed_date
+        production_order.line_code
+        serial_number
+        product_model.model_number
+        bom_version.revision_code
+        quality_risk_band
+        unit_status
+        final_quality_disposition
+      aggregate:
+        units_built
+        defective_units
+        critical_defective_units
+        warranty_claim_count
+        warranty_cost
+    }
+  }
+}
+
+lens: supplier_quality_audit is supplier_provenance, quality_operations extend {
+  description: "Supplier provenance plus quality risk for supplier quality engineers."
+
+  refine: SerializedUnit extend {
+    view: supplier_certificate_quality_risk is {
+      group_by:
+        completed_month
+        production_order.lot_consumption.supplier_lot.supplier.supplier_code
+        production_order.lot_consumption.supplier_lot.material.material_number
+        production_order.lot_consumption.supplier_lot.lot_number
+        production_order.lot_consumption.supplier_lot.certificate_or_batch_key
+        quality_risk_band
+      aggregate:
+        units_built
+        nonconforming_units
+        defective_units
+        critical_defective_units
+        containment_units
+        escalation_units
+        warranty_claim_count
+        warranty_cost
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+query: denver_supplier_quality_scorecard is SerializedUnit with denver_quality_operations -> {
+  // Same business shape as the base supplier_quality_scorecard query, but the
+  // Denver lens contributes plant filters and quality_operations contributes
+  // the quality_risk_band dimension and risk measures.
+  group_by:
+    completed_month
+    production_order.line_code
+    quality_risk_band
+    production_order.lot_consumption.supplier_lot.supplier.supplier_code
+    production_order.lot_consumption.supplier_lot.lot_number
+    production_order.lot_consumption.material.material_number
+    product_model.model_number
+    bom_version.revision_code
+  aggregate:
+    units_built
+    shipped_units
+    accepted_units
+    nonconforming_units
+    defective_units
+    critical_defective_units
+    escalation_units
+    containment_units
+    warranty_claim_count
+    warranty_cost
+}
+
+query: active_recall_response_queue is RecallAffectedUnit with active_recall_response -> {
+  // Business question:
+  //   "What active recall units still need action, and which ones are highest
+  //    priority?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> lens candidate: active_recall_response
+  //   -> concept: RecallAffectedUnit
+  //   mcp.run_query({ with: ["active_recall_response"] })
+  //   -> active campaigns and open scope are already supplied by the lens.
+  group_by:
+    recall_campaign.campaign_code
+    priority_band
+    identified_date
+    traced_supplier_lot.supplier.supplier_code
+    traced_supplier_lot.lot_number
+    serialized_unit.product_model.model_number
+    shipment_unit_rows.shipment.destination_region
+    affected_status
+  aggregate:
+    affected_units
+    shipped_affected_units
+    open_scope_units
+    reportable_open_scope_units
+    regulatory_hot_units
+    expedite_units
+    warranty_claim_count
+    warranty_cost
+}
+
+query: supplier_certificate_escape_review is SerializedUnit with supplier_quality_audit -> {
+  // Business question:
+  //   "Do warranty escapes cluster around supplier certificates or batches?"
+  //
+  // Agent discovery sketch:
+  //   mcp.search({ query: question })
+  //   -> lens candidate: supplier_quality_audit because certificate fields are
+  //      intentionally lens-scoped
+  //   mcp.find_paths({
+  //     from: "SerializedUnit",
+  //     to: ["SupplierLot", "WarrantyClaim", "InspectionDefect"]
+  //   })
+  //   -> SerializedUnit -> ProductionOrder -> ProductionOrderLotConsumption
+  //      -> SupplierLot, and SerializedUnit -> WarrantyClaim/InspectionDefect
+  where:
+    warranty_claims.warranty_claim_id is not null
+    or quality_risk_band in ('contain', 'escalate')
+  group_by:
+    completed_month
+    production_order.lot_consumption.supplier_lot.supplier.supplier_code
+    production_order.lot_consumption.supplier_lot.material.material_number
+    production_order.lot_consumption.supplier_lot.certificate_or_batch_key
+    production_order.lot_consumption.supplier_lot.lot_number
+    quality_risk_band
+  aggregate:
+    units_built
+    defective_units
+    critical_defective_units
+    containment_units
+    escalation_units
+    warranty_claimed_units
+    warranty_cost
+}
+
+query: denver_active_recall_units is RecallAffectedUnit with denver_plant, active_recall_response -> {
+  // Multiple lenses compose directly on the query. The Denver lens narrows the
+  // serialized-unit side of the path; active_recall_response narrows campaign
+  // state and open-scope status.
+  group_by:
+    recall_campaign.campaign_code
+    priority_band
+    identified_date
+    serialized_unit.production_order.line_code
+    serialized_unit.serial_number
+    serialized_unit.product_model.model_number
+    traced_supplier_lot.supplier.supplier_code
+    traced_supplier_lot.lot_number
+    shipment_unit_rows.shipment.destination_region
+    affected_status
+  aggregate:
+    affected_units
+    shipped_affected_units
+    warranty_claim_count
+    warranty_cost
+}

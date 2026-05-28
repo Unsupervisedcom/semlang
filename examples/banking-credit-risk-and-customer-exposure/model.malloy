@@ -1,0 +1,739 @@
+source: legal_customers is duckdb.table('legal_customers') extend {
+  primary_key: legal_customer_id
+
+  join_many: facilities is credit_facilities
+    on legal_customer_id = facilities.legal_customer_id
+
+  join_many: loans is loans
+    on legal_customer_id = loans.legal_customer_id
+
+  join_many: owned_collateral is collateral_assets
+    on legal_customer_id = owned_collateral.owner_customer_id
+
+  join_many: guarantees_given is guarantees
+    on legal_customer_id = guarantees_given.guarantor_customer_id
+
+  join_many: exposure_snapshots is loan_exposure_snapshots
+    on legal_customer_id = exposure_snapshots.legal_customer_id
+
+  join_many: model_scores is model_score_snapshots
+    on legal_customer_id = model_scores.legal_customer_id
+
+  join_many: reviews is quarterly_reviews
+    on legal_customer_id = reviews.legal_customer_id
+
+  join_many: customer_ratings is risk_ratings
+    on legal_customer_id = customer_ratings.legal_customer_id
+
+  dimension:
+    is_commercial_borrower is customer_type in ('operating_company', 'holding_company')
+    is_kyc_current_customer is kyc_status = 'current'
+    is_restricted_customer is kyc_status = 'restricted'
+    customer_label is concat(customer_number, ' - ', legal_name)
+    is_commercial_borrower is (customer_type in ('operating_company', 'holding_company'))
+    is_kyc_current is (kyc_status = 'current')
+    relationship_group_label is coalesce(relationship_group_id, legal_customer_id)
+
+  measure:
+    legal_customers is count()
+    relationship_groups is count(relationship_group_label)
+    restricted_customers is count(case when (kyc_status = 'restricted') then legal_customer_id end)
+}
+
+source: credit_facilities is duckdb.table('credit_facilities') extend {
+  primary_key: facility_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_many: loans is loans
+    on facility_id = loans.facility_id
+
+  join_many: exposure_snapshots is loan_exposure_snapshots
+    on facility_id = exposure_snapshots.facility_id
+
+  join_many: reviews is quarterly_reviews
+    on facility_id = reviews.facility_id
+
+  join_many: facility_ratings is risk_ratings
+    on facility_id = facility_ratings.facility_id
+
+  dimension:
+    is_active_facility is facility_status in ('active', 'watchlist')
+    is_watchlist_facility is facility_status = 'watchlist'
+    facility_label is concat(facility_number, ' - ', facility_type)
+    is_active_facility is (facility_status in ('active', 'watchlist'))
+    is_watchlist_facility is (facility_status = 'watchlist')
+
+  measure:
+    facilities is count()
+    active_facilities is count(case when (facility_status in ('active', 'watchlist')) then facility_id end)
+    watchlist_facilities is count(case when (facility_status = 'watchlist') then facility_id end)
+    # currency=usd2
+    total_commitment is sum(commitment_amount)
+    # currency=usd2
+    watchlist_commitment is sum(case when (facility_status = 'watchlist') then commitment_amount else 0 end)
+
+  view: commitments_by_segment is {
+    group_by:
+      legal_customer.risk_segment
+      legal_customer.relationship_manager
+      facility_type
+      facility_status
+    aggregate:
+      facilities
+      active_facilities
+      total_commitment
+      watchlist_commitment
+  }
+}
+
+source: loans is duckdb.table('loans') extend {
+  primary_key: loan_id
+
+  join_one: facility is credit_facilities
+    on facility_id = facility.facility_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_many: exposure_snapshots is loan_exposure_snapshots
+    on loan_id = exposure_snapshots.loan_id
+
+  join_many: collateral_links is loan_collateral_links
+    on loan_id = collateral_links.loan_id
+
+  join_many: guarantees is guarantees
+    on loan_id = guarantees.loan_id
+
+  join_many: loan_ratings is risk_ratings
+    on loan_id = loan_ratings.loan_id
+
+  join_many: model_scores is model_score_snapshots
+    on loan_id = model_scores.loan_id
+
+  join_many: reviews is quarterly_reviews
+    on loan_id = reviews.loan_id
+
+  dimension:
+    is_problem_loan is loan_status in ('past_due', 'nonaccrual', 'charged_off')
+    is_performing_loan is loan_status = 'current'
+    loan_label is concat(loan_number, ' - ', loan_type)
+    is_problem_loan is (loan_status in ('past_due', 'nonaccrual', 'charged_off'))
+
+  measure:
+    loans is count()
+    problem_loans is count(case when (loan_status in ('past_due', 'nonaccrual', 'charged_off')) then loan_id end)
+    # currency=usd2
+    original_principal is sum(original_principal_amount)
+
+  view: loan_register is {
+    group_by:
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan_number
+      loan_type
+      loan_status
+    aggregate:
+      loans
+      problem_loans
+      original_principal
+  }
+}
+
+source: collateral_assets is duckdb.table('collateral_assets') extend {
+  primary_key: collateral_asset_id
+
+  join_one: owner_customer is legal_customers
+    on owner_customer_id = owner_customer.legal_customer_id
+
+  join_many: valuations is collateral_valuations
+    on collateral_asset_id = valuations.collateral_asset_id
+
+  join_many: loan_links is loan_collateral_links
+    on collateral_asset_id = loan_links.collateral_asset_id
+
+  dimension:
+    is_real_estate_collateral is asset_type = 'commercial_property'
+    is_liquid_collateral is asset_type in ('marketable_securities', 'receivables')
+    collateral_label is concat(asset_reference, ' - ', asset_type)
+    is_real_estate_collateral is (asset_type = 'commercial_property')
+
+  measure:
+    collateral_assets is count()
+    # currency=usd2
+    initial_appraised_value is sum(initial_appraised_value)
+}
+
+source: collateral_valuations is duckdb.table('collateral_valuations') extend {
+  primary_key: collateral_valuation_id
+
+  join_one: collateral_asset is collateral_assets
+    on collateral_asset_id = collateral_asset.collateral_asset_id
+
+  dimension:
+    valuation_month is valuation_date.month
+    haircut_amount is gross_collateral_value - net_collateral_value
+    is_current_open_ended is valid_to = @9999-12-31
+
+  measure:
+    valuations is count()
+    # currency=usd2
+    gross_collateral_value is sum(gross_collateral_value)
+    # currency=usd2
+    net_collateral_value is sum(net_collateral_value)
+    haircut_amount is sum(haircut_amount)
+    # currency=usd2
+    max_net_value_at_filter is max(net_collateral_value)
+
+  view: collateral_value_history is {
+    group_by:
+      collateral_asset.asset_reference
+      collateral_asset.asset_type
+      valuation_date
+      valid_from
+      valid_to
+      valuation_method
+    aggregate:
+      gross_collateral_value
+      net_collateral_value
+      haircut_amount
+  }
+}
+
+source: loan_collateral_links is duckdb.table('loan_collateral_links') extend {
+  primary_key: __semlang_primary_key
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  join_one: collateral_asset is collateral_assets
+    on collateral_asset_id = collateral_asset.collateral_asset_id
+
+  join_one: valuation_at_link_start is collateral_valuations
+    on collateral_asset_id = valuation_at_link_start.collateral_asset_id
+    and effective_from >= valuation_at_link_start.valid_from
+    and effective_from < valuation_at_link_start.valid_to
+
+  dimension:
+    __semlang_primary_key is concat(loan_id, '|', collateral_asset_id, '|', effective_from)
+    is_active_collateral_link is release_status in ('active', 'partial_release')
+    is_first_lien_collateral_link is lien_position = 1
+    is_active_link is (release_status in ('active', 'partial_release'))
+    allocated_initial_value is collateral_asset.initial_appraised_value * allocation_percent
+    allocated_net_value_at_link_start is valuation_at_link_start.net_collateral_value * allocation_percent
+
+  measure:
+    collateral_links is count()
+    active_collateral_links is count(case when (release_status in ('active', 'partial_release')) then loan_id end)
+    # currency=usd2
+    secured_amount_cap is sum(secured_amount_cap)
+    allocated_initial_value is sum(allocated_initial_value)
+    allocated_net_value_at_link_start is sum(allocated_net_value_at_link_start)
+
+  view: collateral_bridge_by_loan is {
+    group_by:
+      loan.loan_number
+      loan.legal_customer.customer_number
+      collateral_asset.asset_reference
+      collateral_asset.asset_type
+      lien_position
+      allocation_percent
+      release_status
+    aggregate:
+      secured_amount_cap
+      allocated_initial_value
+      allocated_net_value_at_link_start
+  }
+}
+
+source: guarantees is duckdb.table('guarantees') extend {
+  primary_key: guarantee_id
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  join_one: guarantor is legal_customers
+    on guarantor_customer_id = guarantor.legal_customer_id
+
+  dimension:
+    is_active_guarantee is guarantee_status = 'active'
+    is_government_program_guarantee is guarantee_type = 'government_program'
+    is_active_guarantee is (guarantee_status = 'active')
+    supported_amount is guaranteed_amount_cap * guarantee_percent
+
+  measure:
+    guarantees is count()
+    active_guarantees is count(case when (guarantee_status = 'active') then guarantee_id end)
+    # currency=usd2
+    guaranteed_amount_cap is sum(guaranteed_amount_cap)
+    supported_amount is sum(supported_amount)
+    government_supported_amount is
+      sum( case when (guarantee_type = 'government_program') then supported_amount else 0 end )
+
+  view: guarantee_support is {
+    group_by:
+      loan.loan_number
+      guarantor.customer_number
+      guarantor.legal_name
+      guarantee_type
+      seniority
+      guarantee_status
+    aggregate:
+      guaranteed_amount_cap
+      supported_amount
+      government_supported_amount
+  }
+}
+
+source: quarterly_reviews is duckdb.table('quarterly_reviews') extend {
+  primary_key: review_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_one: facility is credit_facilities
+    on facility_id = facility.facility_id
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  join_many: documents is review_documents
+    on review_id = documents.review_id
+
+  join_many: ratings_produced is risk_ratings
+    on review_id = ratings_produced.review_id
+
+  dimension:
+    is_open_review is review_status in ('not_started', 'in_progress', 'submitted', 'overdue')
+    is_overdue_review is review_status = 'overdue'
+    is_covenant_breach_review is covenant_status in ('breach_under_review', 'breached')
+    is_open_review is (review_status in ('not_started', 'in_progress', 'submitted', 'overdue'))
+    is_overdue_review is (review_status = 'overdue')
+    has_covenant_pressure is (covenant_status in ('breach_under_review', 'breached'))
+    submitted_date is submitted_at.day
+    approved_date is approved_at.day
+
+  measure:
+    reviews is count()
+    approved_reviews is count(case when review_status = 'approved' then review_id end)
+    overdue_reviews is count(case when (review_status = 'overdue') then review_id end)
+    open_reviews is
+      count(case when (review_status in ('not_started', 'in_progress', 'submitted', 'overdue')) then review_id end)
+    covenant_pressure_reviews is
+      count(case when (covenant_status in ('breach_under_review', 'breached')) then review_id end)
+
+  view: officer_review_queue is {
+    group_by:
+      review_quarter
+      officer_name
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan.loan_number
+      review_status
+      covenant_status
+    aggregate:
+      reviews
+      open_reviews
+      overdue_reviews
+      covenant_pressure_reviews
+  }
+}
+
+source: risk_ratings is duckdb.table('risk_ratings') extend {
+  primary_key: risk_rating_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_one: facility is credit_facilities
+    on facility_id = facility.facility_id
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  join_one: review is quarterly_reviews
+    on review_id = review.review_id
+
+  dimension:
+    is_customer_rating is rating_scope = 'customer'
+    is_facility_rating is rating_scope = 'facility'
+    is_loan_rating is rating_scope = 'loan'
+    is_problem_grade_rating is rating_grade in ('7', '8', '9', '10')
+    is_analyst_override_rating is assignment_source = 'analyst_override'
+    effective_quarter is effective_from.quarter
+    is_problem_grade is (rating_grade in ('7', '8', '9', '10'))
+    rating_subject_key is
+      case when (rating_scope = 'customer') then legal_customer_id when (rating_scope = 'facility') then facility_id else loan_id end
+
+  measure:
+    ratings is count()
+    problem_ratings is count(case when (rating_grade in ('7', '8', '9', '10')) then risk_rating_id end)
+    analyst_overrides is count(case when (assignment_source = 'analyst_override') then risk_rating_id end)
+
+  view: rating_history is {
+    group_by:
+      rating_scope
+      legal_customer.customer_number
+      facility.facility_number
+      loan.loan_number
+      effective_from
+      effective_to
+      rating_grade
+      assignment_source
+    aggregate:
+      ratings
+      problem_ratings
+      analyst_overrides
+  }
+}
+
+source: model_score_snapshots is duckdb.table('model_score_snapshots') extend {
+  primary_key: model_score_snapshot_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  dimension:
+    as_of_quarter is as_of_date.quarter
+    model_variant is
+      concat(model_name, ' / ', model_version, ' / ', model_run_id, ' / ', stress_scenario, ' / ', accounting_basis)
+    modeled_loss_rate is ecl_amount / nullif(exposure_at_default_amount, 0)
+
+  measure:
+    score_rows is count()
+    # currency=usd2
+    exposure_at_default is sum(exposure_at_default_amount)
+    # currency=usd2
+    expected_credit_loss is sum(ecl_amount)
+    average_probability_of_default is avg(probability_of_default)
+    average_loss_given_default is avg(loss_given_default)
+    average_modeled_loss_rate is avg(modeled_loss_rate)
+    max_score_value is max(score_value)
+
+  view: model_version_scenario_comparison is {
+    group_by:
+      as_of_quarter
+      model_name
+      model_version
+      model_run_id
+      stress_scenario
+      accounting_basis
+      score_band
+    aggregate:
+      score_rows
+      exposure_at_default
+      expected_credit_loss
+      average_probability_of_default
+      average_loss_given_default
+      average_modeled_loss_rate
+  }
+}
+
+source: loan_exposure_snapshots is duckdb.table('loan_exposure_snapshots') extend {
+  primary_key: exposure_snapshot_id
+
+  join_one: loan is loans
+    on loan_id = loan.loan_id
+
+  join_one: facility is credit_facilities
+    on facility_id = facility.facility_id
+
+  join_one: legal_customer is legal_customers
+    on legal_customer_id = legal_customer.legal_customer_id
+
+  join_one: active_loan_rating is risk_ratings
+    on loan_id = active_loan_rating.loan_id
+    and as_of_date >= active_loan_rating.effective_from
+    and as_of_date < active_loan_rating.effective_to
+
+  join_one: active_facility_rating is risk_ratings
+    on facility_id = active_facility_rating.facility_id
+    and as_of_date >= active_facility_rating.effective_from
+    and as_of_date < active_facility_rating.effective_to
+
+  join_one: active_customer_rating is risk_ratings
+    on legal_customer_id = active_customer_rating.legal_customer_id
+    and as_of_date >= active_customer_rating.effective_from
+    and as_of_date < active_customer_rating.effective_to
+
+  join_many: active_guarantees is guarantees
+    on loan_id = active_guarantees.loan_id
+
+  join_many: active_collateral_links is loan_collateral_links
+    on loan_id = active_collateral_links.loan_id
+
+  join_many: model_scores is model_score_snapshots
+    on loan_id = model_scores.loan_id and as_of_date = model_scores.as_of_date and model_run_id = model_scores.model_run_id and model_version = model_scores.model_version and stress_scenario = model_scores.stress_scenario and accounting_basis = model_scores.accounting_basis
+
+  dimension:
+    is_regulatory_base_exposure is accounting_basis = 'regulatory' and stress_scenario = 'base'
+    is_problem_exposure is default_status in ('past_due', 'defaulted', 'charged_off') or nonaccrual_flag
+    is_nonaccrual_exposure is nonaccrual_flag
+    as_of_quarter is as_of_date.quarter
+    model_variant is concat(accounting_basis, ' / ', stress_scenario, ' / ', model_version, ' / ', model_run_id)
+    is_problem_exposure is (default_status in ('past_due', 'defaulted', 'charged_off') or nonaccrual_flag)
+    current_rating_grade is
+      coalesce( active_loan_rating.rating_grade, active_facility_rating.rating_grade, active_customer_rating.rating_grade )
+    current_rating_scope is
+      case when active_loan_rating is not null then 'loan' when active_facility_rating is not null then 'facility' when active_customer_rating is not null then 'customer' else 'unrated' end
+    exposure_loss_rate is ecl_amount / nullif(ead_amount, 0)
+
+  measure:
+    snapshot_rows is count()
+    loans_reported is count(loan_id)
+    facilities_reported is count(facility_id)
+    customers_reported is count(legal_customer_id)
+    # currency=usd2
+    outstanding_principal is sum(outstanding_principal_amount)
+    # currency=usd2
+    accrued_interest is sum(accrued_interest_amount)
+    # currency=usd2
+    undrawn_commitment is sum(undrawn_commitment_amount)
+    # currency=usd2
+    available_credit is sum(available_credit_amount)
+    # currency=usd2
+    exposure_at_default is sum(ead_amount)
+    # currency=usd2
+    expected_credit_loss is sum(ecl_amount)
+    # currency=usd2
+    risk_weighted_assets is sum(rwa_amount)
+    # currency=usd2
+    charge_off_amount is sum(charge_off_amount)
+    # currency=usd2
+    past_due_exposure is sum(case when default_status in ('past_due', 'defaulted') then ead_amount else 0 end)
+    # currency=usd2
+    nonaccrual_exposure is sum(case when nonaccrual_flag then ead_amount else 0 end)
+    average_days_past_due is avg(days_past_due)
+    average_exposure_loss_rate is avg(exposure_loss_rate)
+    active_guarantee_count is count(active_guarantees.guarantee_id)
+    active_collateral_link_count is count(active_collateral_links.collateral_asset_id)
+    model_score_rows is count(model_scores.model_score_snapshot_id)
+    active_guarantee_support is sum(active_guarantees.supported_amount)
+    active_collateral_secured_cap is sum(active_collateral_links.secured_amount_cap)
+
+  view: regulatory_quarter_end_exposure is {
+    where: (accounting_basis = 'regulatory' and stress_scenario = 'base')
+    group_by:
+      as_of_quarter
+      legal_customer.risk_segment
+      legal_customer.relationship_manager
+      facility.facility_type
+      loan.loan_type
+      default_status
+      current_rating_grade
+    aggregate:
+      loans_reported
+      outstanding_principal
+      available_credit
+      exposure_at_default
+      expected_credit_loss
+      risk_weighted_assets
+      past_due_exposure
+      nonaccrual_exposure
+      active_guarantee_count
+      active_collateral_link_count
+  }
+
+  view: scenario_model_exposure is {
+    group_by:
+      as_of_quarter
+      accounting_basis
+      stress_scenario
+      model_version
+      model_run_id
+      legal_customer.risk_segment
+    aggregate:
+      loans_reported
+      exposure_at_default
+      expected_credit_loss
+      risk_weighted_assets
+      model_score_rows
+      average_exposure_loss_rate
+  }
+
+  view: exposure_bridge_watchlist is {
+    group_by:
+      as_of_date
+      legal_customer.customer_number
+      legal_customer.legal_name
+      facility.facility_number
+      loan.loan_number
+      default_status
+      model_variant
+      current_rating_grade
+    aggregate:
+      outstanding_principal
+      exposure_at_default
+      expected_credit_loss
+      past_due_exposure
+      nonaccrual_exposure
+      active_guarantee_count
+      active_collateral_link_count
+  }
+}
+
+source: review_documents is duckdb.table('review_documents') extend {
+  primary_key: review_document_id
+
+  join_one: review is quarterly_reviews
+    on review_id = review.review_id
+
+  dimension:
+    is_received_document is document_status in ('received', 'accepted', 'rejected')
+    is_accepted_document is document_status = 'accepted'
+    is_gap_document is document_status in ('requested', 'rejected')
+    is_model_validation_evidence is
+      document_type = 'model_validation_note' or restricted_purpose = 'model_validation'
+    is_received_document is (document_status in ('received', 'accepted', 'rejected'))
+    is_gap_document is (document_status in ('requested', 'rejected'))
+    received_date is received_at.day
+
+  measure:
+    review_documents is count()
+    reviews_with_documents is count(review_id)
+    received_documents is
+      count(case when (document_status in ('received', 'accepted', 'rejected')) then review_document_id end)
+    accepted_documents is count(case when (document_status = 'accepted') then review_document_id end)
+    gap_documents is count(case when (document_status in ('requested', 'rejected')) then review_document_id end)
+    model_validation_documents is
+      count(case when (document_type = 'model_validation_note' or restricted_purpose = 'model_validation') then review_document_id end)
+
+  view: document_sufficiency is {
+    group_by:
+      review.review_quarter
+      review.officer_name
+      review.legal_customer.customer_number
+      document_type
+      document_status
+      restricted_purpose
+    aggregate:
+      reviews_with_documents
+      review_documents
+      received_documents
+      accepted_documents
+      gap_documents
+  }
+}
+
+query: regulatory_exposure_by_customer is loan_exposure_snapshots -> {
+  where: (accounting_basis = 'regulatory' and stress_scenario = 'base')
+  group_by:
+    as_of_quarter
+    legal_customer.customer_number
+    legal_customer.legal_name
+    legal_customer.risk_segment
+    facility.facility_type
+    current_rating_grade
+    default_status
+  aggregate:
+    loans_reported
+    outstanding_principal
+    available_credit
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    past_due_exposure
+    nonaccrual_exposure
+}
+
+query: watchlist_exposure_bridge is loan_exposure_snapshots -> {
+  where: (facility.facility_status = 'watchlist') or (loan.loan_status in ('past_due', 'nonaccrual', 'charged_off')) or (default_status in ('past_due', 'defaulted', 'charged_off') or nonaccrual_flag) or current_rating_grade in ('7', '8', '9', '10')
+  group_by:
+    as_of_date
+    legal_customer.relationship_manager
+    legal_customer.customer_number
+    legal_customer.legal_name
+    facility.facility_number
+    loan.loan_number
+    default_status
+    current_rating_scope
+    current_rating_grade
+  aggregate:
+    outstanding_principal
+    exposure_at_default
+    expected_credit_loss
+    past_due_exposure
+    nonaccrual_exposure
+    active_guarantee_count
+    active_guarantee_support
+    active_collateral_link_count
+    active_collateral_secured_cap
+}
+
+query: collateral_coverage_as_of_exposure is loan_exposure_snapshots -> {
+  where: (accounting_basis = 'regulatory' and stress_scenario = 'base')
+  group_by:
+    as_of_date
+    legal_customer.customer_number
+    loan.loan_number
+    active_collateral_links.collateral_asset.asset_reference
+    active_collateral_links.collateral_asset.asset_type
+    active_collateral_links.lien_position
+    active_collateral_links.release_status
+  aggregate:
+    exposure_at_default
+    active_collateral_secured_cap
+    active_collateral_links.allocated_initial_value
+}
+
+query: model_scenario_ecl_comparison is loan_exposure_snapshots -> {
+  group_by:
+    as_of_quarter
+    accounting_basis
+    stress_scenario
+    model_version
+    model_run_id
+    legal_customer.risk_segment
+  aggregate:
+    loans_reported
+    exposure_at_default
+    expected_credit_loss
+    risk_weighted_assets
+    average_exposure_loss_rate
+    model_score_rows
+}
+
+query: quarterly_review_evidence_gaps is review_documents -> {
+  where: (document_status in ('requested', 'rejected')) or (review.review_status in ('not_started', 'in_progress', 'submitted', 'overdue'))
+  group_by:
+    review.review_quarter
+    review.officer_name
+    review.legal_customer.customer_number
+    review.legal_customer.legal_name
+    review.review_status
+    review.covenant_status
+    document_type
+    document_status
+    restricted_purpose
+  aggregate:
+    reviews_with_documents
+    review_documents
+    received_documents
+    accepted_documents
+    gap_documents
+}
+
+query: problem_rating_lineage is risk_ratings -> {
+  where: (rating_grade in ('7', '8', '9', '10'))
+  group_by:
+    effective_quarter
+    rating_scope
+    rating_subject_key
+    rating_grade
+    assignment_source
+    review.review_status
+    review.covenant_status
+    review.officer_name
+  aggregate:
+    ratings
+    problem_ratings
+    analyst_overrides
+    review.documents.review_documents
+    review.documents.gap_documents
+}
