@@ -2405,13 +2405,7 @@ function resolveEntities(model: SemanticModel, name: string) {
     if (include(sourceName)) matches.push({ kind: "source", name: sourceName, source });
   for (const [typeName, type] of model.types)
     if (include(typeName)) matches.push({ kind: "type", name: typeName, type });
-  for (const [conceptName, concept] of model.concepts) {
-    if (include(conceptName)) matches.push({ kind: "concept", name: conceptName, concept: conceptSummary(concept) });
-    for (const member of memberSearchItems(concept)) {
-      if (include(member.name) || include(member.text))
-        matches.push({ kind: member.kind, name: member.name, concept: conceptName, value: member.value });
-    }
-  }
+  matches.push(...conceptEntityMatches(model.concepts, include));
   for (const [lensName, lens] of model.lenses)
     if (include(lensName)) matches.push({ kind: "lens", name: lensName, lens: describeLensPlain(lens) });
   matches.push(...queryEntityMatches(model.queries, include));
@@ -2423,6 +2417,21 @@ type EntityNameMatcher = (candidate: string) => boolean;
 function entitySearchPredicate(name: string): (candidate: string) => boolean {
   const lower = name.toLowerCase();
   return (candidate: string) => !name || candidate.toLowerCase() === lower || candidate.toLowerCase().includes(lower);
+}
+
+function conceptEntityMatches(
+  concepts: SemanticModel["concepts"],
+  include: EntityNameMatcher,
+): Array<Record<string, unknown>> {
+  const matches: Array<Record<string, unknown>> = [];
+  for (const [conceptName, concept] of concepts) {
+    if (include(conceptName)) matches.push({ kind: "concept", name: conceptName, concept: conceptSummary(concept) });
+    for (const member of memberSearchItems(concept)) {
+      if (include(member.name) || include(member.text))
+        matches.push({ kind: member.kind, name: member.name, concept: conceptName, value: member.value });
+    }
+  }
+  return matches;
 }
 
 function queryEntityMatches(queries: QueryDecl[], include: EntityNameMatcher): Array<Record<string, unknown>> {
