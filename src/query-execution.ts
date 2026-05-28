@@ -1,6 +1,6 @@
 /*
- * Purpose: Encapsulates one MCP run_query request from validation through Malloy execution and response shaping.
- * Encapsulation: Keep query execution orchestration here; command and MCP tool registration stays in src/semlang-runtime.ts.
+ * Purpose: Encapsulates one SemLang run_query command from validation through Malloy execution and response shaping.
+ * Encapsulation: Keep query execution orchestration here; command registry and transport adapters stay in src/semlang-runtime.ts.
  */
 
 import fs from "node:fs/promises";
@@ -198,14 +198,7 @@ export class QueryExecution {
         candidates: jsonSafe(tied.slice(0, 8)),
       };
     }
-    const text = stringValue(
-      this.args.question ??
-        this.args.goal ??
-        this.args.phrase ??
-        this.args.text ??
-        this.args.business_name ??
-        this.args.businessName,
-    );
+    const text = semanticRootText(this.args);
     if (text) {
       const semantic = scoreSemanticRootCandidates(this.model, text, 8);
       if (semantic.length === 1 || (semantic[0] && semantic[0].score > (semantic[1]?.score ?? -1)))
@@ -457,6 +450,10 @@ function scoreRootCandidates(model: SemanticModel, body: string) {
     })
     .filter((candidate) => candidate.score > 0)
     .sort((a, b) => b.score - a.score || a.root.localeCompare(b.root));
+}
+
+function semanticRootText(args: Record<string, unknown>): string | undefined {
+  return stringValue(args.question ?? args.goal ?? args.phrase ?? args.text ?? args.business_name ?? args.businessName);
 }
 
 function resolveMemberPath(model: SemanticModel, root: ResolvedConcept, pathText: string): boolean {
