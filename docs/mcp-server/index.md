@@ -11,10 +11,12 @@ SemLang models use Malloy-style named connections in source declarations. Config
 
 ## Live Source Install
 
-Install the current checkout globally with npm link:
+For contributors working from a `semlang-core` checkout, install that checkout
+globally with npm link (everyone else can skip this section and use the
+published package, for example `npx -y semlang mcp`):
 
 ```bash
-cd /Users/noah/Documents/semlang2
+cd path/to/semlang-core
 npm install
 npm link
 ```
@@ -95,7 +97,7 @@ If an agent cannot start `semlang mcp`, verify that `npm link` created the globa
 
 ```bash
 command -v semlang
-cd /Users/noah/Documents/semlang2
+cd path/to/semlang-core
 npm install
 npm link
 ```

@@ -23,5 +23,6 @@
     "skills": [
       "./skills"
     ]
-  }
+  },
+  "license": "MIT"
 }
